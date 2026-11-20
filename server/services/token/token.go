@@ -11,6 +11,7 @@ import (
 
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
+	log "github.com/sirupsen/logrus"
 )
 
 var ErrInvalid = errors.New("invalid API token")
@@ -30,7 +31,7 @@ func Create(userID int, name string, expires *time.Time) (models.APIToken, strin
 	if err != nil {
 		return models.APIToken{}, "", err
 	}
-	row := models.APIToken{UserID: userID, Name: name, TokenHash: hash(raw), Prefix: raw[:8], AuthVersion: u.AuthVersion, ExpiresAt: expires, Created: time.Now().UTC()}
+	row := models.APIToken{UserID: userID, Name: name, TokenHash: hash(raw), Prefix: raw[:8], AuthVersion: u.AuthVersion, ExpiresAt: expires, Created: time.Now()}
 	if _, err := db.Instance.Insert(&row); err != nil {
 		return row, "", err
 	}
@@ -81,7 +82,9 @@ func Authenticate(raw string) (models.User, error) {
 	if err != nil || u.Disabled != 0 || u.AuthVersion != t.AuthVersion {
 		return models.User{}, ErrInvalid
 	}
-	now := time.Now().UTC()
-	_, _ = db.Instance.ID(t.ID).Cols("last_used_at").Update(map[string]any{"last_used_at": now})
+	now := time.Now()
+	if _, err := db.Instance.Table(&models.APIToken{}).ID(t.ID).Cols("last_used_at").Update(map[string]any{"last_used_at": now}); err != nil {
+		log.Errorf("update API token %d last_used_at failed: %v", t.ID, err)
+	}
 	return u, nil
 }

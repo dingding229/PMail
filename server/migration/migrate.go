@@ -16,7 +16,7 @@ import (
 	"github.com/lib/pq"
 )
 
-var tables = []string{"user", "email", "group", "rule", "user_email", "version", "domain", "mailbox_address"}
+var tables = []string{"user", "email", "group", "rule", "user_email", "version", "domain", "mailbox_address", "api_token", "forward_setting", "outbound_queue", "external_account", "external_seen", "bounce_notice"}
 
 const batchSize = 200
 
@@ -24,7 +24,7 @@ func Run(args []string) error {
 	fs := flag.NewFlagSet("pmail migrate", flag.ContinueOnError)
 	fromType := fs.String("from-type", "", "source database type: sqlite or mysql")
 	fromDSN := fs.String("from-dsn", "", "source database DSN")
-	force := fs.Bool("force", false, "replace all six target tables, discarding existing data and sessions")
+	force := fs.Bool("force", false, "replace all target tables, discarding existing data and sessions")
 	if err := fs.Parse(args); errors.Is(err, flag.ErrHelp) {
 		return nil
 	} else if err != nil {
@@ -109,7 +109,7 @@ func Run(args []string) error {
 	for _, table := range tables {
 		if err := copyTable(sourceTx, tx, *fromType, table, qualified(table)); err != nil {
 			message := strings.ToLower(err.Error())
-			if (table == "domain" || table == "mailbox_address") && (strings.Contains(message, "no such table") || strings.Contains(message, "doesn't exist") || strings.Contains(message, "undefined table")) {
+			if slices.Contains([]string{"domain", "mailbox_address", "api_token", "forward_setting", "outbound_queue", "external_account", "external_seen", "bounce_notice"}, table) && (strings.Contains(message, "no such table") || strings.Contains(message, "doesn't exist") || strings.Contains(message, "undefined table")) {
 				fmt.Printf("%s: source table absent; normal startup will backfill it\n", table)
 				continue
 			}
@@ -195,12 +195,13 @@ func copyTable(source, target *sql.Tx, driver, name, dest string) error {
 		return err
 	}
 	var sourceNames, targetNames, params []string
+	idColumn := migrationKeyColumn(name)
 	idIndex := -1
 	for i, col := range cols {
 		if !slices.Contains(targetCols, col) {
 			return fmt.Errorf("source column %q is missing from PostgreSQL; refusing to drop data", col)
 		}
-		if col == "id" {
+		if col == idColumn {
 			idIndex = i
 		}
 		sourceNames = append(sourceNames, quoteSource(col))
@@ -208,7 +209,7 @@ func copyTable(source, target *sql.Tx, driver, name, dest string) error {
 		params = append(params, fmt.Sprintf("$%d", i+1))
 	}
 	if idIndex == -1 {
-		return errors.New("missing source id column")
+		return fmt.Errorf("missing source migration key column %q", idColumn)
 	}
 	insert, err := target.Prepare(fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", dest,
 		strings.Join(targetNames, ", "), strings.Join(params, ", ")))
@@ -218,14 +219,14 @@ func copyTable(source, target *sql.Tx, driver, name, dest string) error {
 	defer insert.Close()
 
 	selectSQL := "SELECT " + strings.Join(sourceNames, ", ") + " FROM " + from
-	order := " ORDER BY " + quoteSource("id") + " LIMIT ?"
+	order := " ORDER BY " + quoteSource(idColumn) + " LIMIT ?"
 	var copied, lastID int64
 	for {
 		var rows *sql.Rows
 		if copied == 0 {
 			rows, err = source.Query(selectSQL+order, batchSize)
 		} else {
-			rows, err = source.Query(selectSQL+" WHERE "+quoteSource("id")+" > ?"+order, lastID, batchSize)
+			rows, err = source.Query(selectSQL+" WHERE "+quoteSource(idColumn)+" > ?"+order, lastID, batchSize)
 		}
 		if err != nil {
 			return err
@@ -280,7 +281,17 @@ func copyRows(rows *sql.Rows, insert *sql.Stmt, width, idIndex int, lastID *int6
 	return count, rows.Err()
 }
 
+func migrationKeyColumn(table string) string {
+	if table == "forward_setting" {
+		return "user_id"
+	}
+	return "id"
+}
+
 func resetSequence(tx *sql.Tx, table string) error {
+	if strings.Contains(table, "forward_setting") {
+		return nil
+	}
 	var value int64
 	return tx.QueryRow(`SELECT setval(s.seqrelid, greatest(coalesce(m.max_id, s.seqmin), s.seqmin),
 		coalesce(m.max_id >= s.seqmin, false))

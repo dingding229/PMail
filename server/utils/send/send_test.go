@@ -1,11 +1,24 @@
 package send
 
 import (
+	stdcontext "context"
 	"errors"
 	"fmt"
 	"net"
 	"net/textproto"
 	"testing"
+
+	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/consts"
+	"github.com/Jinnrry/pmail/db"
+	"github.com/Jinnrry/pmail/dto/parsemail"
+	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/queue"
+	"github.com/Jinnrry/pmail/testschema"
+	pcontext "github.com/Jinnrry/pmail/utils/context"
+	_ "modernc.org/sqlite"
+	"xorm.io/xorm"
 )
 
 func TestIsPermanentSMTPResponse(t *testing.T) {
@@ -76,5 +89,80 @@ func TestDeliveryFailureCauseKeepsExplicitSMTPRejection(t *testing.T) {
 
 	if got := deliveryFailureCause(lookupErr, rejection); got != rejection {
 		t.Fatalf("deliveryFailureCause() = %v, want explicit SMTP rejection %v", got, rejection)
+	}
+}
+
+func TestSendMixedDeliveryKeepsOutboundQueueParentID(t *testing.T) {
+	engine, err := xorm.NewEngine("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	if err := testschema.Sync(engine); err != nil {
+		t.Fatal(err)
+	}
+	oldEngine := db.Instance
+	db.Instance = engine
+	defer func() { db.Instance = oldEngine }()
+
+	if err := domain.Initialize(&config.Config{Domain: "mixed-send.example"}); err != nil {
+		t.Fatal(err)
+	}
+	user := &models.User{Account: "sender", Name: "Sender"}
+	if _, err := engine.Insert(user); err != nil {
+		t.Fatal(err)
+	}
+	parent := &models.Email{FromAddress: "sender@mixed-send.example", Status: consts.EmailStatusDeliveryPending}
+	if _, err := engine.Insert(parent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Insert(&models.UserEmail{UserID: user.ID, EmailID: parent.Id, Status: consts.EmailStatusDeliveryPending}); err != nil {
+		t.Fatal(err)
+	}
+
+	oldDelivery := localDelivery
+	defer func() { localDelivery = oldDelivery }()
+	localDelivery = func(_ *pcontext.Context, email *parsemail.Email, _ []*parsemail.User) (error, map[string]error) {
+		email.MessageId = 999999
+		return nil, map[string]error{}
+	}
+	mail := &parsemail.Email{
+		MessageId: int64(parent.Id),
+		From:      &parsemail.User{EmailAddress: "sender@mixed-send.example"},
+		To: []*parsemail.User{
+			{EmailAddress: "local@mixed-send.example"},
+			{EmailAddress: "remote@example.net"},
+		},
+		Subject: "mixed",
+		Text:    []byte("body"),
+	}
+	ctx := &pcontext.Context{Context: stdcontext.Background(), UserID: user.ID}
+	if _, results := Send(ctx, mail); results["remote@example.net"] == nil {
+		t.Fatal("external recipient was not queued")
+	}
+	var row models.OutboundQueue
+	if ok, err := engine.Where("rcpt_to=?", "remote@example.net").Get(&row); err != nil || !ok {
+		t.Fatalf("queue row lookup: ok=%v err=%v", ok, err)
+	}
+	if row.EmailID == nil || *row.EmailID != parent.Id {
+		t.Fatalf("queue parent email_id = %v, want %d", row.EmailID, parent.Id)
+	}
+	if _, err := engine.ID(row.ID).Cols("status").Update(&models.OutboundQueue{Status: queue.StatusSent}); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.ReconcileParent(parent.Id, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	var relation models.UserEmail
+	if ok, err := engine.Where("email_id=? AND user_id=?", parent.Id, user.ID).Get(&relation); err != nil || !ok {
+		t.Fatalf("parent relation lookup: ok=%v err=%v", ok, err)
+	} else if relation.Status != consts.EmailStatusSent {
+		t.Fatalf("parent relation status = %d, want %d", relation.Status, consts.EmailStatusSent)
+	}
+	var savedParent models.Email
+	if ok, err := engine.ID(parent.Id).Get(&savedParent); err != nil || !ok {
+		t.Fatalf("parent email lookup: ok=%v err=%v", ok, err)
+	} else if savedParent.Status != consts.EmailStatusSent {
+		t.Fatalf("parent email status = %d, want %d", savedParent.Status, consts.EmailStatusSent)
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	stderrors "errors"
+	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/dto/response"
@@ -13,6 +15,7 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/utils/async"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/send"
@@ -207,73 +210,90 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		SendUserID:   ctx.UserID,
 		SendDate:     time.Now(),
 		CronSendTime: time.Now(),
-		Status:       1,
+		Status:       consts.EmailStatusDeliveryPending,
 		CreateTime:   time.Now(),
 		MsgID:        e.MsgID,
 	}
 
-	_, err = db.Instance.Insert(&modelEmail)
-
+	err = persistOutboundParent(&modelEmail, ctx.UserID)
 	if err != nil || modelEmail.Id <= 0 {
-		log.Println("insert error:", err.Error())
-		response.NewErrorResponse(response.ServerError, i18n.GetText(ctx.Lang, "send_fail"), err.Error()).FPrint(w)
+		log.Printf("insert outbound parent error: %v", err)
+		response.NewErrorResponse(response.ServerError, i18n.GetText(ctx.Lang, "send_fail"), errorString(err)).FPrint(w)
 		return
 	}
 
 	e.MessageId = cast.ToInt64(modelEmail.Id)
 	e.MsgID = modelEmail.MsgID
 
-	async.New(ctx).Process(func(p any) {
-		errMsg := ""
-		err, sendErr := send.Send(ctx, e)
-
-		log.WithContext(ctx).Debugf("插件执行--SendAfter")
-
-		as2 := async.New(ctx)
-		for _, hook := range hooks.AllHooks() {
-			if hook == nil {
-				continue
-			}
-			as2.WaitProcess(func(hk any) {
-				hk.(framework.EmailHook).SendAfter(ctx, e, sendErr)
-			}, hook)
+	deliveryErr, deliveryResults := send.Send(ctx, e)
+	log.WithContext(ctx).Debugf("插件执行--SendAfter")
+	as2 := async.New(ctx)
+	for _, hook := range hooks.AllHooks() {
+		if hook == nil {
+			continue
 		}
-		as2.Wait()
-		log.WithContext(ctx).Debugf("插件执行--SendAfter")
+		as2.WaitProcess(func(hk any) {
+			hk.(framework.EmailHook).SendAfter(ctx, e, deliveryResults)
+		}, hook)
+	}
+	as2.Wait()
+	log.WithContext(ctx).Debugf("插件执行--SendAfter")
 
-		if err != nil {
-			errMsg = err.Error()
-			_, err := db.Instance.Exec(db.WithContext(ctx, "update email set status =2 ,error=? where id = ? "), errMsg, modelEmail.Id)
-			if err != nil {
-				log.WithContext(ctx).Errorf("sql Error :%+v", err)
+	allRecipients := append(append(append([]*parsemail.User{}, e.To...), e.Cc...), e.Bcc...)
+	recipientsResult := make([]map[string]any, 0, len(allRecipients))
+	delivered, queued, failed := 0, 0, 0
+	var firstFailure error
+	for _, recipient := range allRecipients {
+		deliveryResult, exists := deliveryResults[recipient.EmailAddress]
+		status := "delivered"
+		errorText := ""
+		switch {
+		case exists && stderrors.Is(deliveryResult, queue.ErrQueued):
+			status = "queued"
+			queued++
+		case exists && deliveryResult != nil:
+			status = "failed"
+			errorText = deliveryResult.Error()
+			failed++
+			if firstFailure == nil {
+				firstFailure = deliveryResult
 			}
-
-			ue := models.UserEmail{
-				UserID:  ctx.UserID,
-				EmailID: modelEmail.Id,
-				Status:  2,
-				IsRead:  1,
-			}
-			db.Instance.Insert(&ue)
-
-		} else {
-			_, err := db.Instance.Exec(db.WithContext(ctx, "update email set status =1  where id = ? "), modelEmail.Id)
-			if err != nil {
-				log.WithContext(ctx).Errorf("sql Error :%+v", err)
-			}
-
-			ue := models.UserEmail{
-				UserID:  ctx.UserID,
-				EmailID: modelEmail.Id,
-				Status:  1,
-				IsRead:  1,
-			}
-			db.Instance.Insert(&ue)
+		default:
+			delivered++
 		}
-
-	}, nil)
-
-	response.NewSuccessResponse(i18n.GetText(ctx.Lang, "succ")).FPrint(w)
+		recipientsResult = append(recipientsResult, map[string]any{"address": recipient.EmailAddress, "status": status, "error": errorText})
+	}
+	if deliveryErr != nil && firstFailure == nil {
+		firstFailure = deliveryErr
+	}
+	if delivered+queued == 0 {
+		failed = len(allRecipients)
+	}
+	statusText := "sent"
+	if queued > 0 && delivered+queued > 0 {
+		statusText = "queued"
+	}
+	if delivered+queued == 0 {
+		statusText = "failed"
+	}
+	errorValue := ""
+	if firstFailure != nil {
+		errorValue = firstFailure.Error()
+	}
+	if errorValue != "" {
+		if _, err := db.Instance.Table(&models.Email{}).ID(modelEmail.Id).Cols("error").Update(map[string]any{"error": errorValue}); err != nil {
+			log.WithContext(ctx).Errorf("sql Error :%+v", err)
+		}
+	}
+	if err := queue.ReconcileParent(modelEmail.Id, ctx.UserID); err != nil {
+		log.WithContext(ctx).Errorf("reconcile parent failed: %v", err)
+	}
+	result := map[string]any{"status": statusText, "recipients": recipientsResult}
+	if delivered+queued == 0 {
+		response.NewErrorResponse(response.ServerError, i18n.GetText(ctx.Lang, "send_fail"), result).FPrint(w)
+		return
+	}
+	response.NewSuccessResponse(result).FPrint(w)
 }
 
 func json2string(d any) string {

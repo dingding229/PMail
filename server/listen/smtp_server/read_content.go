@@ -20,11 +20,13 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/services/rule"
 	"github.com/Jinnrry/pmail/utils/async"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/send"
+	smtp "github.com/emersion/go-smtp"
 	"github.com/mileusna/spf"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cast"
@@ -36,15 +38,54 @@ import (
 // 注意：此开关只能通过修改代码来更改，不暴露给用户配置
 const DropUnknownRecipientEmails = true
 
+// ImportExternal persists a message fetched from an external mailbox through
+// the same receive/rule/forward/hook path as SMTP, without SPF enforcement.
+func ImportExternal(ctx *context.Context, raw []byte, recipient string, targetGroupID int) (*models.Email, error) {
+	if len(raw) == 0 || strings.TrimSpace(recipient) == "" {
+		return nil, oerrors.New("external message or recipient is missing")
+	}
+	email := parsemail.NewEmailFromReader([]string{recipient}, bytes.NewReader(raw), len(raw))
+	if email.MsgID != "" {
+		var existing models.Email
+		if found, err := db.Instance.Where("msg_id=?", email.MsgID).Get(&existing); err != nil {
+			return nil, err
+		} else if found {
+			return &existing, nil
+		}
+	}
+	email.Authentication = parsemail.NewEmailAuthentication(false, false)
+	users, saved, err := saveEmail(ctx, len(raw), email, 0, int(consts.EmailTypeReceive), []string{recipient}, false, false)
+	if err != nil {
+		return nil, err
+	}
+	if len(users) == 0 || saved == nil {
+		return nil, oerrors.New("external recipient was not resolved")
+	}
+	if targetGroupID != 0 {
+		if _, err := db.Instance.Table(&models.UserEmail{}).Where("email_id=? AND user_id=?", saved.Id, users[0].ID).Cols("group_id").Update(map[string]interface{}{"group_id": targetGroupID}); err != nil {
+			return nil, err
+		}
+	}
+	processIncomingDelivery(ctx, email, saved, users, raw)
+	return saved, nil
+}
+
 // LocalDelivery is shared by SMTP submission and Web send to keep local mail
 // on the same persistence/rule/hook path as SMTP 25 receive.
 func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*parsemail.User) (error, map[string]error) {
 	var first error
 	errs := map[string]error{}
 	accepted := 0
-	raw := email.BuildBytes(ctx, false)
+	raw := email.RawData
+	if len(raw) == 0 {
+		raw = email.BuildBytes(ctx, false)
+	}
 	for _, recipient := range recipients {
-		users, saved, err := saveEmail(ctx, len(raw), email, 0, int(consts.EmailTypeReceive), []string{recipient.EmailAddress}, true, true)
+		// saveEmail assigns MessageId/MsgID on the parsed email. Use a per-
+		// recipient copy so local persistence cannot mutate the sender's parent
+		// audit email that outbound queue rows reference.
+		localEmail := *email
+		users, saved, err := saveEmail(ctx, len(raw), &localEmail, 0, int(consts.EmailTypeReceive), []string{recipient.EmailAddress}, true, true)
 		if err == nil && len(users) == 0 && !config.Instance.CatchAll {
 			err = address.ErrNotFound
 		}
@@ -56,7 +97,7 @@ func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*p
 			continue
 		}
 		accepted++
-		processIncomingDelivery(ctx, email, saved, users, raw)
+		processIncomingDelivery(ctx, &localEmail, saved, users, raw)
 	}
 	// SMTP DATA cannot report a separate result for each RCPT. Return a
 	// recipient error only when every local recipient was rejected; partial
@@ -79,6 +120,9 @@ func processIncomingDelivery(ctx *context.Context, email *parsemail.Email, dbEma
 				rule.DoRule(ctx, ruleItem, email, user, emailData)
 			}
 		}
+		// Rules run first. Apply skips users whose rule moved the source to
+		// Deleted, and therefore does not forward mail deleted by a rule.
+		forward.Apply(ctx, user.ID, email, emailData)
 	}
 
 	log.WithContext(ctx).Debugf("开始执行插件ReceiveSaveAfter！")
@@ -127,6 +171,9 @@ func (s *Session) Data(r io.Reader) error {
 	log.WithContext(ctx).Debugf("开始执行插件ReceiveParseBefore End！")
 
 	email := parsemail.NewEmailFromReader(s.To, bytes.NewReader(emailData), len(emailData))
+	email.EnvelopeFrom = s.From
+	email.EnvelopeFromKnown = true
+	email.RawData = append([]byte(nil), emailData...)
 
 	if s.From != "" {
 		from := parsemail.BuilderUser(s.From)
@@ -198,6 +245,9 @@ func (s *Session) Data(r io.Reader) error {
 		if saveErr != nil {
 			if oerrors.Is(saveErr, quota.ErrExceeded) {
 				return quotaSMTPError()
+			}
+			if oerrors.Is(saveErr, forward.ErrInvalidSRS) {
+				return &smtp.SMTPError{Code: 550, EnhancedCode: smtp.EnhancedCode{5, 1, 1}, Message: "Invalid SRS recipient"}
 			}
 			log.WithContext(ctx).Errorf("CRITICAL audit_event=initial_persist_failed direction=inbound msg_id=%q error=%v", email.MsgID, saveErr)
 			return localPersistenceSMTPError()

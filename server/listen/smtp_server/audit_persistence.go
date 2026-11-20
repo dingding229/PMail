@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/consts"
@@ -14,6 +16,9 @@ import (
 	"github.com/Jinnrry/pmail/hooks/framework"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/forward"
+	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/utils/async"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -31,6 +36,9 @@ func (s *Session) deliverOutgoingEmail(email *parsemail.Email, sender outgoingSe
 	// Submission records and local deliveries must account for the same
 	// normalized message bytes that will be sent downstream, not a zero or
 	// parser-only size.
+	if email.MsgID == "" {
+		email.MsgID = parsemail.GenerateMsgID(domain.DefaultName())
+	}
 	email.Size = len(email.BuildBytes(ctx, true))
 	_, saved, err := saveEmail(ctx, email.Size, email, ctx.UserID, int(consts.EmailTypeSend), nil, true, true)
 	if err != nil {
@@ -41,24 +49,39 @@ func (s *Session) deliverOutgoingEmail(email *parsemail.Email, sender outgoingSe
 	deliveryErr, domainErrors := sender(ctx, email)
 	runSendAfterHooks(ctx, email, domainErrors)
 
-	targetStatus := consts.EmailStatusSent
-	var errorText any
+	var errorText string
 	if deliveryErr != nil {
-		targetStatus = consts.EmailStatusFail
 		errorText = deliveryErr.Error()
+	} else {
+		for _, deliveryResult := range domainErrors {
+			if deliveryResult != nil && !stderrors.Is(deliveryResult, queue.ErrQueued) {
+				errorText = deliveryResult.Error()
+				break
+			}
+		}
 	}
-
-	if err = persistDeliveryResult(ctx, saved.Id, targetStatus, errorText); err != nil {
-		log.WithContext(ctx).Errorf(
-			"CRITICAL audit_event=delivery_result_persist_failed email_id=%d msg_id=%q target_status=%d downstream_accepted=%t error=%v",
-			saved.Id, saved.MsgID, targetStatus, deliveryErr == nil, err,
-		)
+	if errorText != "" {
+		if _, err := db.Instance.Table(&models.Email{}).ID(saved.Id).Cols("error").Update(map[string]interface{}{"error": errorText}); err != nil {
+			log.WithContext(ctx).Errorf("delivery error update failed: %v", err)
+		}
+	}
+	if err := queue.ReconcileParent(saved.Id, ctx.UserID); err != nil {
+		log.WithContext(ctx).Errorf("CRITICAL audit_event=delivery_result_persist_failed direction=outbound msg_id=%q error=%v", email.MsgID, err)
 	}
 
 	// If the remote MX accepted DATA, returning a local 451 here would cause a
 	// duplicate delivery. The persistence failure is retained as pending state
 	// and a CRITICAL log; the SMTP result must still reflect the remote result.
 	return downstreamDeliverySMTPError(deliveryErr, domainErrors)
+}
+
+func hasQueuedRecipients(results map[string]error) bool {
+	for _, err := range results {
+		if stderrors.Is(err, queue.ErrQueued) {
+			return true
+		}
+	}
+	return false
 }
 
 func runSendAfterHooks(ctx *context.Context, email *parsemail.Email, domainErrors map[string]error) {
@@ -75,10 +98,13 @@ func runSendAfterHooks(ctx *context.Context, email *parsemail.Email, domainError
 }
 
 func persistDeliveryResult(ctx *context.Context, emailID int, status int8, errorText any) error {
+	if text, ok := errorText.(string); ok && strings.TrimSpace(text) == "" {
+		errorText = nil
+	}
 	return db.Transaction(db.Instance, func(session *xorm.Session) error {
 		result, err := session.Exec(db.WithContext(ctx, `update email
-			set status=?, error=?, update_time=CURRENT_TIMESTAMP
-			where id=?`), status, errorText, emailID)
+			set status=?, error=?, update_time=?
+			where id=?`), status, errorText, time.Now(), emailID)
 		if err != nil {
 			return err
 		}
@@ -191,6 +217,17 @@ func resolveIncomingUsers(ctx *context.Context, email *parsemail.Email, emailTyp
 	seen := map[int]bool{}
 	users := make([]*models.User, 0)
 	for _, raw := range recipients {
+		if srsUser, isSRS, srsErr := forward.ResolveSRS(raw); isSRS {
+			if srsErr != nil {
+				return nil, false, srsErr
+			}
+			if !seen[srsUser.ID] {
+				copy := srsUser
+				users = append(users, &copy)
+				seen[srsUser.ID] = true
+			}
+			continue
+		}
 		user, found, err := address.Resolve(raw)
 		if err != nil {
 			return nil, false, err

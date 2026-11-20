@@ -916,11 +916,11 @@ func testSendEmail2User3(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if data.ErrorNo != 0 {
-		t.Error("Send Email Api Error!")
+	if data.ErrorNo == 0 {
+		t.Error("禁用用户收件应返回失败结果")
 	}
 
-	t.Logf("testSendEmail2User3 Success! Response: %+v", data)
+	t.Logf("testSendEmail2User3 expected failure response: %+v", data)
 
 }
 

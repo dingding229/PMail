@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	stdmail "net/mail"
 	"net/textproto"
 	"regexp"
 	"strings"
@@ -79,6 +80,7 @@ type Email struct {
 	Text           []byte // Plaintext message (optional)
 	HTML           []byte // Html message (optional)
 	Sender         *User  // override From as SMTP envelope sender (optional)
+	// Headers contains custom transport headers that must survive generated mail.
 	Headers        textproto.MIMEHeader
 	Attachments    []*Attachment
 	ReadReceipt    []string
@@ -88,6 +90,75 @@ type Email struct {
 	MsgID          string // RFC-compliant Message-ID, persisted in DB
 	Size           int
 	Authentication *EmailAuthentication
+	// EnvelopeFrom is set by SMTP sessions when the envelope sender is known.
+	EnvelopeFrom      string `json:"-"`
+	EnvelopeFromKnown bool   `json:"-"`
+	// RawData is an optional in-memory copy used by forwarding paths to keep
+	// transport headers (including loop markers) through local delivery.
+	RawData []byte `json:"-"`
+}
+
+// HeaderValue returns a header value from the RFC 5322 header section only.
+func HeaderValue(raw []byte, name string) string {
+	message, err := stdmail.ReadMessage(bytes.NewReader(raw))
+	if err != nil || message == nil {
+		return ""
+	}
+	return message.Header.Get(name)
+}
+
+// IsAutomaticMessage identifies DSNs and other automatically generated mail.
+// It deliberately ignores the body so text mentioning a header cannot suppress forwarding.
+func IsAutomaticMessage(raw []byte) bool {
+	auto := strings.TrimSpace(HeaderValue(raw, "Auto-Submitted"))
+	if auto != "" && !strings.EqualFold(auto, "no") {
+		return true
+	}
+	contentType := strings.ToLower(strings.TrimSpace(HeaderValue(raw, "Content-Type")))
+	if strings.HasPrefix(contentType, "multipart/report") {
+		return true
+	}
+	dsn := strings.TrimSpace(HeaderValue(raw, "X-PMail-DSN"))
+	return dsn != ""
+}
+
+func IsDaemonAddress(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "<>" {
+		return true
+	}
+	if parsed, err := stdmail.ParseAddress(raw); err == nil {
+		raw = parsed.Address
+	}
+	local, _, ok := strings.Cut(raw, "@")
+	if !ok {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(local), "mailer-daemon") ||
+		strings.EqualFold(strings.TrimSpace(local), "postmaster")
+}
+
+// ShouldSkipForward centralizes the automatic-message guard used by global and rule forwarding.
+func ShouldSkipForward(email *Email, raw []byte) bool {
+	if email == nil || email.From == nil || strings.TrimSpace(email.From.EmailAddress) == "" {
+		return true
+	}
+	if email.EnvelopeFromKnown && strings.TrimSpace(email.EnvelopeFrom) == "" {
+		return true
+	}
+	if IsDaemonAddress(email.From.EmailAddress) || IsAutomaticMessage(raw) {
+		return true
+	}
+	if email.Headers != nil {
+		auto := strings.TrimSpace(email.Headers.Get("Auto-Submitted"))
+		if auto != "" && !strings.EqualFold(auto, "no") {
+			return true
+		}
+		if strings.TrimSpace(email.Headers.Get("X-PMail-DSN")) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // GenerateMsgID creates an RFC-compliant Message-ID unique enough to avoid spam filters.
@@ -144,6 +215,9 @@ func init() {
 
 	relaxedPolicy.SkipElementsContent("script", "object", "embed", "iframe", "frame", "frameset")
 }
+
+// SanitizeHTML applies the same relaxed HTML policy used by inbound parsing.
+func SanitizeHTML(htmlContent string) string { return sanitizeHTML(htmlContent) }
 
 func sanitizeHTML(htmlContent string) string {
 	if htmlContent == "" {
@@ -250,6 +324,14 @@ func NewEmailFromReader(to []string, r io.Reader, size int) *Email {
 	}
 
 	ret.Size = size
+	if m != nil {
+		ret.Headers = make(textproto.MIMEHeader)
+		for _, key := range []string{"Auto-Submitted", "X-PMail-DSN"} {
+			if values := m.Header.Values(key); len(values) > 0 {
+				ret.Headers[key] = append([]string(nil), values...)
+			}
+		}
+	}
 	if m == nil {
 		return ret
 	}
@@ -655,6 +737,11 @@ func (e *Email) BuildBytes(ctx *context.Context, dkim bool) []byte {
 			})
 		}
 		h.SetAddressList("Cc", cc)
+	}
+	for key, values := range e.Headers {
+		for _, value := range values {
+			h.Add(key, value)
+		}
 	}
 
 	// Create a new mail writer

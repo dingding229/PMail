@@ -10,6 +10,8 @@ import (
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/external"
+	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/services/setup/ssl"
 	"github.com/Jinnrry/pmail/signal"
 	log "github.com/sirupsen/logrus"
@@ -26,6 +28,8 @@ const (
 func Start(ctx context.Context, cfg *config.Config, active *tls.Certificate) {
 	go certificateMaintenance(ctx, cfg, active)
 	go auth.RunCleanup(ctx)
+	queue.Start(ctx)
+	external.Start(ctx)
 }
 
 func certificateMaintenance(ctx context.Context, cfg *config.Config, active *tls.Certificate) {

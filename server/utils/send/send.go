@@ -3,30 +3,25 @@ package send
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/textproto"
 	"strings"
 	"sync"
-	"time"
 
-	"github.com/Jinnrry/pmail/consts"
-	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
-	"github.com/Jinnrry/pmail/services/quota"
+	"github.com/Jinnrry/pmail/services/forward"
+	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/async"
 	uconsts "github.com/Jinnrry/pmail/utils/consts"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/smtp"
 	log "github.com/sirupsen/logrus"
-	"xorm.io/xorm"
 )
 
 type LocalDeliveryFunc func(*context.Context, *parsemail.Email, []*parsemail.User) (error, map[string]error)
@@ -59,44 +54,25 @@ func (e *temporaryMXFallbackError) Unwrap() error {
 	return e.lookupErr
 }
 
-// Forward 转发邮件
+// Forward 转发邮件。外部目标进入持久化队列，本地目标复用统一本地投递入口。
 func Forward(ctx *context.Context, e *parsemail.Email, forwardAddress string, user *models.User) error {
-
-	log.WithContext(ctx).Debugf("开始转发邮件")
-
 	primary, err := address.Primary(user.ID)
 	if err != nil {
 		return err
 	}
-	b := e.ForwardBuildBytes(ctx, user, forwardAddress, primary.Address)
-
-	log.WithContext(ctx).Debugf("%s", b)
-
-	return forwardData(ctx, primary.Domain, b, forwardAddress, primary.Address)
+	raw := e.ForwardBuildBytes(ctx, user, forwardAddress, primary.Address)
+	return forward.EnqueueForUser(ctx, user.ID, e, raw, forwardAddress)
 }
 
 func ForwardRaw(ctx *context.Context, e *parsemail.Email, rawEmailData []byte, forwardAddress string, user *models.User) error {
-	log.WithContext(ctx).Debugf("开始原始邮件转发")
-
-	primary, err := address.Primary(user.ID)
-	if err != nil {
-		return err
-	}
-	return forwardData(ctx, primary.Domain, rawEmailData, forwardAddress, primary.Address)
-}
-
-func forwardData(ctx *context.Context, fromDomain string, data []byte, forwardAddress string, from string) error {
-	var to []*parsemail.User
-	to = []*parsemail.User{
-		{EmailAddress: forwardAddress},
-	}
-
-	err, _ := doSend(ctx, fromDomain, data, to, from)
-	return err
+	return forward.EnqueueForUser(ctx, user.ID, e, rawEmailData, forwardAddress)
 }
 
 func Send(ctx *context.Context, e *parsemail.Email) (error, map[string]error) {
-	_, fromDomain := e.From.GetDomainAccount()
+	// Capture the sender's audit row before local delivery. saveEmail assigns a
+	// new MessageId to each local copy, so queue rows must never derive their
+	// parent id from the mutable delivery email after local persistence.
+	parentEmailID := int(e.MessageId)
 	// The signed bytes are the actual message delivered to SMTP and are also
 	// the authoritative size for local quota accounting and persisted records.
 	data := e.BuildBytes(ctx, true)
@@ -116,69 +92,35 @@ func Send(ctx *context.Context, e *parsemail.Email) (error, map[string]error) {
 	if len(local) > 0 {
 		var err error
 		var localErrors map[string]error
-		if localDelivery != nil {
-			err, localErrors = localDelivery(ctx, e, local)
-		} else {
-			err = deliverLocal(ctx, e, local)
+		if localDelivery == nil {
+			return errors.New("local delivery handler is unavailable"), deliveryErrors
 		}
-		for address, deliveryErr := range localErrors {
-			deliveryErrors[address] = deliveryErr
+		localEmail := *e
+		err, localErrors = localDelivery(ctx, &localEmail, local)
+		for _, recipient := range local {
+			if deliveryErr, failed := localErrors[recipient.EmailAddress]; failed {
+				deliveryErrors[recipient.EmailAddress] = deliveryErr
+			} else {
+				deliveryErrors[recipient.EmailAddress] = nil
+			}
 		}
 		if err != nil {
 			first = err
 		}
 	}
-	if len(external) > 0 {
-		err, externalErrors := doSend(ctx, fromDomain, data, external, e.From.EmailAddress)
-		for address, deliveryErr := range externalErrors {
-			deliveryErrors[address] = deliveryErr
+	for _, recipient := range external {
+		_, err := queue.Enqueue(queue.KindSend, ctx.UserID, parentEmailID, e.From.EmailAddress, recipient.EmailAddress, data)
+		if err != nil {
+			deliveryErrors[recipient.EmailAddress] = err
+			if first == nil {
+				first = err
+			}
+			continue
 		}
-		if err != nil && first == nil {
-			first = err
-		}
+		deliveryErrors[recipient.EmailAddress] = queue.ErrQueued
 	}
 	return first, deliveryErrors
 }
-
-func deliverLocal(ctx *context.Context, e *parsemail.Email, recipients []*parsemail.User) error {
-	ids := []int{}
-	seen := map[int]bool{}
-	for _, r := range recipients {
-		u, found, err := address.Resolve(r.EmailAddress)
-		if err != nil {
-			return err
-		}
-		if found && !seen[u.ID] {
-			ids = append(ids, u.ID)
-			seen[u.ID] = true
-		}
-	}
-	if len(ids) == 0 {
-		return address.ErrNotFound
-	}
-	model := models.Email{Type: int8(consts.EmailTypeReceive), Subject: e.Subject, FromName: e.From.Name, FromAddress: e.From.EmailAddress, To: jsonString(recipients), Text: sql.NullString{String: string(e.Text), Valid: true}, Html: sql.NullString{String: string(e.HTML), Valid: true}, Sender: jsonString(e.Sender), Attachments: jsonString(e.Attachments), Size: e.Size, SPFCheck: 1, DKIMCheck: 1, Status: 0, SendDate: time.Now(), CreateTime: time.Now(), CronSendTime: time.Now(), MsgID: e.MsgID}
-	if model.MsgID == "" {
-		model.MsgID = fmt.Sprintf("<local-%d@%s>", time.Now().UnixNano(), domain.DefaultName())
-	}
-	return db.Transaction(db.Instance, func(tx *xorm.Session) error {
-		for _, id := range ids {
-			if err := quota.LockAndCheck(tx, id, int64(model.Size)); err != nil {
-				return err
-			}
-		}
-		if _, err := tx.Insert(&model); err != nil {
-			return err
-		}
-		for _, id := range ids {
-			if _, err := tx.Insert(&models.UserEmail{UserID: id, EmailID: model.Id, Status: 0}); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
-func jsonString(value any) string { b, _ := json.Marshal(value); return string(b) }
 
 func External(ctx *context.Context, fromDomain, envelope string, raw []byte, recipients []*parsemail.User) (error, map[string]error) {
 	return doSend(ctx, fromDomain, raw, recipients, envelope)

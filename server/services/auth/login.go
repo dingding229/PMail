@@ -80,7 +80,7 @@ func Authenticate(login, secret, remote string) (models.User, error) {
 			outcome = -1
 			return models.User{}, ErrCredentials
 		}
-		now := time.Now().UTC()
+		now := time.Now()
 		updates := map[string]any{"last_login_at": now}
 		write := db.Instance.Table(&models.User{}).ID(user.ID).Where("auth_version = ? AND disabled = 0", user.AuthVersion)
 		if upgrade {

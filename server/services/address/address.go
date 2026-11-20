@@ -102,6 +102,9 @@ func ToView(row models.MailboxAddress) View {
 }
 
 func List(userID int) ([]View, error) {
+	if db.Instance == nil {
+		return nil, errors.New("database is not initialized")
+	}
 	var rows []models.MailboxAddress
 	if err := db.Instance.Where("user_id = ?", userID).Desc("is_primary").Asc("id").Find(&rows); err != nil {
 		return nil, err

@@ -26,4 +26,6 @@ const (
 
 	// EmailStatusDeliveryPending marks an outbound audit whose delivery result is not final.
 	EmailStatusDeliveryPending int8 = 6
+	// EmailStatusQueued is an alias for the pending/queued outbound state.
+	EmailStatusQueued int8 = EmailStatusDeliveryPending
 )

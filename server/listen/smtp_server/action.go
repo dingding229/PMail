@@ -7,6 +7,7 @@ import (
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/id"
@@ -98,6 +99,13 @@ func (s *Session) Rcpt(to string, opts *smtp.RcptOptions) error {
 	log.WithContext(s.Ctx).Debugf("Rcpt Success %+v", to)
 	_, host, ok := strings.Cut(strings.TrimSpace(to), "@")
 	if ok && domain.IsLocal(host) {
+		if _, isSRS, srsErr := forward.ResolveSRS(to); isSRS {
+			if srsErr != nil {
+				return &smtp.SMTPError{Code: 550, EnhancedCode: smtp.EnhancedCode{5, 1, 1}, Message: "Invalid SRS recipient"}
+			}
+			s.To = append(s.To, to)
+			return nil
+		}
 		if user, found, err := address.Resolve(to); err != nil {
 			return err
 		} else if found {

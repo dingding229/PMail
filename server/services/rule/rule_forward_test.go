@@ -60,7 +60,12 @@ func TestForwardToLocalUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	email := &parsemail.Email{MessageId: 123, Status: 0}
+	email := &parsemail.Email{
+		MessageId: 123,
+		Status:    0,
+		From:      &parsemail.User{EmailAddress: "sender@example.com"},
+		RawData:   []byte("From: sender@example.com\r\nTo: recipient@example.com\r\n\r\nbody"),
+	}
 	if err := doForward(&context.Context{}, email, "recipient@example.com", sender, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -88,14 +93,35 @@ func TestForwardToLocalUser(t *testing.T) {
 
 func TestForwardToLocalUserRejectsSelfLoop(t *testing.T) {
 	oldConfig := config.Instance
-	defer func() { config.Instance = oldConfig }()
-
-	config.Instance = &config.Config{
-		Domain:  "example.com",
-		Domains: []string{"example.com"},
+	oldDB := db.Instance
+	defer func() { config.Instance = oldConfig; db.Instance = oldDB }()
+	config.Instance = &config.Config{Domain: "example.com", Domains: []string{"example.com"}}
+	engine, err := xorm.NewEngine("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	err := doForward(&context.Context{}, &parsemail.Email{MessageId: 1}, "sender@example.com", &models.User{Account: "sender"}, nil)
+	defer engine.Close()
+	if err := testschema.Sync(engine); err != nil {
+		t.Fatal(err)
+	}
+	db.Instance = engine
+	key, err := dkimkey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Insert(&models.Domain{ID: 1, Name: "example.com", IsDefault: true, DkimSelector: "default", DkimPrivateKey: key}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Insert(&models.User{ID: 1, Account: "sender", Name: "sender"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := domain.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if err := address.Backfill(); err != nil {
+		t.Fatal(err)
+	}
+	err = doForward(&context.Context{}, &parsemail.Email{MessageId: 1, From: &parsemail.User{EmailAddress: "sender@example.com"}}, "sender@example.com", &models.User{ID: 1, Account: "sender"}, []byte("From: sender@example.com\r\n\r\nbody"))
 	if err == nil || !strings.Contains(err.Error(), "loop forwarding to self") {
 		t.Fatalf("expected self-loop error, got %v", err)
 	}

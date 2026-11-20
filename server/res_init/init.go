@@ -1,8 +1,9 @@
 package res_init
 
 import (
-	"context"
+	stdcontext "context"
 	"crypto/tls"
+	"net/textproto"
 	"time"
 
 	"github.com/Jinnrry/pmail/config"
@@ -14,14 +15,18 @@ import (
 	"github.com/Jinnrry/pmail/listen/imap_server"
 	"github.com/Jinnrry/pmail/listen/pop3_server"
 	"github.com/Jinnrry/pmail/listen/smtp_server"
+	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/services/setup"
 	"github.com/Jinnrry/pmail/services/setup/ssl"
 	"github.com/Jinnrry/pmail/session"
 	"github.com/Jinnrry/pmail/signal"
+	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/send"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cast"
 )
 
 func Init(serverVersion string) {
@@ -59,6 +64,58 @@ func Init(serverVersion string) {
 		}
 		parsemail.Init()
 		send.SetLocalDelivery(smtp_server.LocalDelivery)
+		queue.SetExternalDelivery(func(deliveryCtx *context.Context, mailFrom string, raw []byte, recipient string) error {
+			err, errorsByDomain := send.External(deliveryCtx, domain.DefaultName(), mailFrom, raw, []*parsemail.User{{EmailAddress: recipient}})
+			if err != nil {
+				for _, deliveryErr := range errorsByDomain {
+					if deliveryErr != nil {
+						return deliveryErr
+					}
+				}
+			}
+			return err
+		})
+		queue.SetLocalDelivery(func(deliveryCtx *context.Context, email *parsemail.Email, recipient *parsemail.User) error {
+			if recipient == nil {
+				return address.ErrInvalid
+			}
+			localErr, _ := smtp_server.LocalDelivery(deliveryCtx, email, []*parsemail.User{recipient})
+			return localErr
+		})
+		queue.SetBounceHandler(func(deliveryCtx *context.Context, row models.OutboundQueue) {
+			if queue.ShouldSuppressBounce(row) {
+				log.WithContext(deliveryCtx).Infof("suppress bounce notification queue=%d", row.ID)
+				return
+			}
+			if row.Kind == queue.KindForward {
+				reserved, reserveErr := queue.ReserveBounceNotice(row.UserID, row.RcptTo)
+				if reserveErr != nil {
+					log.WithContext(deliveryCtx).Errorf("reserve forwarding bounce notice user=%d target=%s failed: %v", row.UserID, row.RcptTo, reserveErr)
+					return
+				}
+				if !reserved {
+					log.WithContext(deliveryCtx).Infof("deduplicate forwarding bounce notice user=%d target=%s", row.UserID, row.RcptTo)
+					return
+				}
+			}
+			primary, err := address.Primary(row.UserID)
+			if err != nil {
+				log.Errorf("cannot create delivery failure notice for user %d: %v", row.UserID, err)
+				return
+			}
+			text := "Your message to " + row.RcptTo + " could not be delivered after " + cast.ToString(row.Attempts) + " attempts.\n\n" + row.LastError
+			if row.Kind == queue.KindForward {
+				text = "转发到 " + row.RcptTo + " 失败。投递在 " + cast.ToString(row.Attempts) + " 次尝试后仍未成功。\n\n" + row.LastError
+			}
+			bounce := &parsemail.Email{
+				From:    &parsemail.User{EmailAddress: "mailer-daemon@" + domain.DefaultName()},
+				To:      []*parsemail.User{{EmailAddress: primary.Address}},
+				Subject: "Delivery Status Notification (Failure)",
+				Headers: textproto.MIMEHeader{"Auto-Submitted": {"auto-replied"}, "X-PMail-DSN": {"1"}},
+				Text:    []byte(text),
+			}
+			_, _ = send.Send(deliveryCtx, bounce)
+		})
 		session.Init()
 		hooks.Init(serverVersion)
 		cfg := config.Instance
@@ -78,7 +135,7 @@ func Init(serverVersion string) {
 		if cert != nil {
 			startTLSListeners(*cert)
 		}
-		ctx, stopScheduler := context.WithCancel(context.Background())
+		ctx, stopScheduler := stdcontext.WithCancel(stdcontext.Background())
 		cron_server.Start(ctx, cfg, cert)
 
 		restart := false

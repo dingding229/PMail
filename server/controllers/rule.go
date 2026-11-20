@@ -7,8 +7,8 @@ import (
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/rule"
-	"github.com/Jinnrry/pmail/utils/address"
 	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/errors"
@@ -37,10 +37,16 @@ func UpsertRule(ctx *context.Context, w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	if data.Action == dto.FORWARD && !address.IsValidEmailAddress(data.Params) {
-
-		response.NewErrorResponse(response.ParamsError, "ParamsError error", i18n.GetText(ctx.Lang, "invalid_email_address")).FPrint(w)
-		return
+	if data.Action == dto.FORWARD {
+		targets := forward.Targets(data.Params)
+		if len(targets) == 0 {
+			response.NewErrorResponse(response.ParamsError, "ParamsError error", i18n.GetText(ctx.Lang, "invalid_email_address")).FPrint(w)
+			return
+		}
+		if _, err := forward.ValidateTargets(ctx.UserID, targets); err != nil {
+			response.NewErrorResponse(response.ParamsError, "ParamsError error", i18n.GetText(ctx.Lang, "invalid_email_address")).FPrint(w)
+			return
+		}
 	}
 
 	for _, r := range data.Rules {

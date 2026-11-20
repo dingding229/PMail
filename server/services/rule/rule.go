@@ -2,7 +2,6 @@ package rule
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
@@ -10,9 +9,9 @@ import (
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/rule/match"
 	"github.com/Jinnrry/pmail/utils/context"
-	"github.com/Jinnrry/pmail/utils/send"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cast"
 )
@@ -79,11 +78,12 @@ func DoRule(ctx *context.Context, rule *dto.Rule, email *parsemail.Email, user *
 			log.WithContext(ctx).Errorf("sqlERror :%v", err)
 		}
 	case dto.FORWARD:
-		err := doForward(ctx, email, rule.Params, user, rawEmailData)
-		if err != nil {
-			log.WithContext(ctx).Errorf("Forward Error:%v", err)
-		} else {
-			log.WithContext(ctx).Infof("Forward Success:%s@%s -> %s", user.Account, domain.DefaultName(), rule.Params)
+		for _, target := range forward.Targets(rule.Params) {
+			if err := forward.EnqueueForUser(ctx, user.ID, email, rawEmailData, target); err != nil {
+				log.WithContext(ctx).Errorf("Forward Error:%v", err)
+			} else {
+				log.WithContext(ctx).Infof("Forward Success:%s@%s -> %s", user.Account, domain.DefaultName(), target)
+			}
 		}
 	case dto.MOVE:
 		doMove(ctx, rule, email, user)
@@ -92,31 +92,19 @@ func DoRule(ctx *context.Context, rule *dto.Rule, email *parsemail.Email, user *
 }
 
 func doForward(ctx *context.Context, email *parsemail.Email, forwardAddress string, user *models.User, rawEmailData []byte) error {
-	forwardUser := parsemail.BuilderUser(forwardAddress)
-	if forwardUser == nil || forwardUser.EmailAddress == "" {
+	targets := forward.Targets(forwardAddress)
+	if len(targets) == 0 {
 		return fmt.Errorf("invalid forward address: %s", forwardAddress)
 	}
-
-	account, domain := forwardUser.GetDomainAccount()
-	if account == "" || domain == "" {
-		return fmt.Errorf("invalid forward address: %s", forwardAddress)
+	if len(rawEmailData) == 0 && email != nil && email.From != nil {
+		rawEmailData = email.BuildBytes(ctx, false)
 	}
-
-	if isLocalDomain(domain) {
-		if strings.EqualFold(account, user.Account) {
-			return fmt.Errorf("loop forwarding to self: %s", forwardAddress)
+	for _, target := range targets {
+		if err := forward.EnqueueForUser(ctx, user.ID, email, rawEmailData, target); err != nil {
+			return err
 		}
-		return forwardToLocalUser(ctx, email, account, forwardAddress)
 	}
-
-	if len(rawEmailData) > 0 {
-		err := send.ForwardRaw(ctx, email, rawEmailData, forwardAddress, user)
-		if err == nil {
-			return nil
-		}
-		log.WithContext(ctx).Warnf("Raw forward failed, retry remail forward:%v", err)
-	}
-	return send.Forward(ctx, email, forwardAddress, user)
+	return nil
 }
 
 func forwardToLocalUser(ctx *context.Context, email *parsemail.Email, account, forwardAddress string) error {

@@ -16,6 +16,10 @@ var instance any = struct{}{}
 
 func Init() {}
 
+// SignBytes adds a DKIM signature for the domain in from while preserving
+// existing headers/signatures in msgData.
+func SignBytes(msgData []byte, from string) []byte { return sign(string(msgData), from) }
+
 func sign(msgData, from string) []byte {
 	_, host, ok := strings.Cut(from, "@")
 	if !ok {
