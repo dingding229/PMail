@@ -1,49 +1,18 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
-import ListView from '../views/ListView.vue'
-import EditerView from '../views/EditerView.vue'
-import LoginView from '../views/LoginView.vue'
-import EmailDetailView from '../views/EmailDetailView.vue'
-import SetupView from '../views/SetupView.vue'
-
-
-const router = createRouter({
+const routes = [
+  { path: '/', redirect: '/mail' },
+  { path: '/mail', name: 'mail', component: () => import('../views/MailView.vue') },
+  { path: '/compose', name: 'compose', component: () => import('../views/ComposeView.vue') },
+  {
+    path: '/settings/:section?',
+    name: 'settings',
+    component: () => import('../views/SettingsView.vue')
+  },
+  { path: '/admin/:section?', name: 'admin', component: () => import('../views/AdminView.vue') },
+  { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
+  { path: '/setup', name: 'setup', component: () => import('../views/SetupView.vue') }
+]
+export const router = createRouter({
   history: createWebHashHistory(import.meta.env.BASE_URL),
-  routes: [
-    {
-      path: '/',
-      name: 'home',
-      component: ListView
-    },
-    {
-      path: '/list',
-      name: 'list',
-      component: ListView
-    },
-    {
-      path: '/editer',
-      name: "editer",
-      component: EditerView
-    },
-    {
-      path: '/login',
-      name: "login",
-      component: LoginView
-    },
-    {
-      path: '/setup',
-      name: "setup",
-      component: SetupView
-    },
-    {
-      path: '/detail/:id',
-      name: "detail",
-      component: EmailDetailView
-    }
-  ]
+  routes
 })
-
-
-
-
-
-export {router};

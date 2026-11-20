@@ -1,33 +1,37 @@
 {
-  "name": "fe",
-  "version": "0.0.0",
+  "name": "pmail-fe",
+  "version": "5.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "test": "node --test tests/*.test.mjs",
     "preview": "vite preview",
-    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --fix --ignore-path .gitignore"
+    "lint": "eslint src"
   },
   "dependencies": {
-    "@element-plus/icons-vue": "^2.3.1",
-    "@wangeditor/editor": "^5.1.23",
-    "@wangeditor/editor-for-vue": "^5.1.12",
-    "axios": "^1.21.1",
-    "element-plus": "^2.14.8",
-    "pinia": "^4.1.0",
-    "vue": "^3.5.45",
-    "vue-icons-plus": "^0.1.6",
-    "vue-router": "^5.5.1"
+    "@tiptap/extension-image": "^2.11.5",
+    "@tiptap/extension-link": "^2.11.5",
+    "@tiptap/extension-text-align": "^2.11.5",
+    "@tiptap/extension-underline": "^2.11.5",
+    "@tiptap/starter-kit": "^2.11.5",
+    "@tiptap/vue-3": "^2.11.5",
+    "@vicons/ionicons5": "^0.13.0",
+    "axios": "^1.13.2",
+    "naive-ui": "^2.42.0",
+    "pinia": "^3.0.3",
+    "vue": "^3.5.24",
+    "vue-i18n": "^11.1.2",
+    "vue-router": "^4.5.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^6.0.11",
-    "eslint": "^8.39.0",
-    "eslint-plugin-vue": "^9.11.0",
-    "puppeteer-core": "24.43.1",
-    "unplugin-auto-import": "^21.1.0",
-    "unplugin-vue-components": "^32.1.0",
-    "vite": "^8.3.8",
-    "vue-tsc": "^2.1.6"
+    "@vitejs/plugin-vue": "^6.0.3",
+    "vite": "^8.0.0",
+    "prettier": "^3.6.2",
+    "eslint": "^9.39.1",
+    "eslint-plugin-vue": "^10.6.0",
+    "@eslint/js": "^9.39.1",
+    "globals": "^16.5.0"
   }
 }
