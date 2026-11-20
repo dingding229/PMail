@@ -27,9 +27,9 @@
           <el-form-item :label="lang.type">
             <el-select :placeholder="lang.db_select_ph" v-model="dbSettings.type"
                        @change="dbSettings.dsn = ''">
+              <el-option label="PostgreSQL" value="postgres"/>
               <el-option label="MySQL" value="mysql"/>
               <el-option label="SQLite3" value="sqlite"/>
-              <el-option label="PostgreSQL" value="postgres"/>
             </el-select>
           </el-form-item>
 
@@ -242,8 +242,8 @@ const adminSettings = reactive({
 })
 
 const dbSettings = reactive({
-  "type": "sqlite",
-  "dsn": "./config/pmail.db",
+  "type": "postgres",
+  "dsn": "",
   "lable": ""
 })
 

@@ -24,7 +24,7 @@ type Dkim struct {
 var instance *Dkim
 
 func Init() {
-	privateKey, err := loadPrivateKey(config.Instance.DkimPrivateKeyPath)
+	privateKey, err := LoadPrivateKey(config.Instance.DkimPrivateKeyPath)
 	if err != nil {
 		panic(config.Instance.DkimPrivateKeyPath +
 			" DKIM load fail! Please set dkim!  dkim私钥加载失败！请先设置dkim秘钥" +
@@ -36,7 +36,7 @@ func Init() {
 	}
 }
 
-func loadPrivateKey(path string) (crypto.Signer, error) {
+func LoadPrivateKey(path string) (crypto.Signer, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -53,7 +53,11 @@ func loadPrivateKey(path string) (crypto.Signer, error) {
 		if err != nil {
 			return nil, err
 		}
-		return k.(crypto.Signer), nil
+		signer, ok := k.(crypto.Signer)
+		if !ok {
+			return nil, fmt.Errorf("unsupported private key type %T", k)
+		}
+		return signer, nil
 	case "RSA PRIVATE KEY":
 		return x509.ParsePKCS1PrivateKey(block.Bytes)
 	case "EDDSA PRIVATE KEY":

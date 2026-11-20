@@ -9,266 +9,243 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"github.com/Jinnrry/pmail/utils/context"
-	"github.com/Jinnrry/pmail/utils/errors"
-	"github.com/Jinnrry/pmail/utils/file"
-	log "github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 var IsInit bool
 
 type Config struct {
-	LogLevel             string            `json:"logLevel"` // 日志级别
+	LogLevel             string            `json:"logLevel"`
 	Domain               string            `json:"domain"`
-	Domains              []string          `json:"domains"` //多域名设置，把所有收信域名都填进去
+	Domains              []string          `json:"domains"`
 	WebDomain            string            `json:"webDomain"`
 	DkimPrivateKeyPath   string            `json:"dkimPrivateKeyPath"`
-	SSLType              string            `json:"sslType"` // 0表示自动生成证书，HTTP挑战模式，1表示用户上传证书，2表示自动-DNS挑战模式
+	SSLType              string            `json:"sslType"`
 	SSLPrivateKeyPath    string            `json:"SSLPrivateKeyPath"`
 	SSLPublicKeyPath     string            `json:"SSLPublicKeyPath"`
 	DbDSN                string            `json:"dbDSN"`
 	DbType               string            `json:"dbType"`
-	HttpsEnabled         int               `json:"httpsEnabled"`    //后台页面是否启用https，0默认（启用），1启用，2不启用
-	SpamFilterLevel      int               `json:"spamFilterLevel"` //垃圾邮件过滤级别，0不过滤、1 spf dkim 校验均失败时过滤，2 spf校验不通过时过滤 3,dkim 校验不过的时候过滤
-	HttpPort             int               `json:"httpPort"`        //http服务端口设置，默认80
-	HttpsPort            int               `json:"httpsPort"`       //https服务端口，默认443
+	HttpsEnabled         int               `json:"httpsEnabled"`
+	SpamFilterLevel      int               `json:"spamFilterLevel"`
+	HttpPort             int               `json:"httpPort"`
+	HttpsPort            int               `json:"httpsPort"`
 	WeChatPushAppId      string            `json:"weChatPushAppId"`
 	WeChatPushSecret     string            `json:"weChatPushSecret"`
 	WeChatPushTemplateId string            `json:"weChatPushTemplateId"`
 	WeChatPushUserId     string            `json:"weChatPushUserId"`
 	TgBotToken           string            `json:"tgBotToken"`
 	TgChatId             string            `json:"tgChatId"`
+	SecretKey            string            `json:"-"`
 	IsInit               bool              `json:"isInit"`
 	WebPushUrl           string            `json:"webPushUrl"`
 	WebPushToken         string            `json:"webPushToken"`
 	Tables               map[string]string `json:"-"`
 	TablesInitData       map[string]string `json:"-"`
-	setupPort            int               // 初始化阶段端口
+	setupPort            int
 }
 
 var ROOT_PATH = ""
 
 func init() {
-	envs := os.Environ()
-	for _, env := range envs {
-		if strings.HasPrefix(env, "PMail_ROOT=") {
-			ROOT_PATH = strings.TrimSpace(strings.ReplaceAll(env, "PMail_ROOT=", ""))
-			if !strings.HasSuffix(ROOT_PATH, "/") {
-				ROOT_PATH += "/"
-			}
-
-			fmt.Println("Env Root Path:", ROOT_PATH)
-			return
-		}
+	if root := os.Getenv("PMail_ROOT"); root != "" {
+		ROOT_PATH = ensureTrailingSlash(root)
+		fmt.Println("Env Root Path:", ROOT_PATH)
+		return
 	}
-
 	ex, err := os.Executable()
 	if err != nil {
 		panic(err)
 	}
-	exPath := filepath.Dir(ex)
-	realPath, err := filepath.EvalSymlinks(exPath)
+	realPath, err := filepath.EvalSymlinks(filepath.Dir(ex))
 	if err != nil {
 		panic(err)
 	}
-	// 如果是Goland运行，不修改根路径
 	if strings.Contains(realPath, "GoLand") && strings.Contains(realPath, "JetBrains") {
 		return
 	}
-
-	if !strings.HasSuffix(realPath, "/") {
-		realPath += "/"
-	}
-	ROOT_PATH = realPath
+	ROOT_PATH = ensureTrailingSlash(realPath)
 	fmt.Println("Root Path:", ROOT_PATH)
 }
 
-func (c *Config) GetSetupPort() int {
-	return c.setupPort
+func ensureTrailingSlash(path string) string {
+	path = filepath.Clean(path)
+	if strings.HasSuffix(path, string(os.PathSeparator)) {
+		return path
+	}
+	return path + string(os.PathSeparator)
 }
 
-func (c *Config) SetSetupPort(setupPort int) {
-	c.setupPort = setupPort
-}
+func (c *Config) GetSetupPort() int     { return c.setupPort }
+func (c *Config) SetSetupPort(port int) { c.setupPort = port }
 
-const DBTypeMySQL = "mysql"
-const DBTypeSQLite = "sqlite"
-const DBTypePostgres = "postgres"
-const SSLTypeAutoHTTP = "0" //自动生成证书
-const SSLTypeAutoDNS = "2"  //自动生成证书，DNS api验证
-const SSLTypeUser = "1"     //用户上传证书
+const (
+	DBTypeMySQL     = "mysql"
+	DBTypeSQLite    = "sqlite"
+	DBTypePostgres  = "postgres"
+	SSLTypeAutoHTTP = "0"
+	SSLTypeUser     = "1"
+	SSLTypeAutoDNS  = "2"
+	SSLTypeDisabled = "3"
+)
 
-var DBTypes []string = []string{DBTypeMySQL, DBTypeSQLite, DBTypePostgres}
+var DBTypes = []string{DBTypePostgres, DBTypeMySQL, DBTypeSQLite}
+var Instance = &Config{}
 
-var Instance *Config = &Config{}
+type logFormatter struct{}
 
-type logFormatter struct {
-}
-
-// Format 定义日志输出格式
 func (l *logFormatter) Format(entry *log.Entry) ([]byte, error) {
-	b := bytes.Buffer{}
-
+	var b bytes.Buffer
 	b.WriteString(fmt.Sprintf("[%s]", entry.Level.String()))
 	b.WriteString(fmt.Sprintf("[%s]", entry.Time.Format("2006-01-02 15:04:05")))
 	if entry.Context != nil {
-		ctx := entry.Context.(*context.Context)
-		if ctx != nil {
+		if ctx, ok := entry.Context.(*context.Context); ok && ctx != nil {
 			b.WriteString(fmt.Sprintf("[%s]", ctx.GetValue(context.LogID)))
 		}
 	}
 	b.WriteString(fmt.Sprintf("[%s:%d]", entry.Caller.File, entry.Caller.Line))
 	b.WriteString(entry.Message)
-
-	b.WriteString("\n")
+	b.WriteByte('\n')
 	return b.Bytes(), nil
 }
-func Init() {
-	var cfgData []byte
-	var err error
-	args := os.Args
 
-	if len(args) >= 2 && args[len(args)-1] == "dev" {
-		cfgData, err = os.ReadFile(ROOT_PATH + "./config/config.dev.json")
-		if err != nil {
-			return
-		}
-	} else {
-		cfgData, err = os.ReadFile(ROOT_PATH + "./config/config.json")
-		if err != nil {
-			log.Errorf("config file not found,%s", err.Error())
-			return
-		}
-	}
-
-	err = json.Unmarshal(cfgData, &Instance)
-	Instance.fixPath()
+func Init() error {
+	cfg, err := ReadEffectiveConfig()
 	if err != nil {
-		return
+		return err
 	}
-
-	if len(Instance.Domains) == 0 && Instance.Domain != "" {
-		Instance.Domains = []string{Instance.Domain}
+	cfg.SecretKey, err = loadSecretKey()
+	if err != nil {
+		return err
 	}
-
-	if Instance.Domain != "" && Instance.IsInit {
-		IsInit = true
+	if Instance != nil {
+		cfg.setupPort = Instance.setupPort
 	}
+	Instance = cfg
+	IsInit = cfg.IsInit
 
-	// 设置日志格式为json格式
 	log.SetFormatter(&logFormatter{})
 	log.SetReportCaller(true)
-
-	// 设置将日志输出到标准输出（默认的输出为stderr,标准错误）
-	// 日志消息输出可以是任意的io.writer类型
 	log.SetOutput(os.Stdout)
-
-	var cstZone = time.FixedZone("CST", 8*3600)
-	time.Local = cstZone
-	if Instance != nil {
-		switch Instance.LogLevel {
-		case "":
-			log.SetLevel(log.InfoLevel)
-		case "debug":
-			log.SetLevel(log.DebugLevel)
-		case "info":
-			log.SetLevel(log.InfoLevel)
-		case "warn":
-			log.SetLevel(log.WarnLevel)
-		case "error":
-			log.SetLevel(log.ErrorLevel)
-		default:
-			log.SetLevel(log.InfoLevel)
-		}
-	} else {
+	time.Local = time.FixedZone("CST", 8*3600)
+	switch strings.ToLower(cfg.LogLevel) {
+	case "debug":
+		log.SetLevel(log.DebugLevel)
+	case "warn", "warning":
+		log.SetLevel(log.WarnLevel)
+	case "error":
+		log.SetLevel(log.ErrorLevel)
+	default:
 		log.SetLevel(log.InfoLevel)
-	}
-
-}
-
-func ReadPrivateKey() (*ecdsa.PrivateKey, bool) {
-	key, err := os.ReadFile(ROOT_PATH + "./config/ssl/account_private.pem")
-	if err != nil {
-		return createNewPrivateKey(), true
-	}
-
-	block, _ := pem.Decode(key)
-	x509Encoded := block.Bytes
-	privateKey, _ := x509.ParseECPrivateKey(x509Encoded)
-
-	return privateKey, false
-}
-
-func createNewPrivateKey() *ecdsa.PrivateKey {
-	// Create a user. New accounts need an email and private key to start.
-	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		panic(err)
-	}
-	x509Encoded, _ := x509.MarshalECPrivateKey(privateKey)
-
-	// 将ec 密钥写入到 pem文件里
-	keypem, _ := os.OpenFile(ROOT_PATH+"./config/ssl/account_private.pem", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
-	err = pem.Encode(keypem, &pem.Block{Type: "EC PRIVATE KEY", Bytes: x509Encoded})
-	if err != nil {
-		panic(err)
-	}
-	return privateKey
-}
-
-func WriteConfig(cfg *Config) error {
-	bytes, _ := json.Marshal(cfg)
-	_ = os.MkdirAll(ROOT_PATH+"/config/", 0755)
-	err := os.WriteFile(ROOT_PATH+"./config/config.json", bytes, 0666)
-	if err != nil {
-		return errors.Wrap(err)
 	}
 	return nil
 }
 
-func ReadConfig() (*Config, error) {
-	configData := Config{
-		DkimPrivateKeyPath: ROOT_PATH + "config/dkim/dkim.priv",
-		SSLPrivateKeyPath:  ROOT_PATH + "config/ssl/private.key",
-		SSLPublicKeyPath:   ROOT_PATH + "config/ssl/public.crt",
+// ReadPrivateKey loads or creates the local ACME account key. A bad or unreadable
+// key is reported to the caller so certificate maintenance can retry safely.
+func ReadPrivateKey() (*ecdsa.PrivateKey, error) {
+	path := filepath.Join(ROOT_PATH, "config", "ssl", "account_private.pem")
+	data, err := os.ReadFile(path)
+	if err == nil {
+		block, _ := pem.Decode(data)
+		if block == nil {
+			return nil, fmt.Errorf("invalid PEM in ACME account key %s", path)
+		}
+		return x509.ParseECPrivateKey(block.Bytes)
 	}
-	if !file.PathExist(ROOT_PATH + "./config/config.json") {
-		bytes, _ := json.Marshal(configData)
-		_ = os.MkdirAll(ROOT_PATH+"/config/", 0755)
-		err := os.WriteFile(ROOT_PATH+"./config/config.json", bytes, 0666)
-		if err != nil {
-			log.Errorf("Write Config Error:%s", err.Error())
-			return nil, errors.Wrap(err)
-		}
-	} else {
-		cfgData, err := os.ReadFile(ROOT_PATH + "./config/config.json")
-		if err != nil {
-			log.Errorf("Read Config Error:%s", err.Error())
-			return nil, errors.Wrap(err)
-		}
-
-		err = json.Unmarshal(cfgData, &configData)
-		configData.fixPath()
-		if err != nil {
-			log.Errorf("Read Config Unmarshal Error:%s", err.Error())
-			return nil, errors.Wrap(err)
-		}
+	if !os.IsNotExist(err) {
+		return nil, err
 	}
-	return &configData, nil
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, err
+	}
+	if err := writeConfigFile(path, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: encoded})); err != nil {
+		return nil, err
+	}
+	return key, nil
 }
 
-func (c *Config) fixPath() {
-	if c.DbType == DBTypeSQLite && !strings.HasPrefix(c.DbDSN, "/") {
-		c.DbDSN = ROOT_PATH + c.DbDSN
+func WriteConfig(cfg *Config) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return errors.Wrap(err)
 	}
-	if !strings.HasPrefix(c.SSLPublicKeyPath, "/") {
-		c.SSLPublicKeyPath = ROOT_PATH + c.SSLPublicKeyPath
+	return writeConfigFile(configPath(), data)
+}
+
+func configPath() string {
+	name := "config.json"
+	if len(os.Args) > 1 && os.Args[len(os.Args)-1] == "dev" {
+		name = "config.dev.json"
 	}
-	if !strings.HasPrefix(c.SSLPrivateKeyPath, "/") {
-		c.SSLPrivateKeyPath = ROOT_PATH + c.SSLPrivateKeyPath
+	return filepath.Join(ROOT_PATH, "config", name)
+}
+
+// ReadConfig reads persisted settings without applying environment overrides.
+func ReadConfig() (*Config, error) {
+	cfg := &Config{
+		DbType:             DBTypePostgres,
+		SSLType:            SSLTypeAutoHTTP,
+		DkimPrivateKeyPath: "config/dkim/dkim.priv",
+		SSLPrivateKeyPath:  "config/ssl/private.key",
+		SSLPublicKeyPath:   "config/ssl/public.crt",
+	}
+	data, err := os.ReadFile(configPath())
+	if os.IsNotExist(err) {
+		return cfg, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read PMail configuration: %w", err)
+	}
+	if err := json.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("parse PMail configuration: %w", err)
+	}
+	return cfg, nil
+}
+
+func writeConfigFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(filepath.Dir(path), ".pmail-config-*")
+	if err != nil {
+		return err
+	}
+	name := file.Name()
+	defer os.Remove(name)
+	if err := file.Chmod(0600); err != nil {
+		file.Close()
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
+}
+
+func (c *Config) fixPaths() {
+	if c.DbType == DBTypeSQLite && c.DbDSN != "" && c.DbDSN != ":memory:" &&
+		!strings.HasPrefix(c.DbDSN, "file:") && !filepath.IsAbs(c.DbDSN) {
+		c.DbDSN = filepath.Join(ROOT_PATH, c.DbDSN)
+	}
+	for _, path := range []*string{&c.SSLPublicKeyPath, &c.SSLPrivateKeyPath, &c.DkimPrivateKeyPath} {
+		if *path != "" && !filepath.IsAbs(*path) {
+			*path = filepath.Join(ROOT_PATH, *path)
+		}
 	}
 }

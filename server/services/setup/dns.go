@@ -21,11 +21,15 @@ type DNSItem struct {
 }
 
 func GetDNSSettings(ctx *context.Context) (map[string][]*DNSItem, error) {
-	configData, err := config.ReadConfig()
+	configData, err := config.ReadEffectiveConfig()
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
 
+	record, err := auth.EnsureDKIM(configData.DkimPrivateKeyPath)
+	if err != nil {
+		return nil, errors.Wrap(err)
+	}
 	ret := make(map[string][]*DNSItem)
 
 	for _, domain := range configData.Domains {
@@ -37,7 +41,7 @@ func GetDNSSettings(ctx *context.Context) (map[string][]*DNSItem, error) {
 			{Type: "A", Host: "@", Value: ip.GetIp(), TTL: 3600, Tips: i18n.GetText(ctx.Lang, "ip_taps")},
 			{Type: "MX", Host: "@", Value: fmt.Sprintf("smtp.%s", domain), TTL: 3600},
 			{Type: "TXT", Host: "@", Value: "v=spf1 a mx ~all", TTL: 3600},
-			{Type: "TXT", Host: "default._domainkey", Value: auth.DkimGen(), TTL: 3600},
+			{Type: "TXT", Host: "default._domainkey", Value: record, TTL: 3600},
 		}
 	}
 

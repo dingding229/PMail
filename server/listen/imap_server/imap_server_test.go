@@ -44,7 +44,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	imapTestAddr = ln.Addr().String()
-	instanceTLS = newIMAPServer()
+	instanceTLS = newIMAPServer(crt)
 	go func() {
 		if err := instanceTLS.Serve(ln); err != nil {
 			panic(err)
@@ -174,7 +174,7 @@ func TestCreate(t *testing.T) {
 
 func TestRename(t *testing.T) {
 
-	err := clientLogin.Rename("一级菜单", "主菜单").Wait()
+	err := clientLogin.Rename("一级菜单", "主菜单", nil).Wait()
 	if err != nil {
 		t.Error(err)
 	}

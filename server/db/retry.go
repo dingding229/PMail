@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	stderrors "errors"
 	"fmt"
 	"net/url"
@@ -19,6 +20,29 @@ const (
 	transactionAttempts           = 3
 	transactionInitialBackoff     = 50 * time.Millisecond
 )
+
+// pingWithRetry waits up to roughly one minute for a starting PostgreSQL container.
+// Retry only connection establishment, not schema changes or data writes.
+func pingWithRetry(engine *xorm.Engine, retry bool) error {
+	attempts := 1
+	if retry {
+		attempts = 12
+	}
+	var err error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		err = engine.DB().DB.PingContext(ctx)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		if attempt < attempts {
+			log.Warnf("Database not ready (attempt %d/%d); retrying in 2s", attempt, attempts)
+			time.Sleep(2 * time.Second)
+		}
+	}
+	return err
+}
 
 // Transaction runs fn atomically. SQLite BUSY and LOCKED failures retry the
 // entire transaction, so fn must contain only work that is safe to repeat.

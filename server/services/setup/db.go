@@ -4,6 +4,7 @@ import (
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/errors"
@@ -16,8 +17,8 @@ func GetDatabaseSettings(ctx *context.Context) (string, string, error) {
 		return "", "", errors.Wrap(err)
 	}
 
-	if configData.DbType == "" && configData.DbDSN == "" {
-		return config.DBTypeSQLite, config.ROOT_PATH + "./config/pmail.db", nil
+	if configData.DbType == "" {
+		return config.DBTypePostgres, "", nil
 	}
 
 	return configData.DbType, configData.DbDSN, nil
@@ -76,11 +77,45 @@ func SetDatabaseSettings(ctx *context.Context, dbType, dbDSN string) error {
 	if err != nil {
 		return errors.Wrap(err)
 	}
-	config.Init()
+	if err := config.Init(); err != nil {
+		return errors.Wrap(err)
+	}
 	// 检查数据库是否能正确连接
 	err = db.Init("")
 	if err != nil {
 		return errors.Wrap(err)
 	}
+	return nil
+}
+
+// AutoInitialize creates the configured admin if absent and marks this config as initialized.
+// The caller has already opened and initialized the database.
+func AutoInitialize(account, rawPassword string) error {
+	var existing models.User
+	found, err := db.Instance.Where("account = ?", account).Get(&existing)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+	if !found {
+		_, err = db.Instance.Insert(&models.User{
+			Account:  account,
+			Name:     "admin",
+			Password: password.Encode(rawPassword),
+			IsAdmin:  1,
+		})
+		if err != nil {
+			return errors.Wrap(err)
+		}
+	}
+	if _, err := auth.EnsureDKIM(config.Instance.DkimPrivateKeyPath); err != nil {
+		return errors.Wrap(err)
+	}
+	if !config.IsInit {
+		if err := markInitialized(); err != nil {
+			return errors.Wrap(err)
+		}
+	}
+	config.Instance.IsInit = true
+	config.IsInit = true
 	return nil
 }

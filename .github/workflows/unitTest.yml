@@ -39,9 +39,6 @@ jobs:
       COMMIT: ${{ github.workflow_sha }}
       EVENT: ${{ github.event_name}}
     steps:
-      - name: Setup Node.js environment
-        run: apt update && apt install -y nodejs npm
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -52,8 +49,9 @@ jobs:
         run: |
           gh pr edit ${{ github.event.pull_request.number }} --add-label "Auto: Test Failed"
         
-      - name: Install Dependencies
-        run: npm install --global yarn
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - name: FE build
         run: make build_fe

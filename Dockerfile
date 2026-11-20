@@ -1,39 +1,39 @@
-FROM node:26-alpine AS febuild
+# syntax=docker/dockerfile:1
+FROM --platform=$BUILDPLATFORM node:22.23.5-alpine3.24 AS frontend
+WORKDIR /build/fe
+COPY fe/package.json fe/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts --no-audit --no-fund
+COPY fe/ ./
+RUN npm run build
+
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine3.24 AS backend
+ARG TARGETOS
+ARG TARGETARCH
+ARG TARGETVARIANT
+ARG VERSION=dev
+ARG GITHASH=unknown
+WORKDIR /build/server
+COPY server/go.mod server/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY server/ ./
+COPY --from=frontend /build/fe/dist ./listen/http_server/dist
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    set -eu; \
+    export CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH"; \
+    if [ "$GOARCH" = arm ] && [ -n "$TARGETVARIANT" ]; then export GOARM="${TARGETVARIANT#v}"; fi; \
+    mkdir -p /out/plugins; \
+    go build -trimpath -ldflags "-s -w -X 'main.version=$VERSION' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$GITHASH' -X 'main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)'" -o /out/pmail .; \
+    go build -trimpath -ldflags '-s -w' -o /out/plugins/wechat_push ./hooks/wechat_push; \
+    go build -trimpath -ldflags '-s -w' -o /out/plugins/spam_block ./hooks/spam_block
+
+FROM alpine:3.24.4
 WORKDIR /work
-
-RUN npm install --global yarn@1.22.22
-
-COPY fe .
-
-RUN yarn install --frozen-lockfile && yarn build
-
-
-FROM golang:alpine AS serverbuild
-ARG VERSION
-WORKDIR /work
-COPY . .
-COPY --from=febuild /work/dist /work/server/listen/http_server/dist
-RUN apk update && apk add git
-RUN cd /work/server && go build -ldflags "-s -w -X 'main.version=${VERSION}' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(git show -s --format=%H)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail main.go
-RUN cd /work/server/hooks/wechat_push && go build -ldflags "-s -w" -o output/wechat_push wechat_push.go
-RUN cd /work/server/hooks/spam_block && go build -ldflags "-s -w" -o output/spam_block spam_block.go
-
-
-FROM alpine
-
-WORKDIR /work
-
-# 设置时区
-RUN apk add --no-cache tzdata \
+RUN apk add --no-cache ca-certificates tzdata \
     && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-    && echo "Asia/Shanghai" > /etc/timezone \
-    &&rm -rf /var/cache/apk/* /tmp/* /var/tmp/* $HOME/.cache
-
-
-COPY --from=serverbuild /work/server/pmail .
-COPY --from=serverbuild /work/server/hooks/wechat_push/output/* ./plugins/
-COPY --from=serverbuild /work/server/hooks/spam_block/output/* ./plugins/
-
-EXPOSE 25 80 110 443 465 587 995 993
-
-CMD /work/pmail
+    && echo Asia/Shanghai > /etc/timezone \
+    && mkdir -m 700 /work/config
+COPY --from=backend /out/ /work/
+VOLUME ["/work/config"]
+EXPOSE 25 80 110 143 443 465 587 993 995
+HEALTHCHECK --interval=30s --timeout=5s --start-period=75s --retries=3 CMD ["/work/pmail", "healthcheck"]
+CMD ["/work/pmail"]

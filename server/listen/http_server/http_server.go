@@ -9,16 +9,20 @@ import (
 	"github.com/Jinnrry/pmail/session"
 	log "github.com/sirupsen/logrus"
 	"io/fs"
+	"net"
 	"net/http"
 	"time"
 )
 
-// 这个服务是为了拦截http请求转发到https
+// Close the bound socket even if Serve has not started yet.
 var httpServer *http.Server
+var httpSocket net.Listener
 
 func HttpStop() {
 	if httpServer != nil {
 		httpServer.Close()
+		httpSocket.Close()
+		httpServer, httpSocket = nil, nil
 	}
 }
 
@@ -58,40 +62,38 @@ func router(mux *http.ServeMux) {
 	mux.HandleFunc("/api/plugin/list", contextIterceptor(controllers.GetPluginList))
 }
 
-func HttpStart() {
+func HttpStart(httpsReady bool) {
 	mux := http.NewServeMux()
-
-	HttpPort := 80
-	if config.Instance.HttpPort > 0 {
-		HttpPort = config.Instance.HttpPort
+	port := config.Instance.HttpPort
+	if port == 0 {
+		port = 80
 	}
 
-	if config.Instance.HttpsEnabled != 2 {
-		// 在重定向模式下，也必须显式处理 ACME 挑战，避免跳转导致验证失败
+	var handler http.Handler = mux
+	if httpsReady {
 		mux.HandleFunc("/.well-known/", controllers.AcmeChallenge)
 		mux.HandleFunc("/api/ping", controllers.Ping)
 		mux.HandleFunc("/", controllers.Interceptor)
-		httpServer = &http.Server{
-			Addr:         fmt.Sprintf(":%d", HttpPort),
-			Handler:      mux,
-			ReadTimeout:  time.Second * 90,
-			WriteTimeout: time.Second * 90,
-		}
 	} else {
-
+		// Serve HTTP directly rather than redirecting to an unavailable HTTPS listener.
 		router(mux)
-
-		log.Infof("HttpServer Start On Port :%d", HttpPort)
-		httpServer = &http.Server{
-			Addr:         fmt.Sprintf(":%d", HttpPort),
-			Handler:      session.Instance.LoadAndSave(mux),
-			ReadTimeout:  time.Second * 90,
-			WriteTimeout: time.Second * 90,
-		}
+		handler = session.Instance.LoadAndSave(mux)
 	}
-
-	err := httpServer.ListenAndServe()
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+	server := &http.Server{
+		Addr:         fmt.Sprintf(":%d", port),
+		Handler:      handler,
+		ReadTimeout:  90 * time.Second,
+		WriteTimeout: 90 * time.Second,
+	}
+	socket, err := net.Listen("tcp", server.Addr)
+	if err != nil {
 		panic(err)
 	}
+	httpServer, httpSocket = server, socket
+	log.Infof("HTTP listening on %s", server.Addr)
+	go func() {
+		if err := server.Serve(socket); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Errorf("HTTP %s: %v", server.Addr, err)
+		}
+	}()
 }

@@ -29,13 +29,12 @@ func SetupStart() {
 	// 挑战请求类似这样 /.well-known/acme-challenge/QPyMAyaWw9s5JvV1oruyqWHG7OqkHMJEHPoUz2046KM
 	mux.HandleFunc("/.well-known/", controllers.AcmeChallenge)
 
-	HttpPort := 80
-	flag.IntVar(&HttpPort, "p", 80, "初始化阶段Http服务端口")
-	flag.Parse()
-
-	if HttpPort == 80 {
+	HttpPort := config.Instance.HttpPort
+	if HttpPort <= 0 {
 		HttpPort = cast.ToInt(os.Getenv("setup_port"))
 	}
+	flag.IntVar(&HttpPort, "p", HttpPort, "初始化阶段Http服务端口")
+	flag.Parse()
 
 	if HttpPort <= 0 || HttpPort > 65535 {
 		HttpPort = 80

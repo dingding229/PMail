@@ -2,42 +2,66 @@ package imap_server
 
 import (
 	"crypto/tls"
+	"net"
+	"os"
+
 	"github.com/Jinnrry/pmail/config"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	log "github.com/sirupsen/logrus"
-	"os"
 )
 
 var instanceTLS *imapserver.Server
+var instanceSTARTTLS *imapserver.Server
+var sockets []net.Listener
 
 func Stop() {
+	if instanceSTARTTLS != nil {
+		instanceSTARTTLS.Close()
+		instanceSTARTTLS = nil
+	}
 	if instanceTLS != nil {
 		instanceTLS.Close()
 		instanceTLS = nil
 	}
-}
-
-// StarTLS 启动TLS端口监听，不加密的代码就懒得写了
-func StarTLS() {
-	instanceTLS = newIMAPServer()
-	log.Infof("IMAP With TLS Server Start On Port :993")
-	if err := instanceTLS.ListenAndServeTLS(":993"); err != nil {
-		panic(err)
+	for _, socket := range sockets {
+		socket.Close()
 	}
+	sockets = nil
 }
 
-func newIMAPServer() *imapserver.Server {
-	crt, err := tls.LoadX509KeyPair(config.Instance.SSLPublicKeyPath, config.Instance.SSLPrivateKeyPath)
+// StarTLS listens for implicit TLS on port 993.
+func StarTLS(cert tls.Certificate) {
+	instanceTLS = start(":993", cert, true)
+}
+
+// StartSTARTTLS listens on port 143 but does not allow authentication before TLS.
+func StartSTARTTLS(cert tls.Certificate) {
+	instanceSTARTTLS = start(":143", cert, false)
+}
+
+func start(addr string, cert tls.Certificate, implicitTLS bool) *imapserver.Server {
+	server := newIMAPServer(cert)
+	socket, err := net.Listen("tcp", addr)
 	if err != nil {
-		panic(err)
+		log.Errorf("IMAP %s: %v", addr, err)
+		return nil
 	}
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{crt},
+	if implicitTLS {
+		socket = tls.NewListener(socket, &tls.Config{Certificates: []tls.Certificate{cert}})
 	}
+	sockets = append(sockets, socket)
+	log.Infof("IMAP listening on %s (implicit TLS: %t)", addr, implicitTLS)
+	go func() {
+		if err := server.Serve(socket); err != nil {
+			log.Warnf("IMAP %s: %v", addr, err)
+		}
+	}()
+	return server
+}
 
+func newIMAPServer(cert tls.Certificate) *imapserver.Server {
 	memServer := NewServer()
-
 	option := &imapserver.Options{
 		NewSession: func(conn *imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
 			return memServer.NewSession(), nil, nil
@@ -46,13 +70,11 @@ func newIMAPServer() *imapserver.Server {
 			imap.CapIMAP4rev1: {},
 			imap.CapIdle:      {},
 		},
-		TLSConfig:    tlsConfig,
+		TLSConfig:    &tls.Config{Certificates: []tls.Certificate{cert}},
 		InsecureAuth: false,
 	}
-
 	if config.Instance.LogLevel == "debug" {
 		option.DebugWriter = os.Stdout
 	}
-
 	return imapserver.New(option)
 }

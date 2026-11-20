@@ -1,6 +1,7 @@
 package http_server
 
 import (
+	"crypto/tls"
 	"embed"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"github.com/Jinnrry/pmail/utils/id"
 	"github.com/Jinnrry/pmail/utils/password"
 	olog "log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -27,6 +29,7 @@ import (
 var local embed.FS
 
 var httpsServer *http.Server
+var httpsSocket net.Listener
 
 type nullWrite struct {
 }
@@ -35,50 +38,49 @@ func (w *nullWrite) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func HttpsStart() {
-
+// HttpsStart binds the HTTPS port using the already validated certificate.
+// Its return value controls whether the HTTP listener should redirect.
+func HttpsStart(cert tls.Certificate) bool {
+	if config.Instance.HttpsEnabled == 2 {
+		return false
+	}
+	port := config.Instance.HttpsPort
+	if port == 0 {
+		port = 443
+	}
 	mux := http.NewServeMux()
-
 	router(mux)
-
-	// go http server会打一堆没用的日志，写一个空的日志处理器，屏蔽掉日志输出
-	nullLog := olog.New(&nullWrite{}, "", olog.Ldate)
-
-	HttpsPort := 443
-	if config.Instance.HttpsPort > 0 {
-		HttpsPort = config.Instance.HttpsPort
+	server := &http.Server{
+		Addr:         fmt.Sprintf(":%d", port),
+		Handler:      session.Instance.LoadAndSave(mux),
+		ReadTimeout:  90 * time.Second,
+		WriteTimeout: 90 * time.Second,
+		ErrorLog:     olog.New(&nullWrite{}, "", olog.Ldate),
+		TLSConfig:    &tls.Config{Certificates: []tls.Certificate{cert}},
 	}
-
-	if config.Instance.HttpsEnabled != 2 {
-		log.Infof("Https Server Start On Port :%d", HttpsPort)
-		httpsServer = &http.Server{
-			Addr:         fmt.Sprintf(":%d", HttpsPort),
-			Handler:      session.Instance.LoadAndSave(mux),
-			ReadTimeout:  time.Second * 90,
-			WriteTimeout: time.Second * 90,
-			ErrorLog:     nullLog,
-		}
-		err := httpsServer.ListenAndServeTLS(config.Instance.SSLPublicKeyPath, config.Instance.SSLPrivateKeyPath)
-		if err != nil {
-			if errors.Is(err, http.ErrServerClosed) {
-				// 正常关闭（重启或停机）
-				log.Infof("Https Server closed normally on port :%d", HttpsPort)
-			} else {
-				// 异常错误仍然打印并退出
-				log.Errorf("Https Server error on port :%d, %+v", HttpsPort, err)
-				panic(err)
-			}
-		}
+	socket, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		log.Errorf("HTTPS unavailable; keeping HTTP enabled: %v", err)
+		return false
 	}
+	httpsServer, httpsSocket = server, socket
+	log.Infof("HTTPS listening on %s", server.Addr)
+	go func() {
+		defer socket.Close()
+		if err := server.ServeTLS(socket, "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Errorf("HTTPS %s: %v", server.Addr, err)
+		}
+	}()
+	return true
 }
 
 func HttpsStop() {
 	if httpsServer != nil {
 		httpsServer.Close()
+		httpsSocket.Close()
+		httpsServer, httpsSocket = nil, nil
 	}
 }
-
-// 新增：分类处理关闭错误
 
 // 注入context
 func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {

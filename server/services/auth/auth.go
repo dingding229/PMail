@@ -1,18 +1,21 @@
 package auth
 
 import (
-	"crypto"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"fmt"
+	"os"
+	"path/filepath"
+
 	"github.com/Jinnrry/pmail/db"
+	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
-	"os"
-	"strings"
 )
 
 // HasAuth 检查当前用户是否有某个邮件的auth
@@ -30,73 +33,44 @@ func HasAuth(ctx *context.Context, email *models.Email) bool {
 	return len(ue) != 0
 }
 
-func DkimGen() string {
-	privKeyStr, _ := os.ReadFile("./config/dkim/dkim.priv")
-	publicKeyStr, _ := os.ReadFile("./config/dkim/dkim.public")
-	if len(privKeyStr) > 0 && len(publicKeyStr) > 0 {
-		return string(publicKeyStr)
-	}
-
-	var (
-		privKey crypto.Signer
-		err     error
-	)
-
-	privKey, err = rsa.GenerateKey(rand.Reader, 1024)
-
-	if err != nil {
-		log.Fatalf("Failed to generate key: %v", err)
-	}
-
-	privBytes, err := x509.MarshalPKCS8PrivateKey(privKey)
-	if err != nil {
-		log.Fatalf("Failed to marshal private key: %v", err)
-	}
-
-	f, err := os.OpenFile("./config/dkim/dkim.priv", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		log.Fatalf("Failed to create key file: %v", err)
-	}
-	defer f.Close()
-
-	privBlock := pem.Block{
-		Type:  "PRIVATE KEY",
-		Bytes: privBytes,
-	}
-	if err := pem.Encode(f, &privBlock); err != nil {
-		log.Fatalf("Failed to write key PEM block: %v", err)
-	}
-	if err := f.Close(); err != nil {
-		log.Fatalf("Failed to close key file: %v", err)
-	}
-
-	var pubBytes []byte
-
-	switch pubKey := privKey.Public().(type) {
-	case *rsa.PublicKey:
-		// RFC 6376 is inconsistent about whether RSA public keys should
-		// be formatted as RSAPublicKey or SubjectPublicKeyInfo.
-		// Erratum 3017 (https://www.rfc-editor.org/errata/eid3017)
-		// proposes allowing both.  We use SubjectPublicKeyInfo for
-		// consistency with other implementations including opendkim,
-		// Gmail, and Fastmail.
-		pubBytes, err = x509.MarshalPKIXPublicKey(pubKey)
+// EnsureDKIM generates a private key only if missing and derives its DNS record.
+func EnsureDKIM(path string) (string, error) {
+	key, err := parsemail.LoadPrivateKey(path)
+	if os.IsNotExist(err) {
+		private, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
-			log.Fatalf("Failed to marshal public key: %v", err)
+			return "", err
 		}
+		encoded, err := x509.MarshalPKCS8PrivateKey(private)
+		if err != nil {
+			return "", err
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: encoded}), 0600); err != nil {
+			return "", err
+		}
+		key = private
+	} else if err != nil {
+		return "", err
+	}
+
+	var record string
+	switch public := key.Public().(type) {
+	case *rsa.PublicKey:
+		encoded, err := x509.MarshalPKIXPublicKey(public)
+		if err != nil {
+			return "", err
+		}
+		record = "v=DKIM1; k=rsa; p=" + base64.StdEncoding.EncodeToString(encoded)
+	case ed25519.PublicKey:
+		record = "v=DKIM1; k=ed25519; p=" + base64.StdEncoding.EncodeToString(public)
 	default:
-		panic("unreachable")
+		return "", fmt.Errorf("unsupported DKIM key type %T", public)
 	}
-
-	params := []string{
-		"v=DKIM1",
-		"k=rsa",
-		"p=" + base64.StdEncoding.EncodeToString(pubBytes),
+	if err := os.WriteFile(filepath.Join(filepath.Dir(path), "dkim.public"), []byte(record), 0644); err != nil {
+		return "", err
 	}
-
-	publicKey := strings.Join(params, "; ")
-
-	os.WriteFile("./config/dkim/dkim.public", []byte(publicKey), 0666)
-
-	return publicKey
+	return record, nil
 }

@@ -8,6 +8,14 @@ import (
 
 // Finish 标记初始化完成
 func Finish() error {
+	if err := markInitialized(); err != nil {
+		return err
+	}
+	signal.InitChan <- true
+	return nil
+}
+
+func markInitialized() error {
 	cfg, err := config.ReadConfig()
 	if err != nil {
 		return errors.Wrap(err)
@@ -18,7 +26,5 @@ func Finish() error {
 	if err != nil {
 		return errors.Wrap(err)
 	}
-	// 初始化完成
-	signal.InitChan <- true
 	return nil
 }

@@ -31,3 +31,13 @@ func Init() {
 	}
 
 }
+
+// Stop releases the cleanup goroutine before closing or replacing the database pool.
+func Stop() {
+	if Instance == nil {
+		return
+	}
+	if store, ok := Instance.Store.(interface{ StopCleanup() }); ok {
+		store.StopCleanup()
+	}
+}

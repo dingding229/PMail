@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func (s *serverSession) Rename(mailbox, newName string) error {
+func (s *serverSession) Rename(mailbox, newName string, _ *imap.RenameOptions) error {
 	if group.IsDefaultBox(mailbox) {
 		return &imap.Error{
 			Type: imap.StatusResponseTypeNo,

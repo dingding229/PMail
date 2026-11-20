@@ -2,12 +2,13 @@ package db
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/utils/context"
-	"github.com/Jinnrry/pmail/utils/errors"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	log "github.com/sirupsen/logrus"
@@ -16,66 +17,111 @@ import (
 
 var Instance *xorm.Engine
 
-func Init(version string) error {
-	dsn := config.Instance.DbDSN
-	var err error
-	if config.Instance.DbType == config.DBTypeSQLite {
+// Open connects without migrating schema or writing application data.
+func Open(cfg *config.Config, retry bool) (*xorm.Engine, error) {
+	dsn := cfg.DbDSN
+	if dsn == "" {
+		return nil, fmt.Errorf("database DSN is required for %s", cfg.DbType)
+	}
+	switch cfg.DbType {
+	case config.DBTypeSQLite:
+		var err error
 		dsn, err = sqliteDSNWithReliabilityOptions(dsn)
 		if err != nil {
-			return errors.Wrap(err)
+			return nil, err
 		}
-	}
-
-	switch config.Instance.DbType {
-	case "mysql":
-		Instance, err = xorm.NewEngine("mysql", dsn)
-	case "sqlite":
-		Instance, err = xorm.NewEngine("sqlite", dsn)
-	case "postgres":
-		Instance, err = xorm.NewEngine("postgres", dsn)
+	case config.DBTypePostgres:
+		parsed, err := url.Parse(dsn)
+		if err != nil || parsed.Scheme != "postgres" || parsed.Hostname() == "" ||
+			strings.Trim(parsed.Path, "/") == "" || parsed.Fragment != "" {
+			return nil, fmt.Errorf("PostgreSQL DSN must be a postgres:// URL, e.g. postgres://user:pass@host:5432/db?sslmode=disable")
+		}
+	case config.DBTypeMySQL:
 	default:
-		return errors.New("Database Type Error!")
+		return nil, fmt.Errorf("unsupported database type")
 	}
+
+	engine, err := xorm.NewEngine(cfg.DbType, dsn)
 	if err != nil {
-		log.Errorf("DB init Error! %s", err.Error())
-		return errors.Wrap(err)
+		// Some driver parsers include the original DSN in errors.
+		return nil, fmt.Errorf("could not open %s database; verify the configured DSN", cfg.DbType)
 	}
-	if config.Instance.DbType == config.DBTypeSQLite {
-		Instance.SetMaxOpenConns(1)
-		Instance.SetMaxIdleConns(1)
+	if cfg.DbType == config.DBTypeSQLite {
+		engine.SetMaxOpenConns(1)
+		engine.SetMaxIdleConns(1)
 	} else {
-		Instance.SetMaxOpenConns(100)
-		Instance.SetMaxIdleConns(10)
+		engine.SetMaxOpenConns(100)
+		engine.SetMaxIdleConns(10)
 	}
+	engine.SetConnMaxLifetime(30 * time.Minute)
+	if err := pingWithRetry(engine, retry && cfg.DbType == config.DBTypePostgres); err != nil {
+		engine.Close()
+		return nil, fmt.Errorf("connect to %s database: %w", cfg.DbType, err)
+	}
+	return engine, nil
+}
 
-	Instance.SetConnMaxLifetime(30 * time.Minute)
-	Instance.ShowSQL(config.Instance.LogLevel == "debug")
-	// 同步表结构
-	syncTables()
+func Init(version string) error {
+	return initializeDB(version, false, false)
+}
 
-	// 更新历史数据
-	fixHistoryData()
+func InitStartup(version string, preserveUsers bool) error {
+	return initializeDB(version, true, preserveUsers)
+}
 
-	// 在数据库中记录程序版本
-	var v models.Version
-	_, err = Instance.Get(&v)
+func initializeDB(version string, retry, preserveUsers bool) error {
+	engine, err := Open(config.Instance, retry)
 	if err != nil {
-		panic(err)
+		return err
 	}
+	if err := initializeSchemaAndData(engine, version, preserveUsers); err != nil {
+		engine.Close()
+		return err
+	}
+	engine.ShowSQL(config.Instance.LogLevel == "debug")
+	if Instance != nil {
+		Instance.Close()
+	}
+	Instance = engine
+	return nil
+}
 
-	if version != "" && v.Info != version && version != "test" {
-		v.Info = version
-		if v.Id == 0 {
-			Instance.Insert(&v)
-		} else {
-			Instance.Update(&v)
+func initializeSchemaAndData(engine *xorm.Engine, version string, preserveUsers bool) error {
+	if err := SyncSchema(engine); err != nil {
+		return err
+	}
+	if err := fixHistoryData(engine, preserveUsers); err != nil {
+		return err
+	}
+	if version == "" || version == "test" {
+		return nil
+	}
+	var v models.Version
+	if _, err := engine.Get(&v); err != nil {
+		return err
+	}
+	if v.Info == version {
+		return nil
+	}
+	v.Info = version
+	if v.Id == 0 {
+		_, err := engine.Insert(&v)
+		return err
+	}
+	_, err := engine.ID(v.Id).Cols("info").Update(&v)
+	return err
+}
+
+// SyncSchema is also used by the offline migration command, which must not seed or repair data.
+func SyncSchema(engine *xorm.Engine) error {
+	for _, model := range []any{
+		&models.User{}, &models.Email{}, &models.Group{}, &models.Rule{},
+		&models.Sessions{}, &models.UserEmail{}, &models.Version{},
+	} {
+		if err := engine.Sync2(model); err != nil {
+			return fmt.Errorf("sync schema for %T: %w", model, err)
 		}
 	}
-
-	//if config.Instance.LogLevel == "debug" {
-	//	Instance.ShowSQL(true)
-	//}
-
 	return nil
 }
 
@@ -87,76 +133,45 @@ func WithContext(ctx *context.Context, sql string) string {
 	return sql
 }
 
-func syncTables() {
-	err := Instance.Sync2(&models.User{})
-	if err != nil {
-		panic(err)
-	}
-	err = Instance.Sync2(&models.Email{})
-	if err != nil {
-		panic(err)
-	}
-	err = Instance.Sync2(&models.Group{})
-	if err != nil {
-		panic(err)
-	}
-	err = Instance.Sync2(&models.Rule{})
-	if err != nil {
-		panic(err)
-	}
-	err = Instance.Sync2(&models.Sessions{})
-	if err != nil {
-		panic(err)
-	}
-	err = Instance.Sync2(&models.UserEmail{})
-	if err != nil {
-		panic(err)
-	}
-	err = Instance.Sync2(&models.Version{})
-	if err != nil {
-		panic(err)
-	}
-}
-
-func fixHistoryData() {
+func fixHistoryData(engine *xorm.Engine, preserveUsers bool) error {
 	var ueNum int
-	_, err := Instance.Table(&models.UserEmail{}).Select("count(1)").Get(&ueNum)
+	_, err := engine.Table(&models.UserEmail{}).Select("count(1)").Get(&ueNum)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	if ueNum > 0 {
-		return
+		return nil
 	}
 
 	// 只有一个管理员用户
 	var user []models.User
-	err = Instance.Table(&models.User{}).OrderBy("id asc").Find(&user)
+	err = engine.Table(&models.User{}).OrderBy("id asc").Find(&user)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	// 只有一个账号，且不是管理员账号，将账号提权为管理员
-	if len(user) == 1 && user[0].IsAdmin == 0 {
+	if !preserveUsers && len(user) == 1 && user[0].IsAdmin == 0 {
 		u := user[0]
 		u.IsAdmin = 1
-		_, err = Instance.Update(&u)
+		_, err = engine.ID(u.ID).Cols("is_admin").Update(&u)
 		if err != nil {
-			panic(err)
+			return err
 		}
 	}
 
 	if len(user) != 1 {
-		return
+		return nil
 	}
 
 	// 以前有邮件
 	var emails []*models.Email
-	err = Instance.Table(&models.Email{}).Select("id,status").OrderBy("id asc").Find(&emails)
+	err = engine.Table(&models.Email{}).Select("id,status").OrderBy("id asc").Find(&emails)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	if len(emails) == 0 {
-		return
+		return nil
 	}
 
 	log.Infof("Sync History Data！Please Wait！")
@@ -168,11 +183,11 @@ func fixHistoryData() {
 			EmailID: email.Id,
 			Status:  email.Status,
 		}
-		_, err = Instance.Insert(&ue)
+		_, err = engine.Insert(&ue)
 		if err != nil {
 			log.Errorf("SQL Error: %v", err)
 		}
 	}
 	log.Infof("Sync History Data Finished. Num: %d", len(emails))
-
+	return nil
 }

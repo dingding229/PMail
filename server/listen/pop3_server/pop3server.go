@@ -1,62 +1,39 @@
 package pop3_server
 
 import (
-	"crypto/rand"
 	"crypto/tls"
+	"time"
+
 	"github.com/Jinnrry/gopop"
 	"github.com/Jinnrry/pmail/config"
 	log "github.com/sirupsen/logrus"
-	"time"
 )
 
-var instance *gopop.Server
-var instanceTls *gopop.Server
+var instances []*gopop.Server
 
-func StartWithTls() {
-	crt, err := tls.LoadX509KeyPair(config.Instance.SSLPublicKeyPath, config.Instance.SSLPrivateKeyPath)
-	if err != nil {
-		panic(err)
-	}
-	tlsConfig := &tls.Config{}
-	tlsConfig.Certificates = []tls.Certificate{crt}
-	tlsConfig.Time = time.Now
-	tlsConfig.Rand = rand.Reader
-	instanceTls = gopop.NewPop3Server(995, "pop."+config.Instance.Domain, true, tlsConfig, action{})
-	instanceTls.ConnectAliveTime = 5 * time.Minute
-
-	log.Infof("POP3 With TLS Server Start On Port :995")
-
-	err = instanceTls.Start()
-	if err != nil {
-		panic(err)
-	}
+func StartWithTls(cert tls.Certificate) {
+	start(995, true, cert)
 }
 
-func Start() {
-	crt, err := tls.LoadX509KeyPair(config.Instance.SSLPublicKeyPath, config.Instance.SSLPrivateKeyPath)
-	if err != nil {
-		panic(err)
-	}
-	tlsConfig := &tls.Config{}
-	tlsConfig.Certificates = []tls.Certificate{crt}
-	tlsConfig.Time = time.Now
-	tlsConfig.Rand = rand.Reader
-	instance = gopop.NewPop3Server(110, "pop."+config.Instance.Domain, false, tlsConfig, action{})
-	instance.ConnectAliveTime = 5 * time.Minute
-	log.Infof("POP3 Server Start On Port :110")
+func Start(cert tls.Certificate) {
+	start(110, false, cert)
+}
 
-	err = instance.Start()
-	if err != nil {
-		panic(err)
-	}
+func start(port int, implicitTLS bool, cert tls.Certificate) {
+	tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
+	server := gopop.NewPop3Server(port, "pop."+config.Instance.Domain, implicitTLS, tlsConfig, action{})
+	server.ConnectAliveTime = 5 * time.Minute
+	instances = append(instances, server)
+	go func() {
+		if err := server.Start(); err != nil {
+			log.Errorf("POP3 on port %d: %v", port, err)
+		}
+	}()
 }
 
 func Stop() {
-	if instance != nil {
-		instance.Stop()
+	for _, server := range instances {
+		server.Stop()
 	}
-
-	if instanceTls != nil {
-		instanceTls.Stop()
-	}
+	instances = nil
 }

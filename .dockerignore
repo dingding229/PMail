@@ -1,0 +1,17 @@
+.git
+.github
+.code-review-graph
+.env
+.env.*
+**/.DS_Store
+**/node_modules
+**/dist
+**/output
+backups
+server/pmail_*
+server/plugins
+server/config/*.json
+server/config/*.db*
+server/config/secret.key
+server/config/dkim
+server/config/ssl

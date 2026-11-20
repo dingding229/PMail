@@ -18,12 +18,11 @@ import (
 func AcmeChallenge(w http.ResponseWriter, r *http.Request) {
 	log.Infof("AcmeChallenge: %s", r.URL.Path)
 	instance := ssl.GetHttpChallengeInstance()
-	token := strings.ReplaceAll(r.URL.Path, "/.well-known/acme-challenge/", "")
-	auth, exist := instance.AuthInfo[token]
+	token := strings.TrimPrefix(r.URL.Path, "/.well-known/acme-challenge/")
+	auth, exist := instance.Lookup(token)
 	if exist {
-		w.Write([]byte(auth.KeyAuth))
+		w.Write([]byte(auth))
 	} else {
-		log.Errorf("AcmeChallenge Error Token Infos:%+v", instance.AuthInfo)
 		http.NotFound(w, r)
 	}
 }
@@ -178,7 +177,7 @@ func Setup(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 
 		response.NewSuccessResponse("Succ").FPrint(w)
 
-		if reqData["ssl_type"] == config.SSLTypeUser {
+		if reqData["ssl_type"] == config.SSLTypeUser || reqData["ssl_type"] == config.SSLTypeDisabled {
 			setup.Finish()
 		}
 		return

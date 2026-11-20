@@ -10,7 +10,7 @@ import (
 func (s *serverSession) Poll(w *imapserver.UpdateWriter, allowExpunge bool) error {
 
 	var ue []models.UserEmail
-	db.Instance.Table("user_email").Where("user_id=? and create >=?", s.ctx.UserID, s.connectTime).Find(&ue)
+	db.Instance.Table("user_email").Where("user_id=? and `create` >=?", s.ctx.UserID, s.connectTime).Find(&ue)
 
 	if len(ue) > 0 {
 		w.WriteNumMessages(cast.ToUint32(len(ue)))

@@ -2,6 +2,8 @@ package smtp_server
 
 import (
 	"crypto/tls"
+	"errors"
+	"net"
 	"time"
 
 	"github.com/Jinnrry/pmail/config"
@@ -9,9 +11,12 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var instance *smtp.Server
-var instanceTls *smtp.Server
-var instanceTlsNew *smtp.Server
+type listener struct {
+	server *smtp.Server
+	socket net.Listener
+}
+
+var listeners []listener
 
 func newSMTPServer(addr string) *smtp.Server {
 	server := smtp.NewServer(&Backend{})
@@ -21,72 +26,52 @@ func newSMTPServer(addr string) *smtp.Server {
 	server.WriteTimeout = 10 * time.Second
 	server.MaxMessageBytes = 1024 * 1024 * 30
 	server.MaxRecipients = 50
-	// PLAIN and LOGIN credentials may only be sent over TLS, including on 587.
 	server.AllowInsecureAuth = false
 	return server
 }
 
-func StartWithTLSNew() {
-	instanceTlsNew = newSMTPServer(":587")
-	// Load the certificate and key
-	cer, err := tls.LoadX509KeyPair(config.Instance.SSLPublicKeyPath, config.Instance.SSLPrivateKeyPath)
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-	// Configure the TLS support for STARTTLS
-	instanceTlsNew.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cer}}
-
-	log.Println("Starting Smtp With STARTTLS Server Port:", instanceTlsNew.Addr)
-	// 587端口使用STARTTLS（先明文连接，再升级TLS），而非隐式TLS
-	if err := instanceTlsNew.ListenAndServe(); err != nil {
-		log.Fatal(err)
-	}
+func Start(cert *tls.Certificate) {
+	start(":25", cert, false)
 }
 
-func StartWithTLS() {
-	instanceTls = newSMTPServer(":465")
-	// Load the certificate and key
-	cer, err := tls.LoadX509KeyPair(config.Instance.SSLPublicKeyPath, config.Instance.SSLPrivateKeyPath)
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-	// Configure the TLS support
-	instanceTls.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cer}}
-
-	log.Println("Starting Smtp With SSL Server Port:", instanceTls.Addr)
-	if err := instanceTls.ListenAndServeTLS(); err != nil {
-		log.Fatal(err)
-	}
+func StartWithTLS(cert tls.Certificate) {
+	start(":465", &cert, true)
 }
 
-func Start() {
-	instance = newSMTPServer(":25")
-	// Load the certificate and key
-	cer, err := tls.LoadX509KeyPair(config.Instance.SSLPublicKeyPath, config.Instance.SSLPrivateKeyPath)
+func StartWithTLSNew(cert tls.Certificate) {
+	start(":587", &cert, false)
+}
+
+func start(addr string, cert *tls.Certificate, implicitTLS bool) {
+	server := newSMTPServer(addr)
+	if cert != nil {
+		server.TLSConfig = &tls.Config{Certificates: []tls.Certificate{*cert}}
+	}
+	socket, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatal(err)
+		if addr == ":25" {
+			log.Fatalf("SMTP %s: %v", addr, err)
+		}
+		log.Errorf("SMTP %s: %v", addr, err)
 		return
 	}
-	// Configure the TLS support
-	instance.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cer}}
-
-	log.Println("Starting Smtp Server Port:", instance.Addr)
-	if err := instance.ListenAndServe(); err != nil {
-		log.Fatal(err)
+	if implicitTLS {
+		socket = tls.NewListener(socket, server.TLSConfig)
 	}
+	listeners = append(listeners, listener{server, socket})
+	log.Infof("SMTP listening on %s (implicit TLS: %t, certificate loaded: %t)", addr, implicitTLS, cert != nil)
+	go func() {
+		if err := server.Serve(socket); err != nil && !errors.Is(err, net.ErrClosed) {
+			log.Errorf("SMTP %s: %v", addr, err)
+		}
+	}()
 }
 
 func Stop() {
-	if instance != nil {
-		instance.Close()
+	for _, l := range listeners {
+		l.server.Close()
+		// Also close the socket if Serve had not registered it yet.
+		l.socket.Close()
 	}
-	if instanceTls != nil {
-		instanceTls.Close()
-	}
-
-	if instanceTlsNew != nil {
-		instanceTlsNew.Close()
-	}
+	listeners = nil
 }

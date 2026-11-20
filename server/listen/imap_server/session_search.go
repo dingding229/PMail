@@ -63,7 +63,6 @@ func (s *serverSession) Search(kind imapserver.NumKind, criteria *imap.SearchCri
 				Stop:  imap.UID(data.ID),
 			})
 		}
-		ret.UID = true
 		ret.All = idList
 		ret.Count = uint32(len(retList))
 

@@ -1,26 +1,25 @@
 package ssl
 
 import (
+	"context"
 	"crypto"
-	"crypto/ecdsa"
 	"crypto/tls"
 	"crypto/x509"
-	"github.com/Jinnrry/pmail/config"
-	"github.com/Jinnrry/pmail/services/setup"
-	"github.com/Jinnrry/pmail/signal"
-	"github.com/Jinnrry/pmail/utils/async"
-	"github.com/Jinnrry/pmail/utils/errors"
-	"github.com/go-acme/lego/v4/certificate"
-	"github.com/go-acme/lego/v4/challenge/dns01"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cast"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/services/setup"
+	"github.com/Jinnrry/pmail/utils/errors"
 	"github.com/go-acme/lego/v4/certcrypto"
+	"github.com/go-acme/lego/v4/certificate"
+	"github.com/go-acme/lego/v4/challenge/dns01"
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
+	log "github.com/sirupsen/logrus"
 )
 
 type MyUser struct {
@@ -56,13 +55,13 @@ func SetSSL(sslType, priKey, crtKey string) error {
 	if err != nil {
 		panic(err)
 	}
-	if sslType == config.SSLTypeAutoHTTP || sslType == config.SSLTypeUser || sslType == config.SSLTypeAutoDNS {
+	if sslType == config.SSLTypeAutoHTTP || sslType == config.SSLTypeUser || sslType == config.SSLTypeAutoDNS || sslType == config.SSLTypeDisabled {
 		cfg.SSLType = sslType
 	} else {
 		return errors.New("SSL Type Error!")
 	}
 
-	if cfg.SSLType != config.SSLTypeUser && strings.TrimSpace(cfg.Domain) == "" {
+	if cfg.SSLType != config.SSLTypeUser && cfg.SSLType != config.SSLTypeDisabled && strings.TrimSpace(cfg.Domain) == "" {
 		return errors.New("Domain must be configured before automatic SSL certificate setup")
 	}
 
@@ -81,259 +80,174 @@ func SetSSL(sslType, priKey, crtKey string) error {
 	return nil
 }
 
-func renewCertificate(privateKey *ecdsa.PrivateKey, cfg *config.Config) error {
+// Serialize requests from the wizard and scheduler, including their writes to disk.
+var issuanceGate = make(chan struct{}, 1)
 
-	myUser := MyUser{
-		Email: "SSLMaster@" + cfg.Domain,
-		key:   privateKey,
-	}
+func Automatic(cfg *config.Config) bool {
+	return cfg.SSLType == config.SSLTypeAutoHTTP || cfg.SSLType == config.SSLTypeAutoDNS
+}
 
-	conf := lego.NewConfig(&myUser)
-	conf.UserAgent = "PMail"
-	conf.Certificate.KeyType = certcrypto.RSA2048
-
-	// A client facilitates communication with the CA server.
-	client, err := lego.NewClient(conf)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if cfg.SSLType == config.SSLTypeAutoHTTP {
-		err = client.Challenge.SetHTTP01Provider(GetHttpChallengeInstance())
-		if err != nil {
-			return errors.Wrap(err)
-		}
-	} else if cfg.SSLType == config.SSLTypeAutoDNS {
-		err = client.Challenge.SetDNS01Provider(GetDnsChallengeInstance(), dns01.AddDNSTimeout(60*time.Minute))
-		if err != nil {
-			return errors.Wrap(err)
-		}
-
-		log.Errorf("Please Set DNS Record/请将以下内容添加到DNS记录中:\n")
-		for _, item := range GetDnsChallengeInstance().GetDNSSettings(nil) {
-			log.Errorf("Type:%s\tHost:%s\tValue:%s\n", item.Type, item.Host, item.Value)
-		}
-
-	}
-
-	var reg *registration.Resource
-
-	reg, err = client.Registration.ResolveAccountByKey()
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	myUser.Registration = reg
-
+func certificateDomains(cfg *config.Config) []string {
 	domains := []string{cfg.WebDomain}
 	for _, domain := range cfg.Domains {
-		domains = append(domains, "smtp."+domain)
-		domains = append(domains, "pop."+domain)
-		domains = append(domains, "imap."+domain)
+		domains = append(domains, "smtp."+domain, "pop."+domain, "imap."+domain)
 	}
+	return domains
+}
 
-	request := certificate.ObtainRequest{
-		Domains: domains,
-		Bundle:  true,
-	}
-
-	log.Infof("wait ssl renew")
-	certificates, err := client.Certificate.Obtain(request)
+// LoadCertificate only reads local files and checks the leaf validity window.
+// Return the loaded pair so listeners never need to reopen the files at startup.
+func LoadCertificate(cfg *config.Config) (*tls.Certificate, error) {
+	cert, err := tls.LoadX509KeyPair(cfg.SSLPublicKeyPath, cfg.SSLPrivateKeyPath)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	err = os.WriteFile("./config/ssl/private.key", certificates.PrivateKey, 0666)
-	if err != nil {
-		panic(err)
+	if err := validateCertificate(&cert); err != nil {
+		return nil, err
 	}
+	return &cert, nil
+}
 
-	err = os.WriteFile("./config/ssl/public.crt", certificates.Certificate, 0666)
-	if err != nil {
-		panic(err)
+func validateCertificate(cert *tls.Certificate) error {
+	if cert.Leaf == nil {
+		if len(cert.Certificate) == 0 {
+			return errors.New("TLS certificate chain is empty")
+		}
+		leaf, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil {
+			return err
+		}
+		cert.Leaf = leaf
 	}
-
-	err = os.WriteFile("./config/ssl/issuerCert.crt", certificates.IssuerCertificate, 0666)
-	if err != nil {
-		panic(err)
+	now := time.Now()
+	if now.Before(cert.Leaf.NotBefore) || !now.Before(cert.Leaf.NotAfter) {
+		return fmt.Errorf("TLS certificate is not currently valid (valid from %s until %s)", cert.Leaf.NotBefore, cert.Leaf.NotAfter)
 	}
-
 	return nil
 }
 
-func generateCertificate(privateKey *ecdsa.PrivateKey, cfg *config.Config, newAccount bool) error {
-	if strings.TrimSpace(cfg.Domain) == "" {
-		return errors.New("Domain must be configured before automatic SSL certificate setup")
+func coversDomains(cfg *config.Config, cert *tls.Certificate) bool {
+	for _, domain := range certificateDomains(cfg) {
+		if cert.Leaf.VerifyHostname(domain) != nil {
+			return false
+		}
 	}
+	return true
+}
 
-	myUser := MyUser{
-		Email: "i@" + cfg.Domain,
-		key:   privateKey,
+func NeedsRenewal(cfg *config.Config, cert *tls.Certificate) bool {
+	return time.Until(cert.Leaf.NotAfter) < 30*24*time.Hour || !coversDomains(cfg, cert)
+}
+
+// ObtainCertificate acquires or renews automatic TLS material. It never starts or restarts listeners.
+func ObtainCertificate(ctx context.Context, cfg *config.Config) error {
+	select {
+	case issuanceGate <- struct{}{}:
+		defer func() { <-issuanceGate }()
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-
-	conf := lego.NewConfig(&myUser)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if cfg.Domain == "" || !Automatic(cfg) {
+		return errors.New("Automatic TLS requires an ACME mode and a configured domain")
+	}
+	key, err := config.ReadPrivateKey()
+	if err != nil {
+		return fmt.Errorf("load ACME account key: %w", err)
+	}
+	user := &MyUser{Email: "SSLMaster@" + cfg.Domain, key: key}
+	conf := lego.NewConfig(user)
 	conf.UserAgent = "PMail"
 	conf.Certificate.KeyType = certcrypto.RSA2048
-
-	// A client facilitates communication with the CA server.
 	client, err := lego.NewClient(conf)
 	if err != nil {
-		return errors.Wrap(err)
+		return err
 	}
-
 	if cfg.SSLType == config.SSLTypeAutoHTTP {
 		err = client.Challenge.SetHTTP01Provider(GetHttpChallengeInstance())
-		if err != nil {
-			return errors.Wrap(err)
-		}
-	} else if cfg.SSLType == config.SSLTypeAutoDNS {
-		err = client.Challenge.SetDNS01Provider(GetDnsChallengeInstance(), dns01.AddDNSTimeout(60*time.Minute))
-		if err != nil {
-			return errors.Wrap(err)
-		}
-	}
-
-	var reg *registration.Resource
-
-	if newAccount {
-		reg, err = client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
-		if err != nil {
-			return errors.Wrap(err)
-		}
 	} else {
-		reg, err = client.Registration.ResolveAccountByKey()
+		err = client.Challenge.SetDNS01Provider(GetDnsChallengeInstance(), dns01.AddDNSTimeout(60*time.Minute))
+	}
+	if err != nil {
+		return err
+	}
+	// ACME newAccount returns the existing registration for a known key. It also
+	// recovers when a key was written before an earlier registration failed.
+	user.Registration, err = client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
+	if err != nil {
+		user.Registration, err = client.Registration.ResolveAccountByKey()
 		if err != nil {
-			return errors.Wrap(err)
+			return err
 		}
 	}
 
-	myUser.Registration = reg
-
-	domains := []string{cfg.WebDomain}
-	for _, domain := range cfg.Domains {
-		domains = append(domains, "smtp."+domain)
-		domains = append(domains, "pop."+domain)
-		domains = append(domains, "imap."+domain)
+	domains := certificateDomains(cfg)
+	log.Infof("Requesting ACME certificate for %s", strings.Join(domains, ", "))
+	certs, err := client.Certificate.Obtain(certificate.ObtainRequest{Domains: domains, Bundle: true})
+	if err != nil {
+		return err
 	}
-
-	request := certificate.ObtainRequest{
-		Domains: domains,
-		Bundle:  true,
+	pair, err := tls.X509KeyPair(certs.Certificate, certs.PrivateKey)
+	if err != nil {
+		return err
 	}
-
-	as := async.New(nil)
-
-	as.Process(func(params any) {
-		log.Infof("wait ssl")
-		certificates, err := client.Certificate.Obtain(request)
-		if err != nil {
-			panic(err)
+	if err := validateCertificate(&pair); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for _, path := range []string{cfg.SSLPrivateKeyPath, cfg.SSLPublicKeyPath} {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			return err
 		}
-		log.Infof("证书校验通过！")
-		err = os.WriteFile("./config/ssl/private.key", certificates.PrivateKey, 0666)
-		if err != nil {
-			panic(err)
-		}
-
-		err = os.WriteFile("./config/ssl/public.crt", certificates.Certificate, 0666)
-		if err != nil {
-			panic(err)
-		}
-
-		err = os.WriteFile("./config/ssl/issuerCert.crt", certificates.IssuerCertificate, 0666)
-		if err != nil {
-			panic(err)
-		}
-
-		setup.Finish()
-
-	}, nil)
-
+	}
+	if err := os.WriteFile(cfg.SSLPrivateKeyPath, certs.PrivateKey, 0600); err != nil {
+		return err
+	}
+	if err := os.WriteFile(cfg.SSLPublicKeyPath, certs.Certificate, 0644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(cfg.SSLPublicKeyPath), "issuerCert.crt"), certs.IssuerCertificate, 0644); err != nil {
+		log.Warnf("Could not save ACME issuer certificate: %v", err)
+	}
 	return nil
 }
 
 func GenSSL(update bool) error {
-
-	cfg, err := config.ReadConfig()
+	cfg, err := config.ReadEffectiveConfig()
 	if err != nil {
-		panic(err)
+		return err
 	}
-
-	if !update {
-		privateFile, errpi := os.ReadFile(cfg.SSLPrivateKeyPath)
-		public, errpu := os.ReadFile(cfg.SSLPublicKeyPath)
-		// 当前存在证书数据，就不生成了
-		if errpi == nil && errpu == nil && len(privateFile) > 0 && len(public) > 0 {
-			return nil
+	if update {
+		return ObtainCertificate(context.Background(), cfg)
+	}
+	// The web wizard must respond while HTTP-01/DNS-01 challenges are in progress.
+	go func() {
+		if _, err := LoadCertificate(cfg); err != nil && cfg.SSLType != config.SSLTypeDisabled {
+			if err = ObtainCertificate(context.Background(), cfg); err != nil {
+				log.Errorf("SSL setup failed: %v", err)
+				return
+			}
 		}
-	}
-
-	privateKey, newAccount := config.ReadPrivateKey()
-
-	if !update {
-		return generateCertificate(privateKey, cfg, newAccount)
-	}
-
-	return renewCertificate(privateKey, cfg)
+		if err := setup.Finish(); err != nil {
+			log.Errorf("Finish setup: %v", err)
+		}
+	}()
+	return nil
 }
 
-// CheckSSLCrtInfo 返回证书过期剩余天数
+// CheckSSLCrtInfo returns the certificate's remaining days, expiry and name mismatch.
 func CheckSSLCrtInfo() (int, time.Time, bool, error) {
-
-	cfg, err := config.ReadConfig()
+	cfg, err := config.ReadEffectiveConfig()
 	if err != nil {
-		panic(err)
+		return -1, time.Time{}, true, err
 	}
-	// load cert and key by tls.LoadX509KeyPair
-	tlsCert, err := tls.LoadX509KeyPair(cfg.SSLPublicKeyPath, cfg.SSLPrivateKeyPath)
+	cert, err := LoadCertificate(cfg)
 	if err != nil {
-		return -1, time.Now(), true, errors.Wrap(err)
+		return -1, time.Time{}, true, err
 	}
-
-	cert, err := x509.ParseCertificate(tlsCert.Certificate[0])
-
-	if err != nil {
-		return -1, time.Now(), true, errors.Wrap(err)
-	}
-
-	nameMatchFail := true
-	for _, name := range cert.DNSNames {
-		if strings.Contains(name, "imap") {
-			nameMatchFail = false
-			break
-		}
-	}
-
-	// 检查过期时间
-	hours := cert.NotAfter.Sub(time.Now()).Hours()
-
-	if hours <= 0 {
-		return -1, time.Now(), nameMatchFail, errors.New("Certificate has expired")
-	}
-
-	return cast.ToInt(hours / 24), cert.NotAfter, nameMatchFail, nil
-}
-
-func Update(needRestart bool) {
-	if config.Instance != nil && config.Instance.IsInit && (config.Instance.SSLType == config.SSLTypeAutoHTTP || config.Instance.SSLType == config.SSLTypeAutoDNS) {
-		days, _, nameMatchFail, err := CheckSSLCrtInfo()
-
-		if days < 30 || err != nil || nameMatchFail {
-			if err != nil {
-				log.Errorf("SSL Check Error, Update SSL Certificate. Error Info :%+v", err)
-			} else {
-				log.Infof("SSL certificate remaining time is only %d days, renew SSL certificate.", days)
-			}
-			err = GenSSL(true)
-			if err != nil {
-				log.Errorf("SSL Update Error! %+v", err)
-			}
-			if needRestart {
-				// 更新完证书，重启服务
-				signal.RestartChan <- true
-			}
-		} else {
-			log.Debugf("SSL Check.")
-		}
-	}
-
+	return int(time.Until(cert.Leaf.NotAfter).Hours() / 24), cert.Leaf.NotAfter, !coversDomains(cfg, cert), nil
 }

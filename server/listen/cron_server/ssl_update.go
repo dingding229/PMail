@@ -1,91 +1,86 @@
 package cron_server
 
 import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"slices"
+	"time"
+
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/services/setup/ssl"
 	"github.com/Jinnrry/pmail/signal"
 	log "github.com/sirupsen/logrus"
-	"time"
-	// 新增：HTTP 就绪探测
-	"net/http"
-	"fmt"
 )
 
-var expiredTime time.Time
+const (
+	certificateCheckInterval = 24 * time.Hour
+	certificateRetryMin      = 10 * time.Minute
+	certificateRetryMax      = 6 * time.Hour
+)
 
-func Start() {
-
-	// 第一次启动，等待到初始化完成
-	if config.Instance == nil || config.IsInit == false {
-		for {
-			time.Sleep(1 * time.Minute)
-			if config.Instance != nil && config.IsInit {
-				break
-			}
-		}
-	}
-
-	if config.Instance.SSLType == config.SSLTypeAutoHTTP || config.Instance.SSLType == config.SSLTypeAutoDNS {
-		go sslUpdateLoop()
-	} else {
-		go sslCheck()
-	}
-
+// Start is called for every service generation, independently of the TLS mode.
+// Future scheduler workers can share its context and stop on reload or shutdown.
+func Start(ctx context.Context, cfg *config.Config, active *tls.Certificate) {
+	go certificateMaintenance(ctx, cfg, active)
 }
 
-// 每天检查一遍SSL证书是否更新，更新就重启
-func sslCheck() {
-	var err error
-	_, expiredTime, _, err = ssl.CheckSSLCrtInfo()
-	if err != nil {
-		panic(err)
+func certificateMaintenance(ctx context.Context, cfg *config.Config, active *tls.Certificate) {
+	if cfg.SSLType == config.SSLTypeDisabled {
+		return
 	}
 
-	for {
-		time.Sleep(24 * time.Hour)
-		_, newExpTime, _, err := ssl.CheckSSLCrtInfo()
-		if err != nil {
-			log.Errorf("SSL Check Error! %+v", err)
-		}
-		if newExpTime != expiredTime {
-			expiredTime = newExpTime
-			log.Infoln("SSL certificate had update! restarting")
-			signal.RestartChan <- true
-		}
-
-	}
-}
-
-// 每天检查一遍SSL证书是否即将过期，即将过期就重新生成
-func sslUpdateLoop() {
-	for {
-		// 等待 HTTP 就绪后再执行 ACME 续期，避免挑战失败
-		waitHTTPReady()
-		ssl.Update(true)
-		// 每24小时检测一次证书有效期
-		time.Sleep(24 * time.Hour)
-	}
-}
-
-// 新增：HTTP 就绪探测（最多等待 ~90 秒）
-func waitHTTPReady() {
-	port := 80
-	if config.Instance != nil && config.Instance.HttpPort > 0 {
-		port = config.Instance.HttpPort
-	}
-	url := fmt.Sprintf("http://127.0.0.1:%d/api/ping", port)
-
-	for i := 0; i < 90; i++ {
-		resp, err := http.Get(url)
-		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
-			resp.Body.Close()
-			log.Infof("HTTP ready: %s", url)
+	backoff := certificateRetryMin
+	for ctx.Err() == nil {
+		cert, err := ssl.LoadCertificate(cfg)
+		if err == nil && certificateChanged(active, cert) {
+			requestCertificateReload(ctx)
 			return
 		}
-		if resp != nil {
-			resp.Body.Close()
+		if ssl.Automatic(cfg) && (err != nil || ssl.NeedsRenewal(cfg, cert)) {
+			err = ssl.ObtainCertificate(ctx, cfg)
+			if err == nil {
+				cert, err = ssl.LoadCertificate(cfg)
+				if err == nil && certificateChanged(active, cert) {
+					requestCertificateReload(ctx)
+					return
+				}
+			}
 		}
-		time.Sleep(1 * time.Second)
+		if ctx.Err() != nil {
+			return
+		}
+
+		delay := certificateCheckInterval
+		if err != nil {
+			delay = backoff
+			backoff = min(2*backoff, certificateRetryMax)
+			if active == nil {
+				log.Errorf("TLS certificate unavailable; retrying in %s: %v", delay, err)
+			} else {
+				log.Warnf("TLS certificate maintenance failed; retaining the active certificate and retrying in %s: %v", delay, err)
+			}
+		} else {
+			backoff = certificateRetryMin
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
 	}
-	log.Warnf("HTTP not ready after 90s, skipping SSL update this round")
+}
+
+func certificateChanged(active, loaded *tls.Certificate) bool {
+	return active == nil || !slices.EqualFunc(active.Certificate, loaded.Certificate, bytes.Equal)
+}
+
+func requestCertificateReload(ctx context.Context) {
+	log.Info("TLS certificate is ready or replaced; reloading listeners")
+	select {
+	case signal.RestartChan <- true:
+	case <-ctx.Done():
+	}
 }

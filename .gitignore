@@ -7,3 +7,11 @@ server/plugins
 config
 *_KEY
 AURORA_SECRET
+
+.env
+.env.*
+!.env.example
+backups/
+fe/node_modules/
+fe/auto-imports.d.ts
+fe/components.d.ts
