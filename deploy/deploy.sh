@@ -2,99 +2,671 @@
 set -euo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-env_file="$root_dir/.env"
+env_file="${PMAIL_ENV_FILE:-$root_dir/.env}"
 project_name="${PMAIL_PROJECT_NAME:-}"
+YES=false
+PURGE=false
+FILL_MISSING=false
+UPGRADE_VERSION=""
+OLD_CONFIG=""
+FORCE_PROJECT=false
 
-load_project() {
-    if [[ ! -f "$env_file" ]]; then
-        echo "未找到 .env，请先运行 deploy/deploy.sh init。" >&2
-        exit 1
-    fi
-    if [[ -z "$project_name" ]]; then
-        # Only read the simple project-name assignment; Compose, not Bash, parses the rest.
-        project_name="$(sed -n 's/^PMAIL_PROJECT_NAME=\([a-z0-9][a-z0-9_-]*\)$/\1/p' "$env_file" | tail -n 1)"
-        project_name="${project_name:-pmail}"
-    fi
-    if [[ ! "$project_name" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
-        echo "PMAIL_PROJECT_NAME 必须以小写字母或数字开头，只能包含小写字母、数字、下划线和连字符。" >&2
-        exit 2
-    fi
-}
+usage() {
+    cat <<USAGE
+用法：$0 <命令> [选项]
 
-compose() {
-    docker compose --project-directory "$root_dir" --env-file "$env_file" -p "$project_name" "$@"
+命令：
+  init                         生成 .env，支持交互式初始化
+  check                        检查 Docker、端口、磁盘和必填配置
+  up                           构建或拉取镜像并启动
+  upgrade                      备份、构建、启动，失败自动回滚
+  backup                      备份 PostgreSQL
+  restore <file>               恢复 PostgreSQL 备份
+  dns                          查询域名 DNS 期望值与实际值
+  migrate-from-sqlite <path>   从 SQLite 迁移
+  migrate-from-mysql <dsn>     从 MySQL 迁移
+  logs                         查看日志
+  status                       查看状态
+  down                         停止服务
+  uninstall                    停止并删除容器；--purge 同时删除卷
+
+通用选项：
+  --yes                        非交互模式/确认危险操作
+  --project <name>             覆盖 Compose 项目名
+  --domain <name>              主邮件域名
+  --domains <list>             附加域名，逗号分隔
+  --web-domain <name>          Web 域名
+  --ssl-type <0|1|2|3>         证书模式
+  --web-public                 Web 绑定 0.0.0.0
+  --admin-account <name>       管理员账号
+  --admin-password <password>  管理员密码
+  --purge                      uninstall 时删除数据卷
+  --fill-missing               init 时只补齐 .env 中的空密钥/密码
+  --version <tag>              upgrade 使用的镜像 tag（预构建镜像模式）
+  --old-config <dir>           旧版 config/ 目录，用于迁移域名和 DKIM
+  --force-project              跳过项目目录冲突拒绝（仍必须二次确认）
+  -h, --help                   显示帮助
+USAGE
 }
 
 random_hex() {
     od -An -N "$1" -tx1 /dev/urandom | tr -d '[:space:]'
 }
 
+set_env_value() {
+    local key="$1" value="$2" tmp
+    tmp="$(mktemp)"
+    awk -v key="$key" -v value="$value" '
+        BEGIN { done=0 }
+        $0 ~ "^" key "=" { print key "=" value; done=1; next }
+        { print }
+        END { if (!done) print key "=" value }
+    ' "$env_file" > "$tmp"
+    chmod 600 "$tmp"
+    mv "$tmp" "$env_file"
+    if [[ "$key" == PMAIL_IMAGE ]]; then
+        export PMAIL_IMAGE="$value"
+    fi
+}
+
+parse_options() {
+    while (($#)); do
+        case "$1" in
+            --yes) YES=true; shift ;;
+            --purge) PURGE=true; shift ;;
+            --fill-missing) FILL_MISSING=true; shift ;;
+            --version) UPGRADE_VERSION="$2"; shift 2 ;;
+            --old-config) OLD_CONFIG="$2"; shift 2 ;;
+            --force-project) FORCE_PROJECT=true; shift ;;
+            --project) project_name="$2"; shift 2 ;;
+            --domain) INIT_DOMAIN="$2"; shift 2 ;;
+            --domains) INIT_DOMAINS="$2"; shift 2 ;;
+            --web-domain) INIT_WEB_DOMAIN="$2"; shift 2 ;;
+            --ssl-type) INIT_SSL_TYPE="$2"; shift 2 ;;
+            --web-public) INIT_WEB_PUBLIC=true; shift ;;
+            --admin-account) INIT_ADMIN_ACCOUNT="$2"; shift 2 ;;
+            --admin-password) INIT_ADMIN_PASSWORD="$2"; shift 2 ;;
+            -h|--help) usage; exit 0 ;;
+            -*) echo "未知选项：$1" >&2; usage >&2; exit 2 ;;
+            *) echo "多余位置参数：$1（该命令只接受一个位置参数）" >&2; usage >&2; exit 2 ;;
+        esac
+    done
+}
+
+load_project() {
+    if [[ ! -f "$env_file" ]]; then
+        echo "未找到 $env_file，请先运行 deploy/deploy.sh init。" >&2
+        exit 1
+    fi
+    if [[ -z "$project_name" ]]; then
+        project_name="$(sed -n 's/^PMAIL_PROJECT_NAME=//p' "$env_file" | tail -n 1)"
+        project_name="${project_name:-pmail}"
+    fi
+    if [[ ! "$project_name" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+        echo "PMAIL_PROJECT_NAME 格式无效。" >&2
+        exit 2
+    fi
+    local configured_image env_image
+    configured_image="$(sed -n 's/^PMAIL_IMAGE=//p' "$env_file" | tail -n 1)"
+    env_image="${PMAIL_IMAGE:-}"
+    if [[ -z "$configured_image" ]]; then
+        configured_image="${env_image:-pmail-${project_name}:local}"
+        set_env_value PMAIL_IMAGE "$configured_image"
+    fi
+    export PMAIL_IMAGE="$configured_image"
+}
+
+print_project_context() {
+    echo "项目：$project_name  目录：$root_dir"
+}
+
+check_project_safety() {
+    local current other found=false containers
+    current="$root_dir"
+    if ! containers="$(docker ps -a --filter "label=com.docker.compose.project=$project_name" --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null)"; then
+        echo "无法检查 Docker 项目归属，拒绝执行可能改动容器的命令。请确认 Docker 可用后重试。" >&2
+        return 1
+    fi
+    while IFS= read -r other; do
+        [[ -n "$other" && "$other" != "$current" ]] || continue
+        found=true
+        echo "检测到项目 $project_name 已在其他目录运行：$other" >&2
+    done <<< "$containers"
+    [[ "$found" == true ]] || return 0
+    if [[ "$FORCE_PROJECT" != true ]]; then
+        echo "拒绝操作：请使用 --project 指定独立项目名，或在原目录执行；需要跳过保护时显式使用 --force-project。" >&2
+        return 1
+    fi
+    local answer
+    read -r -p "确认操作项目 $project_name 并可能影响其他目录容器？请输入 yes：" answer
+    [[ "$answer" == yes ]] || { echo "未确认，停止操作。" >&2; return 1; }
+}
+
+compose() {
+    docker compose --project-directory "$root_dir" --env-file "$env_file" -p "$project_name" "$@"
+}
+
 init_env() {
     if [[ -e "$env_file" ]]; then
-        echo ".env 已存在，未覆盖。"
-        return
+        local existing_project
+        existing_project="$(sed -n 's/^PMAIL_PROJECT_NAME=//p' "$env_file" | tail -n 1)"
+        if [[ -n "$existing_project" && "$project_name" != "$existing_project" ]]; then
+            echo "已有 .env 的项目名为 $existing_project，保留该值，不写入请求的 $project_name。" >&2
+            project_name="$existing_project"
+        elif [[ -z "$existing_project" && -n "$project_name" ]]; then
+            set_env_value PMAIL_PROJECT_NAME "$project_name"
+        fi
+        if [[ "$FILL_MISSING" != true ]]; then
+            if [[ -z "$(sed -n 's/^PMAIL_IMAGE=//p' "$env_file" | tail -n 1)" ]]; then
+                set_env_value PMAIL_IMAGE "${PMAIL_IMAGE:-pmail-${project_name}:local}"
+            fi
+            echo ".env 已存在，未覆盖。最终项目名：$project_name" >&2
+            return 0
+        fi
+        [[ -n "$(sed -n 's/^PMAIL_IMAGE=//p' "$env_file" | tail -n 1)" ]] || set_env_value PMAIL_IMAGE "${PMAIL_IMAGE:-pmail-${project_name}:local}"
+        [[ -n "$(sed -n 's/^POSTGRES_PASSWORD=//p' "$env_file")" ]] || set_env_value POSTGRES_PASSWORD "$(random_hex 24)"
+        [[ -n "$(sed -n 's/^PMAIL_SECRET_KEY=//p' "$env_file")" ]] || set_env_value PMAIL_SECRET_KEY "$(random_hex 32)"
+        [[ -n "$(sed -n 's/^PMAIL_ADMIN_PASSWORD=//p' "$env_file")" ]] || set_env_value PMAIL_ADMIN_PASSWORD "$(random_hex 24)"
+        echo "已补齐 .env 中的空密码/密钥。"
+        return 0
     fi
-    local db_password secret_key admin_password
+    local domain domains web_domain ssl_type web_bind admin_account admin_password db_password secret_key
+    domain="${INIT_DOMAIN:-${PMAIL_DOMAIN:-}}"
+    domains="${INIT_DOMAINS:-${PMAIL_DOMAINS:-}}"
+    web_domain="${INIT_WEB_DOMAIN:-${PMAIL_WEB_DOMAIN:-}}"
+    ssl_type="${INIT_SSL_TYPE:-${PMAIL_SSL_TYPE:-3}}"
+    web_bind="127.0.0.1"
+    admin_account="${INIT_ADMIN_ACCOUNT:-${PMAIL_ADMIN_ACCOUNT:-admin}}"
+    admin_password="${INIT_ADMIN_PASSWORD:-}"
+    if [[ "$YES" != true ]]; then
+        read -r -p "主邮件域名 [${domain:-example.com}]: " value
+        domain="${value:-${domain:-example.com}}"
+        read -r -p "附加域名（逗号分隔，可留空） [$domains]: " value
+        domains="${value:-$domains}"
+        read -r -p "Web 域名 [${web_domain:-$domain}]: " value
+        web_domain="${value:-${web_domain:-$domain}}"
+        read -r -p "证书模式 0=ACME HTTP-01, 1=自有证书, 2=ACME DNS-01, 3=反代仅 HTTP [$ssl_type]: " value
+        ssl_type="${value:-$ssl_type}"
+        read -r -p "是否对公网开放 Web？[y/N]: " value
+        [[ "$value" =~ ^[Yy]$ ]] && web_bind="0.0.0.0"
+        read -r -p "管理员账号 [$admin_account]: " value
+        admin_account="${value:-$admin_account}"
+    else
+        [[ -n "$domain" ]] || { echo "--domain 或 PMAIL_DOMAIN 必填。" >&2; exit 2; }
+        [[ "${INIT_WEB_PUBLIC:-false}" != true ]] || web_bind="0.0.0.0"
+    fi
+    [[ -n "$domain" ]] || { echo "主邮件域名不能为空。" >&2; exit 2; }
+    [[ "$ssl_type" =~ ^[0-3]$ ]] || { echo "SSL 类型必须为 0、1、2 或 3。" >&2; exit 2; }
     db_password="$(random_hex 24)"
     secret_key="$(random_hex 32)"
-    admin_password="$(random_hex 24)"
-    (
-        umask 077
-        set -o noclobber
-        sed -e "s/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=$db_password/" \
-            -e "s/^PMAIL_SECRET_KEY=$/PMAIL_SECRET_KEY=$secret_key/" \
-            -e "s/^PMAIL_ADMIN_PASSWORD=$/PMAIL_ADMIN_PASSWORD=$admin_password/" \
-            "$root_dir/.env.example" > "$env_file"
-    )
-    echo "已生成权限为 0600 的 .env。请修改邮件域名及端口绑定，并妥善保存管理员密码和密钥。"
+    [[ -n "$admin_password" ]] || admin_password="$(random_hex 24)"
+    cp "$root_dir/.env.example" "$env_file"
+    chmod 600 "$env_file"
+    set_env_value PMAIL_PROJECT_NAME "$project_name"
+    set_env_value PMAIL_IMAGE "${PMAIL_IMAGE:-pmail-${project_name}:local}"
+    set_env_value PMAIL_DOMAIN "$domain"
+    set_env_value PMAIL_DOMAINS "$domains"
+    set_env_value PMAIL_WEB_DOMAIN "$web_domain"
+    set_env_value PMAIL_SSL_TYPE "$ssl_type"
+    set_env_value PMAIL_WEB_BIND "$web_bind"
+    set_env_value PMAIL_ADMIN_ACCOUNT "$admin_account"
+    set_env_value PMAIL_ADMIN_PASSWORD "$admin_password"
+    set_env_value POSTGRES_PASSWORD "$db_password"
+    set_env_value PMAIL_SECRET_KEY "$secret_key"
+    cat <<INFO
+初始化完成。最终项目名：$project_name
+管理员账号：$admin_account
+管理员密码（仅此处显示）：$admin_password
+请立即保存密码，并配置以下 DNS：
+  MX、SPF、DKIM、DMARC；邮件服务器公网 IP 还应配置 PTR/rDNS。
+INFO
+}
+
+check() {
+    load_project
+    command -v docker >/dev/null || { echo "缺少 docker。" >&2; exit 1; }
+    docker version >/dev/null
+    docker compose version >/dev/null
+    compose config --quiet
+    local required ports port
+    required="25 465 587 110 995 143 993 80 443"
+    ports="$(grep -E '^(PMAIL_HOST_(SMTP|SMTPS|SUBMISSION|POP3|POP3S|IMAP|IMAPS|HTTP|HTTPS)_PORT)=' "$env_file" | cut -d= -f2 | tr '\n' ' ')"
+    for port in $ports $required; do
+        [[ "$port" =~ ^[0-9]+$ ]] || continue
+        if command -v ss >/dev/null && ss -ltn "sport = :$port" | grep -q LISTEN; then
+            echo "端口 $port 已被占用（可能是本项目容器）。"
+        fi
+    done
+    df -Pk "$root_dir" | awk 'NR==2 { if ($4 < 1048576) { print "磁盘可用空间少于 1GiB。"; exit 1 } }'
+    if command -v nc >/dev/null; then
+        if nc -z -w 3 1.1.1.1 25; then
+            echo "25 端口出站连通性：TCP 探测成功。"
+        else
+            echo "提示：TCP 25 出站探测失败，云厂商可能封禁了 25 端口。"
+        fi
+    else
+        echo "提示：未安装 nc，跳过 25 端口出站探测。"
+    fi
+    grep -q '^PMAIL_DOMAIN=.' "$env_file" || { echo "PMAIL_DOMAIN 未配置。" >&2; exit 1; }
+    grep -q '^POSTGRES_PASSWORD=.' "$env_file" || { echo "POSTGRES_PASSWORD 未配置。" >&2; exit 1; }
+    grep -q '^PMAIL_SECRET_KEY=.' "$env_file" || { echo "PMAIL_SECRET_KEY 未配置。" >&2; exit 1; }
+    echo "部署前检查通过。"
+}
+
+wait_healthy() {
+    local status
+    for _ in $(seq 1 60); do
+        status="$(compose ps --format '{{.Service}} {{.State}} {{.Health}}' pmail 2>/dev/null || true)"
+        if [[ "$status" == *"healthy"* ]]; then
+            echo "PMail healthy。"
+            return 0
+        fi
+        sleep 2
+    done
+    echo "PMail 未在超时内进入 healthy。" >&2
+    compose ps
+    return 1
+}
+
+verify_running() {
+    local container status health restart_before restart_after
+    container="$(compose ps -q pmail 2>/dev/null || true)"
+    if [[ -z "$container" ]]; then
+        echo "PMail 容器不存在，服务未运行。" >&2
+        return 1
+    fi
+    status="$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || true)"
+    health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || true)"
+    restart_before="$(docker inspect -f '{{.RestartCount}}' "$container" 2>/dev/null || true)"
+    echo "PMail 运行校验：status=$status health=$health restart_count=$restart_before"
+    if [[ "$status" != running ]]; then
+        echo "PMail 未处于 running 状态。" >&2
+        return 1
+    fi
+    for _ in $(seq 1 30); do
+        [[ "$health" == starting ]] || break
+        sleep 3
+        status="$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || true)"
+        health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || true)"
+        echo "PMail 健康检查等待：status=$status health=$health"
+        [[ "$status" == running ]] || break
+    done
+    if [[ "$status" != running || "$health" != healthy ]]; then
+        echo "PMail 未在 90 秒内进入 running/healthy 状态。" >&2
+        return 1
+    fi
+    sleep 10
+    status="$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || true)"
+    health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || true)"
+    restart_after="$(docker inspect -f '{{.RestartCount}}' "$container" 2>/dev/null || true)"
+    echo "PMail 稳定性校验：status=$status health=$health restart_count=$restart_after"
+    if [[ "$status" != running || "$health" != healthy || "$restart_after" != "$restart_before" ]]; then
+        echo "PMail 在稳定性窗口内退出、重启或变为不健康。" >&2
+        return 1
+    fi
+}
+
+rollback_upgrade() {
+    local previous="$1" backup_file="$2"
+    set_env_value PMAIL_IMAGE "$previous"
+    compose down >/dev/null 2>&1 || true
+    compose up -d --wait postgres
+    # shellcheck disable=SC2016
+    compose exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error --no-owner --no-privileges' < "$backup_file" || true
+    if ! compose up -d --wait pmail; then
+        echo "回滚后服务仍不健康，请人工处理。" >&2
+        compose logs --tail=50 pmail || true
+        return 1
+    fi
+    if ! verify_running; then
+        echo "回滚后服务仍不健康，请人工处理。" >&2
+        compose logs --tail=50 pmail || true
+        return 1
+    fi
+    echo "升级失败，已回滚到 $previous 并恢复升级前备份，服务健康。"
 }
 
 backup() (
     umask 077
-    local dir="$root_dir/backups" stamp tmp basename file
+    local dir="$root_dir/backups" stamp tmp file
     mkdir -p "$dir"
     stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    file="$dir/${project_name}-${stamp}.dump"
     tmp="$(mktemp "$dir/.${project_name}-${stamp}.XXXXXXXX")"
-    trap 'rm -- "$tmp"' EXIT
-    compose exec -T postgres sh -ec \
-        'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_dump -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' > "$tmp"
-    basename="${tmp##*/}"
-    file="$dir/${basename#.}.dump"
+    trap 'rm -f -- "$tmp"' EXIT
+    # shellcheck disable=SC2016
+    compose exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_dump -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' > "$tmp"
     mv -- "$tmp" "$file"
     trap - EXIT
     echo "备份完成：$file"
 )
 
 restore() {
-    local file="$1" running
+    local file="$1"
     compose up -d --wait postgres
-    running="$(compose ps --status running -q pmail)"
-    if [[ -n "$running" ]]; then
-        compose stop pmail
-    fi
-    if ! compose exec -T postgres sh -ec \
-        'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error --no-owner --no-privileges' < "$file"; then
-        echo "恢复失败；PMail 不会自动重启。请查看错误并确认数据库状态。" >&2
-        return 1
-    fi
-    if [[ -n "$running" ]]; then
-        compose up -d pmail
-    fi
-    echo "恢复完成：$file"
+    compose stop pmail >/dev/null 2>&1 || true
+    # shellcheck disable=SC2016
+    compose exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error --no-owner --no-privileges' < "$file"
+    compose up -d pmail
+    wait_healthy
 }
 
-case "${1:-}" in
-    init) init_env ;;
-    up) load_project; compose build; compose up -d ;;
-    upgrade) load_project; backup; compose build --pull; compose up -d ;;
-    backup) load_project; backup ;;
-    restore)
-        [[ $# -eq 2 && -f "$2" && -r "$2" ]] || { echo "用法：$0 restore <backup.dump>" >&2; exit 2; }
+is_registry_image() {
+    [[ "$1" == */* ]]
+}
+
+image_exists() {
+    docker image inspect "$1" >/dev/null 2>&1
+}
+
+local_image_cleanup() {
+    local images prefix
+    prefix="pmail-${project_name}"
+    images="$(docker image ls --format '{{.Repository}}:{{.Tag}}' "$prefix" | awk -F: '$2 ~ /^[0-9]{14}$/ {print}' | sort -r | tail -n +3)"
+    if [[ -n "$images" ]]; then
+        while IFS= read -r image; do
+            [[ -n "$image" ]] && docker image rm "$image" >/dev/null 2>&1 || true
+        done <<< "$images"
+    fi
+}
+
+up() {
+    check
+    local image
+    image="${PMAIL_IMAGE:-pmail-${project_name}:local}"
+    if is_registry_image "$image"; then
+        compose pull pmail
+    else
+        compose build pmail
+    fi
+    if ! compose up -d --wait || ! verify_running; then
+        echo "PMail 启动失败，最近日志如下：" >&2
+        compose logs --tail=50 pmail || true
+        return 1
+    fi
+}
+
+upgrade() {
+    check
+    local previous tag backup_file image repo version
+    previous="${PMAIL_IMAGE:-pmail-${project_name}:local}"
+    backup_file="$(backup | sed -n 's/^备份完成：//p')"
+    if is_registry_image "$previous"; then
+        repo="${previous%:*}"
+        version="${UPGRADE_VERSION:-latest}"
+        image="$repo:$version"
+        set_env_value PMAIL_IMAGE "$image"
+        if ! compose pull pmail || ! compose up -d --wait || ! verify_running; then
+            echo "预构建镜像升级失败，恢复旧 tag 和数据库备份。" >&2
+            rollback_upgrade "$previous" "$backup_file" || true
+            return 1
+        fi
+        echo "预构建镜像升级完成：$image；升级前备份：$backup_file"
+        return 0
+    fi
+    tag="pmail-${project_name}:$(date -u +%Y%m%d%H%M%S)"
+    set_env_value PMAIL_IMAGE "$tag"
+    if ! compose build --pull pmail || ! compose up -d --wait || ! verify_running; then
+        echo "本地构建升级失败，开始回滚镜像和数据库。" >&2
+        rollback_upgrade "$previous" "$backup_file" || true
+        return 1
+    fi
+    local_image_cleanup
+    echo "本地构建升级完成：$tag；升级前备份：$backup_file"
+}
+
+api_error_fields() {
+    local payload="$1"
+    if command -v jq >/dev/null; then
+        printf '%s' "$payload" | jq -r '[.errorNo // 0, .errorMsg // ""] | @tsv' 2>/dev/null && return 0
+    fi
+    if command -v python3 >/dev/null; then
+        printf '%s' "$payload" | python3 -c '
+import json, sys
+value = json.load(sys.stdin)
+print("{}\t{}".format(value.get("errorNo", 0), value.get("errorMsg", "")))
+' && return 0
+    fi
+    local error_no=0 error_msg=""
+    if [[ "$payload" =~ "errorNo"[[:space:]]*:[[:space:]]*([0-9]+) ]]; then
+        error_no="${BASH_REMATCH[1]}"
+    fi
+    error_msg="$(printf '%s' "$payload" | sed -n 's/.*"errorMsg"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+    printf '%s\t%s\n' "$error_no" "$error_msg"
+}
+
+dns() {
+    local base token domains domain_rows formatter id name dns_json response_file http_code error_no error_msg
+    load_project
+    base="${PMAIL_API_URL:-http://127.0.0.1:${PMAIL_HOST_HTTP_PORT:-80}}"
+    token="${PMAIL_API_TOKEN:-}"
+    [[ -n "$token" ]] || { echo "请设置 PMAIL_API_TOKEN 后重试；Token 只在内存中使用。" >&2; exit 2; }
+    command -v curl >/dev/null || { echo "缺少 curl。" >&2; exit 1; }
+    response_file="$(mktemp)"
+    if ! http_code="$(curl -sS -o "$response_file" -w '%{http_code}' -H "Authorization: Bearer $token" "$base/api/domain/list")"; then
+        rm -f "$response_file"
+        echo "域名列表查询失败（curl 无法连接 API）。" >&2
+        return 1
+    fi
+    domains="$(cat "$response_file")"
+    rm -f "$response_file"
+    IFS=$'\t' read -r error_no error_msg <<< "$(api_error_fields "$domains")"
+    if [[ ! "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+        echo "API Token 无效或无权限（HTTP $http_code${error_msg:+ / $error_msg}）。" >&2
+        return 1
+    fi
+    case "$error_no" in
+        ""|0|null) ;;
+        *)
+            echo "API Token 无效或无权限（HTTP $http_code${error_msg:+ / $error_msg}）。" >&2
+            return 1
+            ;;
+    esac
+
+    formatter=""
+    domain_rows=""
+    if command -v jq >/dev/null; then
+        if domain_rows="$(printf '%s' "$domains" | jq -r 'if (.data | type) == "array" then .data[]? else (.data.list // [])[]? end | [.id, .name] | @tsv')"; then
+            formatter=jq
+        fi
+    fi
+    if [[ -z "$formatter" ]] && command -v python3 >/dev/null; then
+        if domain_rows="$(printf '%s' "$domains" | python3 -c '
+import json, sys
+payload = json.load(sys.stdin)
+data = payload.get("data", [])
+if isinstance(data, dict):
+    data = data.get("list", [])
+for item in data or []:
+    if item.get("id") is not None:
+        print("{}\t{}".format(item.get("id"), item.get("name", "")))
+')"; then
+            formatter=python
+        fi
+    fi
+    if [[ -z "$formatter" ]]; then
+        if ! command -v grep >/dev/null || ! command -v sed >/dev/null; then
+            echo "无法解析域名列表：需要 jq、python3 或 grep/sed。" >&2
+            return 1
+        fi
+        local data_segment ids names
+        data_segment="$(printf '%s' "$domains" | grep -oE '"data"[[:space:]]*:[[:space:]]*\[[^]]*\]' | head -n 1 || true)"
+        if [[ -z "$data_segment" ]]; then
+            data_segment="$(printf '%s' "$domains" | grep -oE '"data"[[:space:]]*:[[:space:]]*\{[^}]*\}' | grep -oE '"list"[[:space:]]*:[[:space:]]*\[[^]]*\]' | head -n 1 || true)"
+        fi
+        ids="$(printf '%s' "$data_segment" | grep -oE '"id"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' || true)"
+        names="$(printf '%s' "$data_segment" | grep -oE '"name"[[:space:]]*:[[:space:]]*"[^"]*"' | sed -E 's/.*:[[:space:]]*"([^"]*)"/\1/' || true)"
+        while IFS= read -r id; do
+            [[ -n "$id" ]] || continue
+            name="$(printf '%s\n' "$names" | head -n 1)"
+            names="$(printf '%s\n' "$names" | tail -n +2)"
+            printf '%s\t%s\n' "$id" "${name:-ID $id}"
+        done <<< "$ids" >"${TMPDIR:-/tmp}/pmail-dns-rows.$$.tmp"
+        domain_rows="$(cat "${TMPDIR:-/tmp}/pmail-dns-rows.$$.tmp")"
+        rm -f "${TMPDIR:-/tmp}/pmail-dns-rows.$$.tmp"
+        formatter=bash
+    fi
+    [[ -n "$domain_rows" ]] || { echo "域名列表中没有可用的 data 域名 ID。" >&2; return 1; }
+
+    while IFS=$'\t' read -r id name; do
+        [[ -n "$id" ]] || continue
+        if ! dns_json="$(curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d "{\"id\":$id}" "$base/api/domain/dns")"; then
+            echo "域名 $name (id=$id) 的 DNS 查询失败。" >&2
+            return 1
+        fi
+        printf '域名：%s (id=%s)\n' "$name" "$id"
+        case "$formatter" in
+            jq)
+                printf '类型\t主机名\t期望值\t当前是否匹配\n'
+                printf '%s' "$dns_json" | jq -r 'if (.data | type) == "array" then .data[]? else (.data.list // [])[]? end | "\(.type)\t\(.name)\t\(.expected)\t\(.match)"'
+                ;;
+            python)
+                printf '类型\t主机名\t期望值\t当前是否匹配\n'
+                printf '%s' "$dns_json" | python3 -c '
+import json, sys
+payload = json.load(sys.stdin)
+data = payload.get("data", [])
+if isinstance(data, dict):
+    data = data.get("list", [])
+for item in data or []:
+    print("{}\t{}\t{}\t{}".format(item.get("type", ""), item.get("name", ""), item.get("expected", ""), item.get("match", False)))
+'
+                ;;
+            bash)
+                printf '%s\n' "$dns_json"
+                ;;
+        esac
+        printf '\n'
+    done <<< "$domain_rows"
+}
+
+read_old_config() {
+    local config_file="$1"
+    [[ -r "$config_file" ]] || { echo "无法读取旧配置：$config_file" >&2; return 1; }
+    if command -v jq >/dev/null; then
+        jq -r '[.domain // "", ((.domains // []) | join(",")), (.webDomain // "")] | @tsv' "$config_file"
+    elif command -v python3 >/dev/null; then
+        python3 - "$config_file" <<'PYINNER'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    value = json.load(f)
+print(value.get("domain", ""), ",".join(value.get("domains", []) or []), value.get("webDomain", ""), sep="\t")
+PYINNER
+    else
+        echo "需要 jq 或 python3 解析旧 config.json。" >&2
+        return 1
+    fi
+}
+
+migrate_old_config() {
+    local old_dir="$1" config_file="$1/config.json" values old_domain old_domains old_web
+    [[ -d "$old_dir" ]] || { echo "旧 config 目录不存在：$old_dir" >&2; return 1; }
+    if [[ -r "$config_file" ]]; then
+        values="$(read_old_config "$config_file")"
+        IFS=$'\t' read -r old_domain old_domains old_web <<< "$values"
+        if [[ -n "$old_domain" ]]; then
+            if [[ "$YES" != true ]]; then
+                read -r -p "使用旧配置域名 $old_domain / $old_domains / $old_web 写入 .env？[Y/n]: " answer
+                if [[ "$answer" =~ ^[Nn]$ ]]; then
+                    old_domain=""; old_domains=""; old_web=""
+                fi
+            fi
+            if [[ -n "$old_domain" ]]; then
+                set_env_value PMAIL_DOMAIN "$old_domain"
+                set_env_value PMAIL_DOMAINS "$old_domains"
+                set_env_value PMAIL_WEB_DOMAIN "${old_web:-$old_domain}"
+            fi
+        fi
+    fi
+    if [[ -r "$old_dir/dkim/dkim.priv" ]]; then
+        compose run --rm --no-deps -v "$old_dir:/migration/old-config:ro" pmail /bin/sh -ec 'mkdir -p /work/config/dkim && cp /migration/old-config/dkim/dkim.priv /work/config/dkim/dkim.priv && chmod 600 /work/config/dkim/dkim.priv'
+        echo "已复制旧 DKIM 私钥到 pmail_config/config/dkim/dkim.priv。"
+    else
+        echo "警告：旧配置中没有 dkim/dkim.priv，DKIM 需要重新配置。" >&2
+    fi
+}
+
+migrate() {
+    local kind="$1" source="$2"
+    if [[ -n "$OLD_CONFIG" ]]; then
+        OLD_CONFIG="$(realpath "$OLD_CONFIG")"
+        [[ -d "$OLD_CONFIG" ]] || { echo "旧 config 目录不存在：$OLD_CONFIG" >&2; exit 2; }
+    fi
+    if [[ "$kind" == sqlite ]]; then
+        source="$(realpath "$source")"
+        [[ -r "$source" ]] || { echo "SQLite 文件不可读：$source" >&2; exit 2; }
+    fi
+    compose stop pmail >/dev/null 2>&1 || true
+    compose up -d --wait postgres
+    [[ -n "$OLD_CONFIG" ]] && migrate_old_config "$OLD_CONFIG"
+    if [[ "$kind" == sqlite ]]; then
+        compose run --rm --no-deps -v "$source:/migration/source:ro" pmail /work/pmail migrate --from-type sqlite --from-dsn /migration/source
+    else
+        compose run --rm --no-deps pmail /work/pmail migrate --from-type mysql --from-dsn "$source"
+    fi
+    compose up -d pmail
+    wait_healthy
+    echo "迁移完成提醒：旧版 Token 头格式不再可用，请登录后创建新的 API Token。"
+}
+
+uninstall() {
+    if [[ "$PURGE" != true && "$YES" != true ]]; then
+        read -r -p "只删除容器，保留数据卷。继续？[y/N]: " value
+        [[ "$value" =~ ^[Yy]$ ]] || exit 0
+    fi
+    compose down
+    if [[ "$PURGE" == true ]]; then
+        if [[ "$YES" != true ]]; then
+            read -r -p "确认删除 pg_data 和 pmail_config，数据不可恢复？[y/N]: " value
+            [[ "$value" =~ ^[Yy]$ ]] || exit 0
+        fi
+        compose down -v
+    fi
+}
+
+main() {
+    local command="${1:-}" position=""
+    [[ $# -gt 0 ]] && shift
+    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+        usage
+        exit 0
+    fi
+    case "$command" in
+        restore|migrate-from-sqlite|migrate-from-mysql)
+            [[ $# -gt 0 && "${1#-}" == "$1" ]] || { echo "该命令需要一个位置参数。" >&2; usage >&2; exit 2; }
+            position="$1"
+            shift
+            ;;
+    esac
+    parse_options "$@"
+    if [[ "$command" == init ]]; then
+        project_name="${project_name:-${PMAIL_PROJECT_NAME:-pmail}}"
+        print_project_context
+    else
         load_project
-        restore "$2"
-        ;;
-    logs) load_project; compose logs -f --tail=200 ;;
-    status) load_project; compose ps ;;
-    down) load_project; compose down ;;
-    *) echo "用法：$0 {init|up|upgrade|backup|restore <file>|logs|status|down}" >&2; exit 2 ;;
-esac
+        print_project_context
+    fi
+    case "$command" in
+        init|check|status|logs) ;;
+        *) check_project_safety ;;
+    esac
+    case "$command" in
+        init) init_env ;;
+        check) check ;;
+        up) up ;;
+        upgrade) upgrade ;;
+        backup) backup ;;
+        restore) [[ -f "$position" ]] || { echo "备份文件不存在：$position" >&2; exit 2; }; restore "$position" ;;
+        dns) dns ;;
+        migrate-from-sqlite) migrate sqlite "$position" ;;
+        migrate-from-mysql) migrate mysql "$position" ;;
+        logs) compose logs -f --tail=200 ;;
+        status) compose ps ;;
+        down) compose down ;;
+        uninstall) uninstall ;;
+        -h|--help) usage ;;
+        *) usage >&2; exit 2 ;;
+    esac
+}
+
+main "$@"

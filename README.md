@@ -1,157 +1,118 @@
-# PMail
+# PMail v3
 
-> A server, a domain, a line of code, a minute, and you'll be able to build a domain mailbox of your own.
+PMail is a self-hosted mail platform with PostgreSQL as its default database, multi-domain mailboxes, aliases, queue-backed outbound delivery, automatic/rule/manual forwarding, external IMAP/POP3 collection, API tokens, and a responsive Vue 3 web UI.
 
-## [中文文档](./README_CN.md)
+![Desktop UI placeholder](docs/images/desktop.png)
+![Mobile UI placeholder](docs/images/mobile.png)
 
-I'm Chinese, and I'm not good at English, so I apologise for my translation.
+## Quick start
 
-## Introduction
+```bash
+./deploy/deploy.sh init --yes --domain mail.example.com --web-domain mail.example.com
+./deploy/deploy.sh check && ./deploy/deploy.sh up
+```
 
-PMail is a personal email server that pursues a minimal deployment process and extreme resource consumption. It runs on
-a single file and contains complete send/receive mail service and web-side mail management functions. Just a server , a
-domain name , a line of code , a minute of deployment time , you will be able to build a domain name mailbox of your
-own .
-
-All kinds of PR are welcome, whether you are fixing bugs, adding features, or optimizing translations. Also, call for a
-beautiful and cute Logo for this project!
-
-<img src="./docs/en.gif" alt="Editor" width="800px">
+The interactive form is preferred for first-time setup. It generates PostgreSQL credentials, `PMAIL_SECRET_KEY`, and an administrator password. Save the password printed by `init`.
 
 ## Features
 
-* Single file operation and easy deployment.
-* The binary file is only 15MB and takes up less than 10M of memory during the run.
-* Support dkim, spf checksum, [Email Test](https://www.mail-tester.com/) score 10 points if correctly configured.
-* Implementing the ACME protocol, the program will automatically obtain and update Let's Encrypt certificates.
+- PostgreSQL 17 deployment with persistent `pg_data` and `pmail_config` volumes.
+- Multiple local domains, primary addresses, aliases, sender permissions, quotas, and DNS guidance.
+- SMTP/IMAP/POP3 services, outbound queue retries, DSN-style failure handling, and local delivery.
+- Global forwarding, multi-target rules, manual forwarding, SRS and loop protection.
+- External IMAP/POP3 collection with UID/UIDL deduplication and encrypted credentials.
+- API tokens, bcrypt password migration, responsive desktop/tablet/mobile UI, and Chinese/English i18n.
 
-> By default, a ssl certificate is generated for the web service, allowing pages to use the https protocol.
-> If you have your own gateway or don't need https, set `httpsEnabled` to `2` in the configuration file so that the web
-> service will not use https.
-> (Note: Even if you don't need https, please make sure the path to the ssl certificate file is correct, although the web
-> service doesn't use the certificate anymore, the smtp protocol still needs the certificate)
+## Configuration
 
-* Support pop3, smtp protocol, you can use any mail client you like.
-* Support multi-domain, multi-user and complete support for sending and receiving e-mail.
+All deployment variables are documented in `.env.example`. Important variables:
 
+| Variable | Meaning |
+|---|---|
+| `PMAIL_PROJECT_NAME` | Docker Compose project name; use a different value for each deployment on one host. |
+| `PMAIL_IMAGE` | Empty/local mode uses the project-scoped `pmail-<project>:local` image; set a registry image such as `ghcr.io/example/pmail:v3` to pull instead. |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | PostgreSQL bootstrap settings. |
+| `PMAIL_DB_TYPE`, `PMAIL_DB_DSN` | Database type/DSN; Compose normally supplies PostgreSQL. |
+| `PMAIL_DOMAIN`, `PMAIL_DOMAINS`, `PMAIL_WEB_DOMAIN` | Mail and web domains. |
+| `PMAIL_HTTP_PORT`, `PMAIL_HTTPS_PORT` | Container web ports. |
+| `PMAIL_HOST_*_PORT` | Host port mappings for SMTP, POP3, IMAP and web. |
+| `PMAIL_MAIL_BIND`, `PMAIL_WEB_BIND` | Mail/web bind addresses; mail defaults to `0.0.0.0`, web to `127.0.0.1`. |
+| `PMAIL_SSL_TYPE` | `0` ACME HTTP-01, `1` user certificate, `2` ACME DNS-01, `3` reverse-proxy HTTP only. |
+| `PMAIL_HTTPS_ENABLED` | HTTPS listener mode; SSL type 3 keeps the backend HTTP-only. |
+| `PMAIL_LOG_LEVEL` | `debug`, `info`, `warn` or `error`. |
+| `PMAIL_SPAM_FILTER_LEVEL` | SPF/DKIM filtering level 0–3. |
+| `PMAIL_CATCH_ALL` | Whether unknown local recipients go to the administrator. |
+| `PMAIL_ALLOW_USER_ALIAS` | Allow non-admin users to create aliases. |
+| `PMAIL_QUEUE_WORKERS` | Outbound queue concurrency. |
+| `PMAIL_FETCH_WORKERS` | External mailbox collection concurrency. |
+| `PMAIL_FETCH_ALLOW_PRIVATE` | Allow private destinations for controlled test environments only. |
+| `PMAIL_SECRET_KEY` | Encryption/SRS secret; keep stable during upgrades. |
+| `PMAIL_ADMIN_ACCOUNT`, `PMAIL_ADMIN_PASSWORD` | First-run administrator bootstrap. |
 
-# How to run
+The deployment helper also accepts `PMAIL_ENV_FILE`, `PMAIL_API_URL`, and `PMAIL_API_TOKEN` for script operation. CI uses `PMAIL_TEST_PG_DSN` and `PMAIL_TEST_MYSQL_DSN`.
 
-## 0、Check You IP / Domain
+## DNS and certificates
 
-First go to [spamhaus](https://check.spamhaus.org/) and check your domain name and server IP for blocking records
+For every mail domain configure MX, SPF, DKIM and DMARC. Set PTR/rDNS for the outbound IP. Run `./deploy/deploy.sh dns` with `PMAIL_API_TOKEN` after startup to compare expected and observed DNS records. `curl` is required; `jq` or `python3` is optional and formats the records, while a grep/sed fallback prints each domain's raw DNS JSON.
 
-## 1、Download
+Choose SSL mode 0 when PMail owns ACME HTTP-01, mode 2 for a configured DNS provider, mode 1 when certificate files are supplied, or mode 3 when a reverse proxy owns web TLS. Mail protocol TLS must still have a certificate; do not expose authenticated plaintext POP3/SMTP without a deliberate firewall policy.
 
-* [Click Here](https://github.com/Jinnrry/PMail/releases) Download a program file that matches you.
-* Or use Docker `docker pull ghcr.io/jinnrry/pmail:latest`
+### Caddy
 
-## 2、Run
+```bash
+./deploy/deploy.sh up
+# or validate the override:
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.caddy.yml config
+```
 
-`./pmail -p 80`
+The Caddy override terminates web HTTPS and proxies to PMail's internal HTTP listener. PMail remains responsible for mail-protocol certificates using its own ACME mode. Use a distinct web domain when the two certificate owners would otherwise compete for the same ACME challenge.
 
-> -p Set the http port of the bootstrap setup interface, the default is port 80, note that this parameter only affects the bootstrap setup phase, if you need to change the port after setup is complete, please modify the configuration file.
+### Nginx
 
-> [!IMPORTANT]
-> The SSL certificate will not be set automatically if the bootstrap setup phase uses a port other than 80.
-
-Or
-
-`docker run -p 25:25 -p 80:80 -p 443:443 -p 110:110 -p 465:465 -p 587:587 -p 995:995 -p 993:993 -v $(pwd)/config:/work/config ghcr.io/jinnrry/pmail:latest`
-
-> [!IMPORTANT]
-> If your server has a firewall turned on, you need to open ports 25, 80, 110, 443, 465,587, 993, 995
-
-## 3、Configuration
-
-Open `http://127.0.0.1` in your browser or use your server's public IP to visit, then follow the instructions to
-configure.
-
-## 4、Email Test
-
-Check if your mailbox has completed all the security configuration. It is recommended to
-use [https://www.mail-tester.com/](https://www.mail-tester.com/) for checking.
-
-To also see which folder Gmail and other providers put your message in, you can
-use [https://email-spam-tester.com/](https://email-spam-tester.com/), which is free and needs no signup.
-
-
-# Configuration file format description
-
-```jsonc
-{
-  "logLevel": "info", //log output level
-  "domain": "domain.com", // Your domain
-  "webDomain": "mail.domain.com", // web domain
-  "dkimPrivateKeyPath": "config/dkim/dkim.priv", // dkim key path
-  "sslType": "0", // ssl certificate update mode, 0 automatic, 1 manual
-  "SSLPrivateKeyPath": "config/ssl/private.key", // ssl certificate path
-  "SSLPublicKeyPath": "config/ssl/public.crt", // ssl certificate path
-  "dbDSN": "./config/pmail.db", // database connect DSN
-  "dbType": "sqlite", //database type ，`sqlite` or `mysql`
-  "httpsEnabled": 0, // enabled https , 0:enabled 1:enablde 2:disenabled
-  "httpPort": 80, // http port . default 80
-  "httpsPort": 443, // https port . default 443
-  "spamFilterLevel": 0,// Spam Filtering Levels: 0: No filtering. 1: Filter when both SPF and DKIM fail (in the absence of valid recipient filtering). 2: Filter when SPF check fails (in the absence of valid recipient filtering).  3: Filter when DKIM check fails (in the absence of valid recipient filtering)
-  "isInit": true // If false, it will enter the bootstrap process.
+```nginx
+server {
+    listen 443 ssl;
+    server_name mail.example.com;
+    location / {
+        proxy_pass http://127.0.0.1:80;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
 }
 ```
 
-# Mail Client Configuration
+## Multiple deployments and local images
 
-POP3 Server Address : pop.[Your Domain]
+Run separate deployments with distinct project names, for example `./deploy/deploy.sh init --project pmail-prod` and `./deploy/deploy.sh init --project pmail-staging`. Local images are named `pmail-<project>:local` and are rebuilt by `up`, so projects do not reuse one another's local tag. Set `PMAIL_IMAGE` to a registry image when using a prebuilt image; registry mode pulls instead of building. Container-affecting commands (`up`, `upgrade`, `backup`, `restore`, `dns`, `migrate-*`, `down`, and `uninstall`) verify that the Compose project belongs to the current directory before changing containers.
 
-POP3 Port: 110/995(SSL)
+## Backup, restore and upgrade
 
-SMTP Server Address : smtp.[Your Domain]
+```bash
+./deploy/deploy.sh backup
+./deploy/deploy.sh restore backups/<project>-<timestamp>.dump
+./deploy/deploy.sh upgrade
+```
 
-SMTP Port: 25/465、587(SSL)
+`upgrade` creates a PostgreSQL backup, builds a project-scoped timestamped `pmail-<project>:<tag>` image, waits for health, and restores the previous image/database backup when startup fails. Keep the printed backup path until the new release is verified.
 
-IMAP Server Address : imap.[Your Domain]
+## Migrating old installations
 
-IMAP Port: 993(SSL)
-# Plugin
+Stop the old single-file deployment, place the SQLite file on the host, then run:
 
-[WeChat Push](server/hooks/wechat_push/README.md)
+```bash
+./deploy/deploy.sh migrate-from-sqlite /path/to/pmail.db
+# or
+./deploy/deploy.sh migrate-from-mysql 'user:password@tcp(host:3306)/pmail?parseTime=True'
+```
 
-[Spam Block](server/hooks/spam_block/README.md)
+The migration command imports supported legacy tables into PostgreSQL. Verify domains, aliases, DKIM, quotas and queue state before allowing external traffic.
 
-# Community plugins
+## Troubleshooting
 
-[Telegram Push](https://github.com/ydzydzydz/pmail_telegram_push)
+- **Port 25 blocked:** ask the cloud provider for SMTP egress or use a relay; configure PTR/rDNS.
+- **Messages in spam:** verify PTR, SPF, DKIM alignment, DMARC policy and reverse DNS.
+- **Web unavailable behind a proxy:** keep `PMAIL_WEB_BIND=127.0.0.1`, verify proxy upstream and health at `/api/ping`.
+- **External mailbox stuck:** inspect `last_error`, account health, TLS mode, app password and SSRF allowlist settings.
+- **Rollback:** keep the upgrade backup and use `restore`, then set `PMAIL_IMAGE` back to the previous tag.
 
-## Plugin Install
-> [!IMPORTANT]
-> Plugins run on your server as independent processes, please review the security of third-party plugins on your own.PMail currently only maintains the three plugins mentioned above.
-
-Copy plugin binary file to `/plugins`
-
-# For Developer
-
-## Project Framework
-
-1、 FE： vue3+element-plus
-
-The code is in `fe` folder.
-
-2、Server： golang + MySQL/SQLite
-
-The code is in `server` folder.
-
-3、How to build
-
-`make build`
-
-4、Unit test
-
-`make test`
-
-## Api Documentation
-
-[go to wiki](https://github.com/Jinnrry/PMail/wiki/%E5%90%8E%E7%AB%AF%E6%8E%A5%E5%8F%A3%E6%96%87%E6%A1%A3)
-
-## Plugin Development
-
-[go to wiki](https://github.com/Jinnrry/PMail/wiki/%E6%8F%92%E4%BB%B6%E5%BC%80%E5%8F%91%E8%AF%B4%E6%98%8E)
-
-
+See [README_CN.md](README_CN.md), [docs/API.md](docs/API.md), and [docs/UPGRADE.md](docs/UPGRADE.md).

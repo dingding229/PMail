@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: pmail
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: githubTest
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pmail"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PMAIL_TEST_PG_DSN: postgres://postgres:githubTest@localhost:5432/pmail?sslmode=disable
+      PMAIL_TEST_MYSQL_DSN: root:githubTest@tcp(127.0.0.1:3306)/pmail?parseTime=True
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+      - name: Vet
+        working-directory: server
+        run: go vet ./...
+      - name: Build
+        working-directory: server
+        run: CGO_ENABLED=0 go build ./...
+      - name: Unit tests
+        working-directory: server
+        run: go test ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: fe/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build

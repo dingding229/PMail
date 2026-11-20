@@ -1,0 +1,4 @@
+{$PMAIL_WEB_DOMAIN} {
+    encode gzip
+    reverse_proxy pmail:{$PMAIL_HTTP_PORT}
+}
