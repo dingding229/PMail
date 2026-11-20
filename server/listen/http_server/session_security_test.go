@@ -97,7 +97,7 @@ func TestSessionPasswordChangeRevokesAllLogins(t *testing.T) {
 	f := newAuthFixture(t)
 	first := f.login(t, "member", "initial-password")
 	second := f.login(t, "member", "initial-password")
-	result := f.call(t, first, "/api/settings/modify_password", map[string]any{"password": "new-password"})
+	result := f.call(t, first, "/api/settings/modify_password", map[string]any{"old_password": "initial-password", "new_password": "new-password"})
 	if result.ErrorNo != 0 {
 		t.Fatalf("change password: %+v", result)
 	}

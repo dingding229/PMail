@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
-	"strings"
 
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/consts"
@@ -14,12 +13,12 @@ import (
 	"github.com/Jinnrry/pmail/hooks"
 	"github.com/Jinnrry/pmail/hooks/framework"
 	"github.com/Jinnrry/pmail/models"
-	"github.com/Jinnrry/pmail/utils/array"
+	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/utils/async"
 	"github.com/Jinnrry/pmail/utils/context"
 	smtp "github.com/emersion/go-smtp"
 	log "github.com/sirupsen/logrus"
-	"xorm.io/builder"
 	"xorm.io/xorm"
 )
 
@@ -29,6 +28,10 @@ type outgoingSender func(*context.Context, *parsemail.Email) (error, map[string]
 
 func (s *Session) deliverOutgoingEmail(email *parsemail.Email, sender outgoingSender) error {
 	ctx := s.Ctx
+	// Submission records and local deliveries must account for the same
+	// normalized message bytes that will be sent downstream, not a zero or
+	// parser-only size.
+	email.Size = len(email.BuildBytes(ctx, true))
 	_, saved, err := saveEmail(ctx, email.Size, email, ctx.UserID, int(consts.EmailTypeSend), nil, true, true)
 	if err != nil {
 		log.WithContext(ctx).Errorf("CRITICAL audit_event=initial_persist_failed direction=outbound msg_id=%q error=%v", email.MsgID, err)
@@ -103,12 +106,55 @@ func requireOneAffected(result sql.Result, operation string) error {
 	return nil
 }
 
+func quotaSMTPError() error {
+	return &smtp.SMTPError{Code: 452, EnhancedCode: smtp.EnhancedCode{4, 2, 2}, Message: "Mailbox storage quota exceeded"}
+}
+
 func localPersistenceSMTPError() error {
 	return &smtp.SMTPError{
 		Code:         451,
 		EnhancedCode: smtp.EnhancedCode{4, 3, 0},
 		Message:      "Temporary local persistence failure",
 	}
+}
+
+func persistInitialAuditWithQuota(ctx *context.Context, modelEmail models.Email, userIDs []int) (*models.Email, []int, error) {
+	var saved models.Email
+	accepted := make([]int, 0, len(userIDs))
+	err := db.Transaction(db.Instance, func(session *xorm.Session) error {
+		candidate := modelEmail
+		candidate.Id = 0
+		for _, id := range userIDs {
+			if err := quota.LockAndCheck(session, id, int64(candidate.Size)); err != nil {
+				if stderrors.Is(err, quota.ErrExceeded) {
+					log.WithContext(ctx).Warnf("quota exceeded for user %d; skipping recipient", id)
+					continue
+				}
+				return err
+			}
+			accepted = append(accepted, id)
+		}
+		if len(accepted) == 0 {
+			return quota.ErrExceeded
+		}
+		if _, err := session.Insert(&candidate); err != nil {
+			return err
+		}
+		if candidate.Id <= 0 {
+			return stderrors.New("email insert returned no id")
+		}
+		for _, id := range accepted {
+			if _, err := session.Insert(&models.UserEmail{EmailID: candidate.Id, UserID: id, Status: candidate.Status}); err != nil {
+				return err
+			}
+		}
+		saved = candidate
+		return nil
+	})
+	if err != nil {
+		return nil, accepted, err
+	}
+	return &saved, accepted, nil
 }
 
 func persistInitialAudit(ctx *context.Context, modelEmail models.Email, userIDs []int) (*models.Email, error) {
@@ -141,33 +187,31 @@ func resolveIncomingUsers(ctx *context.Context, email *parsemail.Email, emailTyp
 	if emailType != int(consts.EmailTypeReceive) {
 		return nil, false, nil
 	}
-
-	accounts := incomingAccounts(email, reallyTo)
-	var users []*models.User
-	if len(accounts) > 0 {
-		where, params, err := builder.ToSQL(builder.In("LOWER(account)", accounts))
+	recipients := incomingAddresses(email, reallyTo)
+	seen := map[int]bool{}
+	users := make([]*models.User, 0)
+	for _, raw := range recipients {
+		user, found, err := address.Resolve(raw)
 		if err != nil {
 			return nil, false, err
 		}
-		if err = db.Instance.Table(&models.User{}).Where(where, params...).Find(&users); err != nil {
-			return nil, false, err
+		if found && !seen[user.ID] {
+			copy := user
+			users = append(users, &copy)
+			seen[user.ID] = true
 		}
 	}
 	if len(users) > 0 {
 		return users, false, nil
 	}
-
-	if DropUnknownRecipientEmails &&
-		((config.Instance.SpamFilterLevel == 1 && !SPFStatus && !dkimStatus) ||
-			(config.Instance.SpamFilterLevel == 2 && !SPFStatus) ||
-			(config.Instance.SpamFilterLevel == 3 && !dkimStatus)) {
-		log.WithContext(ctx).Infoln("垃圾邮件，拒信")
-		log.WithContext(ctx).Infof("收件人不存在且DKIM验证失败，丢弃邮件: %s -> %v", email.From.EmailAddress, accounts)
+	if !config.Instance.CatchAll {
 		return nil, true, nil
 	}
-
-	log.WithContext(ctx).Infof("收件人不存在但DKIM验证通过，转交管理员: %s -> %v", email.From.EmailAddress, accounts)
-	if err := db.Instance.Table(&models.User{}).Where("is_admin=1").Find(&users); err != nil {
+	if DropUnknownRecipientEmails && ((config.Instance.SpamFilterLevel == 1 && !SPFStatus && !dkimStatus) || (config.Instance.SpamFilterLevel == 2 && !SPFStatus) || (config.Instance.SpamFilterLevel == 3 && !dkimStatus)) {
+		log.WithContext(ctx).Infof("unknown recipient rejected by catch-all spam policy: %v", recipients)
+		return nil, true, nil
+	}
+	if err := db.Instance.Table(&models.User{}).Where("is_admin=1 AND disabled=0").Find(&users); err != nil {
 		return nil, false, err
 	}
 	if len(users) == 0 {
@@ -176,30 +220,19 @@ func resolveIncomingUsers(ctx *context.Context, email *parsemail.Email, emailTyp
 	return users, false, nil
 }
 
-func incomingAccounts(email *parsemail.Email, reallyTo []string) []string {
-	var accounts []string
+func incomingAddresses(email *parsemail.Email, reallyTo []string) []string {
 	if len(reallyTo) > 0 {
-		for _, recipient := range reallyTo {
-			account := parsemail.BuilderUser(recipient)
-			if account == nil {
-				continue
-			}
-			name, domain := account.GetDomainAccount()
-			if array.InArray(domain, config.Instance.Domains) && name != "" {
-				accounts = append(accounts, strings.ToLower(name))
-			}
-		}
-		return accounts
+		return reallyTo
 	}
-	for _, recipients := range [][]*parsemail.User{email.To, email.Cc, email.Bcc} {
-		for _, user := range recipients {
-			account, _ := user.GetDomainAccount()
-			if account != "" {
-				accounts = append(accounts, strings.ToLower(account))
+	var result []string
+	for _, list := range [][]*parsemail.User{email.To, email.Cc, email.Bcc} {
+		for _, recipient := range list {
+			if recipient != nil && recipient.EmailAddress != "" {
+				result = append(result, recipient.EmailAddress)
 			}
 		}
 	}
-	return accounts
+	return result
 }
 
 func boolInt8(value bool) int8 {

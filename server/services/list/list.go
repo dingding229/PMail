@@ -96,10 +96,12 @@ func genSQL(ctx *context.Context, count bool, tagInfo dto.SearchTag, keyword str
 		sqlParams = append(sqlParams, "%"+keyword+"%", "%"+keyword+"%")
 	}
 
+	if count {
+		return sql, sqlParams
+	}
 	if limit == 0 {
 		limit = 10
 	}
-
 	sql += " order by e.id desc"
 
 	if limit < 10000 {

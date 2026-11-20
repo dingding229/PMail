@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/emersion/go-message"
 	_ "github.com/emersion/go-message/charset"
@@ -250,6 +250,9 @@ func NewEmailFromReader(to []string, r io.Reader, size int) *Email {
 	}
 
 	ret.Size = size
+	if m == nil {
+		return ret
+	}
 	// Preserve the original Message-ID from the sender so it is stored and reused consistently.
 	if mid := m.Header.Get("Message-Id"); mid != "" {
 		ret.MsgID = strings.TrimPrefix(strings.TrimSuffix(strings.TrimSpace(mid), ">"), "<")
@@ -454,13 +457,19 @@ func buildUsers(strs []string) []*User {
 	return ret
 }
 
-func (e *Email) ForwardBuildBytes(ctx *context.Context, sender *models.User, forwardAddress string) []byte {
+func (e *Email) ForwardBuildBytes(ctx *context.Context, sender *models.User, forwardAddress string, senderAddresses ...string) []byte {
+	senderEmailAddress := ""
+	if len(senderAddresses) > 0 {
+		senderEmailAddress = senderAddresses[0]
+	}
+	if senderEmailAddress == "" {
+		senderEmailAddress = sender.Account + "@" + domain.DefaultName()
+	}
 	var b bytes.Buffer
 
 	forwardUser := buildUser(forwardAddress)
 	to := []*mail.Address{{Name: forwardUser.Name, Address: forwardUser.EmailAddress}}
 
-	senderEmailAddress := fmt.Sprintf("%s@%s", sender.Account, config.Instance.Domains[0])
 	senderAddress := []*mail.Address{{Name: sender.Name, Address: senderEmailAddress}}
 	// Create our mail header
 	var h mail.Header
@@ -475,7 +484,7 @@ func (e *Email) ForwardBuildBytes(ctx *context.Context, sender *models.User, for
 	h.Set("X-Forwarded-By", senderEmailAddress)
 	h.Set("X-Forwarded-To", forwardUser.EmailAddress)
 	h.SetText("Subject", e.Subject)
-	h.SetMessageID(GenerateMsgID(config.Instance.Domain))
+	h.SetMessageID(GenerateMsgID(domain.DefaultName()))
 	if e.MsgID != "" {
 		h.Set("References", fmt.Sprintf("<%s>", e.MsgID))
 		h.Set("In-Reply-To", fmt.Sprintf("<%s>", e.MsgID))
@@ -533,7 +542,7 @@ func (e *Email) ForwardBuildBytes(ctx *context.Context, sender *models.User, for
 	}
 
 	// dkim 签名后返回
-	return instance.Sign(b.String())
+	return sign(b.String(), senderEmailAddress)
 }
 
 func (e *Email) BuildPart(ctx *context.Context, loc []int) []byte {
@@ -631,7 +640,7 @@ func (e *Email) BuildBytes(ctx *context.Context, dkim bool) []byte {
 	if e.MsgID != "" {
 		h.SetMessageID(e.MsgID)
 	} else {
-		h.SetMessageID(fmt.Sprintf("%d@%s", e.MessageId, config.Instance.Domain))
+		h.SetMessageID(fmt.Sprintf("%d@%s", e.MessageId, domain.DefaultName()))
 	}
 	h.SetAddressList("From", from)
 	h.SetAddressList("Sender", from)
@@ -711,7 +720,7 @@ func (e *Email) BuildBytes(ctx *context.Context, dkim bool) []byte {
 
 	if dkim {
 		// dkim 签名后返回
-		return instance.Sign(b.String())
+		return sign(b.String(), e.From.EmailAddress)
 	}
 	return b.Bytes()
 }

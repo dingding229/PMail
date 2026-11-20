@@ -7,6 +7,9 @@ import (
 )
 
 func (s *serverSession) Delete(mailbox string) error {
+	if err := s.requireSession(); err != nil {
+		return err
+	}
 	groupPath := strings.Split(mailbox, "/")
 
 	groupName := groupPath[len(groupPath)-1]

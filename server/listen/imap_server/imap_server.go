@@ -3,9 +3,7 @@ package imap_server
 import (
 	"crypto/tls"
 	"net"
-	"os"
 
-	"github.com/Jinnrry/pmail/config"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	log "github.com/sirupsen/logrus"
@@ -64,7 +62,7 @@ func newIMAPServer(cert tls.Certificate) *imapserver.Server {
 	memServer := NewServer()
 	option := &imapserver.Options{
 		NewSession: func(conn *imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
-			return memServer.NewSession(), nil, nil
+			return memServer.newSession(conn.NetConn().RemoteAddr().String()), nil, nil
 		},
 		Caps: imap.CapSet{
 			imap.CapIMAP4rev1: {},
@@ -72,9 +70,6 @@ func newIMAPServer(cert tls.Certificate) *imapserver.Server {
 		},
 		TLSConfig:    &tls.Config{Certificates: []tls.Certificate{cert}},
 		InsecureAuth: false,
-	}
-	if config.Instance.LogLevel == "debug" {
-		option.DebugWriter = os.Stdout
 	}
 	return imapserver.New(option)
 }

@@ -1,190 +1,172 @@
 package controllers
 
 import (
-	"encoding/json"
-	"github.com/Jinnrry/pmail/config"
-	"github.com/Jinnrry/pmail/db"
-	"github.com/Jinnrry/pmail/dto/response"
-	"github.com/Jinnrry/pmail/models"
-	"github.com/Jinnrry/pmail/utils/array"
-	"github.com/Jinnrry/pmail/utils/context"
-	"github.com/Jinnrry/pmail/utils/password"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cast"
-	"io"
-	"math"
 	"net/http"
+
+	"github.com/Jinnrry/pmail/db"
+	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/user"
+	"github.com/Jinnrry/pmail/utils/context"
 )
 
-type userCreateRequest struct {
-	Id       int    `json:"id"`
-	Account  string `json:"account"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Disabled int    `json:"disabled"`
+type userRequest struct {
+	ID          int    `json:"id"`
+	Account     string `json:"account"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Password    string `json:"password"`
+	Disabled    *int   `json:"disabled"`
+	QuotaMB     *int64 `json:"quota_mb"`
 }
 
-func CreateUser(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
-
-	if !ctx.IsAdmin {
-		response.NewErrorResponse(response.NoAccessPrivileges, "No Access Privileges", "").FPrint(w)
-		return
+func (b userRequest) Name() string {
+	if b.DisplayName != "" {
+		return b.DisplayName
 	}
-
-	reqBytes, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.Errorf("%+v", err)
-	}
-	var reqData userCreateRequest
-	err = json.Unmarshal(reqBytes, &reqData)
-	if err != nil {
-		log.Errorf("%+v", err)
-	}
-
-	if reqData.Username == "" || reqData.Password == "" || reqData.Account == "" {
-		response.NewErrorResponse(response.ParamsError, "Params Error", "").FPrint(w)
-		return
-	}
-
-	var user models.User
-	user.Name = reqData.Username
-	user.Password = password.Encode(reqData.Password)
-	user.Account = reqData.Account
-
-	_, err = db.Instance.Insert(&user)
-	if err != nil {
-		response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
-		return
-	}
-
-	response.NewSuccessResponse(user).FPrint(w)
+	return b.Username
 }
 
-type userListRequest struct {
-	CurrentPage int `json:"current_page"`
-	PageSize    int `json:"page_size"`
-}
-
-func UserList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
-	if !ctx.IsAdmin {
-		response.NewErrorResponse(response.NoAccessPrivileges, "No Access Privileges", "").FPrint(w)
+func CreateUser(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
+	var b userRequest
+	if !adminOnly(ctx, w) || !readRequest(w, r, &b, false) {
 		return
 	}
-
-	reqBytes, err := io.ReadAll(req.Body)
+	var disabled int
+	var mb int64
+	if b.Disabled != nil {
+		disabled = *b.Disabled
+	}
+	if b.QuotaMB != nil {
+		mb = *b.QuotaMB
+	}
+	u, err := user.Create(b.Account, b.Name(), b.Password, disabled, mb)
 	if err != nil {
-		log.Errorf("%+v", err)
-	}
-	var reqData userListRequest
-	err = json.Unmarshal(reqBytes, &reqData)
-	if err != nil {
-		log.Errorf("%+v", err)
-	}
-
-	offset := 0
-	if reqData.CurrentPage >= 1 {
-		offset = (reqData.CurrentPage - 1) * reqData.PageSize
-	}
-
-	if reqData.PageSize == 0 {
-		reqData.PageSize = 15
-	}
-
-	var users []models.User
-
-	totalNum, err := db.Instance.Table(&models.User{}).Limit(reqData.PageSize, offset).FindAndCount(&users)
-	if err != nil {
-		log.Errorf("%+v", err)
-	}
-
-	response.NewSuccessResponse(map[string]any{
-		"current_page": reqData.CurrentPage,
-		"total_page":   cast.ToInt(math.Ceil(cast.ToFloat64(totalNum) / cast.ToFloat64(reqData.PageSize))),
-		"list":         users,
-	}).FPrint(w)
-
-}
-
-func Info(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
-
-	domains := config.Instance.Domains
-	domains = array.Difference(domains, []string{config.Instance.Domain})
-	domains = append([]string{config.Instance.Domain}, domains...)
-
-	response.NewSuccessResponse(map[string]any{
-		"account":  ctx.UserAccount,
-		"name":     ctx.UserName,
-		"is_admin": ctx.IsAdmin,
-		"domains":  domains,
-	}).FPrint(w)
-}
-
-func EditUser(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
-
-	if !ctx.IsAdmin {
-		response.NewErrorResponse(response.NoAccessPrivileges, "No Access Privileges", "").FPrint(w)
+		serviceError(ctx, w, err)
 		return
 	}
+	success(w, u)
+}
 
-	reqBytes, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.Errorf("%+v", err)
-	}
-	var reqData userCreateRequest
-	err = json.Unmarshal(reqBytes, &reqData)
-	if err != nil {
-		log.Errorf("%+v", err)
-	}
-
-	if reqData.Id == 0 && reqData.Account == "" {
-		response.NewErrorResponse(response.ParamsError, "Params Error", "").FPrint(w)
+func EditUser(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
+	var b userRequest
+	if !adminOnly(ctx, w) || !readRequest(w, r, &b, false) {
 		return
 	}
-	var user models.User
-	if reqData.Id != 0 {
-		_, err = db.Instance.Where("id=?", reqData.Id).Get(&user)
-		if err != nil {
-			log.Errorf("SQL Error: %+v", err)
+	u, err := user.Edit(user.Patch{ID: b.ID, Account: b.Account, Name: b.Name(), Password: b.Password, Disabled: b.Disabled, QuotaMB: b.QuotaMB})
+	if err != nil {
+		serviceError(ctx, w, err)
+		return
+	}
+	success(w, u)
+}
+
+func UserList(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Page int `json:"current_page"`
+		Size int `json:"page_size"`
+	}
+	if !adminOnly(ctx, w) || !readRequest(w, r, &b, true) {
+		return
+	}
+	if b.Page == 0 {
+		b.Page = 1
+	}
+	if b.Size == 0 {
+		b.Size = 15
+	}
+	if b.Page < 1 || b.Page > 1_000_000 || b.Size < 1 || b.Size > 100 {
+		serviceError(ctx, w, user.ErrInvalid)
+		return
+	}
+	var list []models.User
+	n, err := db.Instance.Asc("id").Limit(b.Size, (b.Page-1)*b.Size).FindAndCount(&list)
+	if err != nil {
+		serviceError(ctx, w, err)
+		return
+	}
+	items, err := user.Views(list)
+	if err != nil {
+		serviceError(ctx, w, err)
+		return
+	}
+	success(w, map[string]any{"current_page": b.Page, "total_page": (n + int64(b.Size) - 1) / int64(b.Size), "list": items})
+}
+
+func Info(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
+	success(w, map[string]any{"account": ctx.UserAccount, "name": ctx.UserName, "is_admin": ctx.IsAdmin, "domains": domain.Names()})
+}
+
+func UserMe(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		DisplayName *string `json:"display_name"`
+	}
+	if !readRequest(w, r, &b, true) {
+		return
+	}
+	u, err := user.Get(ctx.UserID)
+	if err == nil && b.DisplayName != nil {
+		if !user.ValidName(*b.DisplayName) {
+			serviceError(ctx, w, user.ErrInvalid)
+			return
 		}
-	} else {
-		_, err = db.Instance.Where("account=?", reqData.Account).Get(&user)
-		if err != nil {
-			log.Errorf("SQL Error: %+v", err)
-		}
+		u, err = user.Edit(user.Patch{ID: ctx.UserID, Name: *b.DisplayName})
 	}
-	if user.ID == 0 {
-		response.NewErrorResponse(response.ParamsError, "User not found", "").FPrint(w)
-		return
-	}
-	revokeSessions := reqData.Password != "" || reqData.Disabled != user.Disabled
-	updates := map[string]interface{}{"disabled": reqData.Disabled}
-	if reqData.Username != "" && reqData.Username != user.Name {
-		user.Name = reqData.Username
-		updates["name"] = user.Name
-	}
-
-	if reqData.Disabled != user.Disabled {
-		user.Disabled = reqData.Disabled
-	}
-	if reqData.Password != "" {
-		user.Password = password.Encode(reqData.Password)
-		updates["password"] = user.Password
-	}
-
-	update := db.Instance.Table(&models.User{}).ID(user.ID)
-	if revokeSessions {
-		update.Incr("auth_version")
-	}
-	num, err := update.Update(updates)
-
 	if err != nil {
-		response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
+		serviceError(ctx, w, err)
 		return
 	}
-	if num == 0 {
-		response.NewErrorResponse(response.ServerError, "No Data Update", "").FPrint(w)
+	views, err := user.Views([]models.User{u})
+	if err != nil {
+		serviceError(ctx, w, err)
 		return
 	}
+	success(w, views[0])
+}
 
-	response.NewSuccessResponse(user).FPrint(w)
+func UserResetPassword(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
+	var b userRequest
+	if !adminOnly(ctx, w) || !readRequest(w, r, &b, false) {
+		return
+	}
+	if b.ID <= 0 || b.Password == "" {
+		serviceError(ctx, w, user.ErrInvalid)
+		return
+	}
+	if _, err := user.Edit(user.Patch{ID: b.ID, Password: b.Password}); err != nil {
+		serviceError(ctx, w, err)
+		return
+	}
+	success(w, nil)
+}
+func UserSetQuota(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
+	var b userRequest
+	if !adminOnly(ctx, w) || !readRequest(w, r, &b, false) {
+		return
+	}
+	if b.ID <= 0 || b.QuotaMB == nil {
+		serviceError(ctx, w, user.ErrInvalid)
+		return
+	}
+	if _, err := user.Edit(user.Patch{ID: b.ID, QuotaMB: b.QuotaMB}); err != nil {
+		serviceError(ctx, w, err)
+		return
+	}
+	success(w, nil)
+}
+func UserDelete(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
+	var b userRequest
+	if !adminOnly(ctx, w) || !readRequest(w, r, &b, false) {
+		return
+	}
+	if b.ID <= 0 {
+		serviceError(ctx, w, user.ErrInvalid)
+		return
+	}
+	disabled := 1
+	if _, err := user.Edit(user.Patch{ID: b.ID, Disabled: &disabled}); err != nil {
+		serviceError(ctx, w, err)
+		return
+	}
+	success(w, nil)
 }

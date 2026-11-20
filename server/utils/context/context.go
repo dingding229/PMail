@@ -11,6 +11,7 @@ const (
 type Context struct {
 	context.Context `json:"-"`
 	UserID          int
+	AuthVersion     int64 `json:"-"`
 	UserAccount     string
 	UserName        string
 	Values          map[string]any

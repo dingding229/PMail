@@ -9,6 +9,9 @@ import (
 )
 
 func (s *serverSession) Expunge(w *imapserver.ExpungeWriter, uids *imap.UIDSet) error {
+	if err := s.requireSession(); err != nil {
+		return err
+	}
 	if uids == nil && len(s.deleteUidList) == 0 {
 		return nil
 	}

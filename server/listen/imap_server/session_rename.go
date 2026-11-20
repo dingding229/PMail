@@ -7,6 +7,9 @@ import (
 )
 
 func (s *serverSession) Rename(mailbox, newName string, _ *imap.RenameOptions) error {
+	if err := s.requireSession(); err != nil {
+		return err
+	}
 	if group.IsDefaultBox(mailbox) {
 		return &imap.Error{
 			Type: imap.StatusResponseTypeNo,

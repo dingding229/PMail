@@ -8,7 +8,11 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/testschema"
 	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/dkimkey"
 	_ "modernc.org/sqlite"
 	"xorm.io/xorm"
 )
@@ -33,13 +37,26 @@ func TestForwardToLocalUser(t *testing.T) {
 	defer engine.Close()
 	db.Instance = engine
 
-	if err := engine.Sync2(&models.User{}, &models.UserEmail{}); err != nil {
+	if err := testschema.Sync(engine); err != nil {
 		t.Fatal(err)
 	}
 
 	sender := &models.User{ID: 1, Account: "sender", Name: "sender"}
 	recipient := &models.User{ID: 2, Account: "recipient", Name: "recipient", IsAdmin: 1}
+	key, err := dkimkey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = engine.Insert(&models.Domain{ID: 1, Name: "example.com", IsDefault: true, DkimSelector: "default", DkimPrivateKey: key}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := engine.Insert(sender, recipient); err != nil {
+		t.Fatal(err)
+	}
+	if err := domain.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if err := address.Backfill(); err != nil {
 		t.Fatal(err)
 	}
 

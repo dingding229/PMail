@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Jinnrry/pmail/services/quota"
 	smtp "github.com/emersion/go-smtp"
 )
 
@@ -19,6 +20,10 @@ const maxDeliverySMTPMessageBytes = 128
 func downstreamDeliverySMTPError(deliveryErr error, domainErrors map[string]error) error {
 	if deliveryErr == nil {
 		return nil
+	}
+
+	if errors.Is(deliveryErr, quota.ErrExceeded) {
+		return quotaSMTPError()
 	}
 
 	permanent := len(domainErrors) > 0

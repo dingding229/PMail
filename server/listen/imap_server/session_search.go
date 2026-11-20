@@ -12,6 +12,9 @@ import (
 // Supports: UID, SeqNum, Date filters, Header search, Body/Text search,
 // Flag filters, Size filters, and logical combinations (NOT, OR)
 func (s *serverSession) Search(kind imapserver.NumKind, criteria *imap.SearchCriteria, options *imap.SearchOptions) (*imap.SearchData, error) {
+	if err := s.requireSession(); err != nil {
+		return nil, err
+	}
 	log.WithContext(s.ctx).Debugf("IMAP SEARCH: mailbox=%s, kind=%v, criteria=%+v", s.currentMailbox, kind, criteria)
 
 	// Use the new comprehensive search function

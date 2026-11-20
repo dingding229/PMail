@@ -11,6 +11,9 @@ import (
 )
 
 func (s *serverSession) Move(w *imapserver.MoveWriter, numSet imap.NumSet, dest string) error {
+	if err := s.requireSession(); err != nil {
+		return err
+	}
 
 	var emailList []*response.EmailResponseData
 

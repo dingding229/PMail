@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Jinnrry/pmail/config"
@@ -16,6 +17,9 @@ import (
 )
 
 var Instance *xorm.Engine
+
+// MailboxRegistry serializes domain/address ownership mutations in the single-instance server.
+var MailboxRegistry sync.Mutex
 
 // Open connects without migrating schema or writing application data.
 func Open(cfg *config.Config, retry bool) (*xorm.Engine, error) {
@@ -78,7 +82,8 @@ func initializeDB(version string, retry, preserveUsers bool) error {
 		engine.Close()
 		return err
 	}
-	engine.ShowSQL(config.Instance.LogLevel == "debug")
+	// Xorm SQL logging includes bind values, including password hashes and DKIM keys.
+	engine.ShowSQL(false)
 	if Instance != nil {
 		Instance.Close()
 	}
@@ -116,13 +121,13 @@ func initializeSchemaAndData(engine *xorm.Engine, version string, preserveUsers 
 func SyncSchema(engine *xorm.Engine) error {
 	for _, model := range []any{
 		&models.User{}, &models.Email{}, &models.Group{}, &models.Rule{},
-		&models.Sessions{}, &models.UserEmail{}, &models.Version{},
+		&models.Sessions{}, &models.UserEmail{}, &models.Version{}, &models.Domain{}, &models.MailboxAddress{}, &models.APIToken{},
 	} {
 		if err := engine.Sync2(model); err != nil {
 			return fmt.Errorf("sync schema for %T: %w", model, err)
 		}
 	}
-	return nil
+	return widenUserColumns(engine)
 }
 
 func WithContext(ctx *context.Context, sql string) string {

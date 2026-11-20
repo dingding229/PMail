@@ -1,13 +1,15 @@
 package smtp_server
 
 import (
-	"database/sql"
 	"errors"
-	"github.com/Jinnrry/pmail/db"
-	"github.com/Jinnrry/pmail/models"
+
+	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/auth"
+	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/id"
-	"github.com/Jinnrry/pmail/utils/password"
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 	log "github.com/sirupsen/logrus"
@@ -37,6 +39,7 @@ type Session struct {
 	User          string
 	From          string
 	To            []string
+	Size          int64
 	Ctx           *context.Context
 }
 
@@ -65,47 +68,49 @@ func (s *Session) Auth(mech string) (sasl.Server, error) {
 }
 
 func (s *Session) AuthPlain(username, pwd string) error {
-	log.WithContext(s.Ctx).Debugf("SMTP authentication attempt for %q", username)
-
+	remote := ""
+	if s.RemoteAddress != nil {
+		remote = s.RemoteAddress.String()
+	}
+	user, err := auth.Authenticate(username, pwd, remote)
+	if err != nil {
+		return err
+	}
 	s.User = username
-
-	var user models.User
-
-	encodePwd := password.Encode(pwd)
-
-	infos := strings.Split(username, "@")
-	if len(infos) > 1 {
-		username = infos[0]
-	}
-
-	_, err := db.Instance.Where("account =? and password =? and disabled=0", username, encodePwd).Get(&user)
-	if err != nil && err != sql.ErrNoRows {
-		log.Errorf("%+v", err)
-	}
-
-	if user.ID > 0 {
-		s.Ctx.UserAccount = user.Account
-		s.Ctx.UserID = user.ID
-		s.Ctx.UserName = user.Name
-		s.Ctx.IsAdmin = user.IsAdmin == 1
-
-		log.WithContext(s.Ctx).Debugf("SMTP authentication succeeded for user %d", user.ID)
-		return nil
-	}
-
-	log.WithContext(s.Ctx).Debugf("SMTP authentication failed for %q", username)
-	return errors.New("password error")
+	s.Ctx.UserAccount, s.Ctx.UserID, s.Ctx.UserName, s.Ctx.IsAdmin = user.Account, user.ID, user.Name, user.IsAdmin == 1
+	return nil
 }
 
 func (s *Session) Mail(from string, opts *smtp.MailOptions) error {
-	log.WithContext(s.Ctx).Debugf("Mail Success %+v %+v", from, opts)
+	if s.Ctx.UserID > 0 && !s.Ctx.IsAdmin {
+		if _, err := address.SendAddress(s.Ctx.UserID, from); err != nil {
+			return &smtp.SMTPError{Code: 550, EnhancedCode: smtp.EnhancedCode{5, 7, 1}, Message: "sender address is not owned by authenticated user"}
+		}
+	}
+	if opts != nil {
+		s.Size = opts.Size
+	}
 	s.From = from
 	return nil
 }
 
 func (s *Session) Rcpt(to string, opts *smtp.RcptOptions) error {
 	log.WithContext(s.Ctx).Debugf("Rcpt Success %+v", to)
-
+	_, host, ok := strings.Cut(strings.TrimSpace(to), "@")
+	if ok && domain.IsLocal(host) {
+		if user, found, err := address.Resolve(to); err != nil {
+			return err
+		} else if found {
+			if err := quota.Check(user, s.Size); err != nil {
+				if errors.Is(err, quota.ErrExceeded) {
+					return &smtp.SMTPError{Code: 452, EnhancedCode: smtp.EnhancedCode{4, 2, 2}, Message: "Mailbox storage quota exceeded"}
+				}
+				return err
+			}
+		} else if !config.Instance.CatchAll {
+			return &smtp.SMTPError{Code: 550, EnhancedCode: smtp.EnhancedCode{5, 1, 1}, Message: "User unknown"}
+		}
+	}
 	s.To = append(s.To, to)
 	return nil
 }
@@ -113,6 +118,7 @@ func (s *Session) Rcpt(to string, opts *smtp.RcptOptions) error {
 func (s *Session) Reset() {
 	s.From = ""
 	s.To = nil
+	s.Size = 0
 }
 
 func (s *Session) Logout() error {

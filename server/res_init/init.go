@@ -14,10 +14,13 @@ import (
 	"github.com/Jinnrry/pmail/listen/imap_server"
 	"github.com/Jinnrry/pmail/listen/pop3_server"
 	"github.com/Jinnrry/pmail/listen/smtp_server"
+	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/setup"
 	"github.com/Jinnrry/pmail/services/setup/ssl"
 	"github.com/Jinnrry/pmail/session"
 	"github.com/Jinnrry/pmail/signal"
+	"github.com/Jinnrry/pmail/utils/send"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -37,8 +40,8 @@ func Init(serverVersion string) {
 
 	preserveUsers := bootstrap
 	for {
-		if config.Instance.Domain == "" || config.Instance.DbDSN == "" {
-			log.Fatal("Mail domain and database DSN must be configured; check config.json and PMAIL_* settings")
+		if config.Instance.DbDSN == "" {
+			log.Fatal("Database DSN must be configured; check config.json and PMAIL_* settings")
 		}
 		if err := db.InitStartup(serverVersion, preserveUsers); err != nil {
 			panic(err)
@@ -48,7 +51,14 @@ func Init(serverVersion string) {
 				panic(err)
 			}
 		}
+		if err := domain.Initialize(config.Instance); err != nil {
+			panic(err)
+		}
+		if err := address.Backfill(); err != nil {
+			panic(err)
+		}
 		parsemail.Init()
+		send.SetLocalDelivery(smtp_server.LocalDelivery)
 		session.Init()
 		hooks.Init(serverVersion)
 		cfg := config.Instance

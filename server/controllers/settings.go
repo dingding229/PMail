@@ -1,49 +1,36 @@
 package controllers
 
 import (
-	"encoding/json"
-	"github.com/Jinnrry/pmail/db"
-	"github.com/Jinnrry/pmail/dto/response"
-	"github.com/Jinnrry/pmail/i18n"
+	"net/http"
+
+	"github.com/Jinnrry/pmail/services/user"
 	"github.com/Jinnrry/pmail/session"
 	"github.com/Jinnrry/pmail/utils/context"
-	"github.com/Jinnrry/pmail/utils/password"
-	log "github.com/sirupsen/logrus"
-	"io"
-	"net/http"
 )
 
-type modifyPasswordRequest struct {
-	Password string `json:"password"`
-}
-
-func ModifyPassword(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
-	reqBytes, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.Errorf("%+v", err)
+func ModifyPassword(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Old      string `json:"old_password"`
+		New      string `json:"new_password"`
+		Password string `json:"password"`
 	}
-	var retData modifyPasswordRequest
-	err = json.Unmarshal(reqBytes, &retData)
-	if err != nil {
-		log.Errorf("%+v", err)
+	if !readRequest(w, r, &b, false) {
+		return
 	}
-
-	if retData.Password != "" {
-		encodePwd := password.Encode(retData.Password)
-
-		_, err := db.Instance.Table("user").Where("id=?", ctx.UserID).Incr("auth_version").Update(map[string]interface{}{"password": encodePwd})
-		if err != nil {
-			response.NewErrorResponse(response.ServerError, i18n.GetText(ctx.Lang, "unknowError"), "").FPrint(w)
-			return
-		}
-		// All sessions, including the one changing the password, must sign in again.
-		if err := session.Instance.Destroy(req.Context()); err != nil {
-			log.WithContext(ctx).Errorf("Destroy session after password change: %v", err)
-			response.NewErrorResponse(response.ServerError, i18n.GetText(ctx.Lang, "unknowError"), "").FPrint(w)
-			return
-		}
-
+	if b.New == "" {
+		b.New = b.Password
 	}
-
-	response.NewSuccessResponse(i18n.GetText(ctx.Lang, "succ")).FPrint(w)
+	if b.Old == "" || b.New == "" {
+		serviceError(ctx, w, user.ErrInvalid)
+		return
+	}
+	if err := user.ChangePassword(ctx.UserID, ctx.AuthVersion, b.Old, b.New); err != nil {
+		serviceError(ctx, w, err)
+		return
+	}
+	if err := session.Instance.Destroy(r.Context()); err != nil {
+		serviceError(ctx, w, err)
+		return
+	}
+	success(w, nil)
 }

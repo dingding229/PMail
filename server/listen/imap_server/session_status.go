@@ -7,6 +7,9 @@ import (
 )
 
 func (s *serverSession) Status(mailbox string, options *imap.StatusOptions) (*imap.StatusData, error) {
+	if err := s.requireSession(); err != nil {
+		return nil, err
+	}
 	category := []string{}
 	if options.UIDNext {
 		category = append(category, "UIDNEXT")

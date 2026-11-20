@@ -1,46 +1,27 @@
 package imap_server
 
 import (
-	"database/sql"
-	"github.com/Jinnrry/pmail/db"
-	"github.com/Jinnrry/pmail/models"
-	"github.com/Jinnrry/pmail/utils/errors"
-	"github.com/Jinnrry/pmail/utils/password"
+	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/emersion/go-imap/v2"
-	log "github.com/sirupsen/logrus"
-	"strings"
 )
 
 func (s *serverSession) Login(username, pwd string) error {
-	if strings.Contains(username, "@") {
-		args := strings.Split(username, "@")
-		username = args[0]
+	user, err := auth.Authenticate(username, pwd, s.remoteAddr)
+	if err != nil {
+		return authFailure()
 	}
+	s.status = AUTHORIZED
+	s.ctx.UserID, s.ctx.UserName, s.ctx.UserAccount, s.ctx.AuthVersion = user.ID, user.Name, user.Account, user.AuthVersion
+	return nil
+}
 
-	var user models.User
+func authFailure() *imap.Error {
+	return &imap.Error{Type: imap.StatusResponseTypeNo, Code: imap.ResponseCodeAuthenticationFailed, Text: "Invalid credentials or expired session"}
+}
 
-	encodePwd := password.Encode(pwd)
-
-	_, err := db.Instance.Where("account =? and password =? and disabled = 0", username, encodePwd).Get(&user)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		log.WithContext(s.ctx).Errorf("%+v", err)
+func (s *serverSession) requireSession() error {
+	if err := auth.ValidateSession(s.ctx.UserID, s.ctx.AuthVersion); err != nil {
+		return authFailure()
 	}
-
-	if user.ID > 0 {
-		s.status = AUTHORIZED
-
-		s.ctx.UserID = user.ID
-		s.ctx.UserName = user.Name
-		s.ctx.UserAccount = user.Account
-		log.WithContext(s.ctx).Debug("Login successful")
-
-		return nil
-	}
-
-	log.WithContext(s.ctx).Info("user not found")
-	return &imap.Error{
-		Type: imap.StatusResponseTypeNo,
-		Code: imap.ResponseCodeAuthenticationFailed,
-		Text: "Invalid credentials (Failure)",
-	}
+	return nil
 }

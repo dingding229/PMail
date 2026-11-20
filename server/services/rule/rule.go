@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/rule/match"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/send"
@@ -83,7 +83,7 @@ func DoRule(ctx *context.Context, rule *dto.Rule, email *parsemail.Email, user *
 		if err != nil {
 			log.WithContext(ctx).Errorf("Forward Error:%v", err)
 		} else {
-			log.WithContext(ctx).Infof("Forward Success:%s@%s -> %s", user.Account, config.Instance.Domains[0], rule.Params)
+			log.WithContext(ctx).Infof("Forward Success:%s@%s -> %s", user.Account, domain.DefaultName(), rule.Params)
 		}
 	case dto.MOVE:
 		doMove(ctx, rule, email, user)
@@ -154,13 +154,8 @@ func forwardToLocalUser(ctx *context.Context, email *parsemail.Email, account, f
 	return err
 }
 
-func isLocalDomain(domain string) bool {
-	for _, localDomain := range config.Instance.Domains {
-		if strings.EqualFold(domain, localDomain) {
-			return true
-		}
-	}
-	return strings.EqualFold(domain, config.Instance.Domain)
+func isLocalDomain(domainName string) bool {
+	return domain.IsLocal(domainName)
 }
 
 func doMove(ctx *context.Context, rule *dto.Rule, email *parsemail.Email, user *models.User) {

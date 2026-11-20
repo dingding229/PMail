@@ -30,7 +30,7 @@ func TestForwardBuildBytesRemailsFromLocalUser(t *testing.T) {
 		MsgID:   "original-message@example.com",
 	}
 
-	data := email.ForwardBuildBytes(&context.Context{}, &models.User{Name: "forwarder", Account: "forwarder"}, "recipient@example.net")
+	data := email.ForwardBuildBytes(&context.Context{}, &models.User{Name: "forwarder", Account: "forwarder"}, "recipient@example.net", "forwarder@example.com")
 
 	msg, err := mail.CreateReader(bytes.NewReader(data))
 	if err != nil {

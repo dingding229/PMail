@@ -23,6 +23,9 @@ var userConnects sync.Map
 var userConnectsMu sync.Mutex
 
 func (s *serverSession) Idle(w *imapserver.UpdateWriter, stop <-chan struct{}) error {
+	if err := s.requireSession(); err != nil {
+		return err
+	}
 	userId := s.ctx.UserID
 	logId := cast.ToString(s.ctx.GetValue(context.LogID))
 

@@ -38,6 +38,8 @@ jobs:
       SOURCE_BRANCH: ${{ github.ref_name }}
       COMMIT: ${{ github.workflow_sha }}
       EVENT: ${{ github.event_name}}
+      PMAIL_TEST_MYSQL_DSN: root:githubTest@tcp(mysql:3306)/pmail?parseTime=True
+      PMAIL_TEST_PG_DSN: postgres://postgres:githubTest@postgres:5432/pmail?sslmode=disable
     steps:
       - name: Checkout
         uses: actions/checkout@v4

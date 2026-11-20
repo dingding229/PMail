@@ -39,10 +39,13 @@ type serverSession struct {
 	currentMailbox string
 	connectTime    time.Time
 	deleteUidList  []int
+	remoteAddr     string
 }
 
 // NewSession creates a new IMAP session.
-func (s *Server) NewSession() imapserver.Session {
+func (s *Server) NewSession() imapserver.Session { return s.newSession("") }
+
+func (s *Server) newSession(remote string) imapserver.Session {
 	tc := &context.Context{}
 	tc.SetValue(context.LogID, id.GenLogID())
 
@@ -50,6 +53,7 @@ func (s *Server) NewSession() imapserver.Session {
 		server:      s,
 		ctx:         tc,
 		connectTime: time.Now(),
+		remoteAddr:  remote,
 	}
 }
 

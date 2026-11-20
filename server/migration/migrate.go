@@ -16,7 +16,7 @@ import (
 	"github.com/lib/pq"
 )
 
-var tables = []string{"user", "email", "group", "rule", "user_email", "version"}
+var tables = []string{"user", "email", "group", "rule", "user_email", "version", "domain", "mailbox_address"}
 
 const batchSize = 200
 
@@ -108,6 +108,11 @@ func Run(args []string) error {
 
 	for _, table := range tables {
 		if err := copyTable(sourceTx, tx, *fromType, table, qualified(table)); err != nil {
+			message := strings.ToLower(err.Error())
+			if (table == "domain" || table == "mailbox_address") && (strings.Contains(message, "no such table") || strings.Contains(message, "doesn't exist") || strings.Contains(message, "undefined table")) {
+				fmt.Printf("%s: source table absent; normal startup will backfill it\n", table)
+				continue
+			}
 			return fmt.Errorf("copy %s: %w", table, err)
 		}
 	}

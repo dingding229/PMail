@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/services/detail"
+	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/list"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/emersion/go-imap/v2"
@@ -93,7 +93,7 @@ func buildEnvelope(email *response.EmailResponseData, traEmail *parsemail.Email)
 	if email.MsgID != "" {
 		messageID = fmt.Sprintf("<%s>", email.MsgID)
 	} else {
-		messageID = fmt.Sprintf("<%d@%s>", email.Id, config.Instance.Domain)
+		messageID = fmt.Sprintf("<%d@%s>", email.Id, domain.DefaultName())
 	}
 
 	return &imap.Envelope{
@@ -111,6 +111,9 @@ func buildEnvelope(email *response.EmailResponseData, traEmail *parsemail.Email)
 }
 
 func (s *serverSession) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *imap.FetchOptions) error {
+	if err := s.requireSession(); err != nil {
+		return err
+	}
 	switch numSet.(type) {
 	case imap.SeqSet:
 		seqSet := numSet.(imap.SeqSet)
@@ -329,7 +332,7 @@ func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*respons
 							fmt.Fprintf(&b, "Bcc: %s\r\n", traEmail.BuildBcc2String())
 						}
 					case "message-id":
-						fmt.Fprintf(&b, "Message-ID: <%d@%s>\r\n", email.Id, config.Instance.Domain)
+						fmt.Fprintf(&b, "Message-ID: <%d@%s>\r\n", email.Id, domain.DefaultName())
 					case "content-type":
 						args := strings.SplitN(string(emailContent), "\r\n", 3)
 						if len(args) >= 2 {

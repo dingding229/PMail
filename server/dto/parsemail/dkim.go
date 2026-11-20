@@ -2,89 +2,35 @@ package parsemail
 
 import (
 	"bytes"
-	"crypto"
-	"crypto/x509"
-	"encoding/pem"
-	"fmt"
-	"github.com/Jinnrry/pmail/config"
+	"io"
+	"strings"
+
+	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/utils/consts"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/emersion/go-msgauth/dkim"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/crypto/ed25519"
-	"io"
-	"os"
-	"strings"
 )
 
-type Dkim struct {
-	privateKey crypto.Signer
-}
+var instance any = struct{}{}
 
-var instance *Dkim
+func Init() {}
 
-func Init() {
-	privateKey, err := LoadPrivateKey(config.Instance.DkimPrivateKeyPath)
-	if err != nil {
-		panic(config.Instance.DkimPrivateKeyPath +
-			" DKIM load fail! Please set dkim!  dkim私钥加载失败！请先设置dkim秘钥" +
-			err.Error())
-	}
-
-	instance = &Dkim{
-		privateKey: privateKey,
-	}
-}
-
-func LoadPrivateKey(path string) (crypto.Signer, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	block, _ := pem.Decode(b)
-	if block == nil {
-		return nil, fmt.Errorf("no PEM data found")
-	}
-
-	switch strings.ToUpper(block.Type) {
-	case "PRIVATE KEY":
-		k, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-		if err != nil {
-			return nil, err
-		}
-		signer, ok := k.(crypto.Signer)
-		if !ok {
-			return nil, fmt.Errorf("unsupported private key type %T", k)
-		}
-		return signer, nil
-	case "RSA PRIVATE KEY":
-		return x509.ParsePKCS1PrivateKey(block.Bytes)
-	case "EDDSA PRIVATE KEY":
-		if len(block.Bytes) != ed25519.PrivateKeySize {
-			return nil, fmt.Errorf("invalid Ed25519 private key size")
-		}
-		return ed25519.PrivateKey(block.Bytes), nil
-	default:
-		return nil, fmt.Errorf("unknown private key type: '%v'", block.Type)
-	}
-}
-
-func (p *Dkim) Sign(msgData string) []byte {
-	var b bytes.Buffer
-	r := strings.NewReader(msgData)
-
-	options := &dkim.SignOptions{
-		Domain:   config.Instance.Domain,
-		Selector: "default",
-		Signer:   p.privateKey,
-	}
-
-	if err := dkim.Sign(&b, r, options); err != nil {
-		log.Errorf("%+v", err)
+func sign(msgData, from string) []byte {
+	_, host, ok := strings.Cut(from, "@")
+	if !ok {
 		return []byte(msgData)
 	}
-	return b.Bytes()
+	d, key, found := domain.Signer(host)
+	if !found {
+		return []byte(msgData)
+	}
+	var buf bytes.Buffer
+	if err := dkim.Sign(&buf, strings.NewReader(msgData), &dkim.SignOptions{Domain: d.Name, Selector: d.DkimSelector, Signer: key}); err != nil {
+		log.Errorf("DKIM signing failed for %s: %v", d.Name, err)
+		return []byte(msgData)
+	}
+	return buf.Bytes()
 }
 
 func Check(ctx *context.Context, mail io.Reader) bool {

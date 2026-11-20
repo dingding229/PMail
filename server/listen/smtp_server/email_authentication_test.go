@@ -12,6 +12,9 @@ import (
 	"github.com/Jinnrry/pmail/hooks"
 	"github.com/Jinnrry/pmail/hooks/framework"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/testschema"
 	"github.com/Jinnrry/pmail/utils/context"
 	"xorm.io/xorm"
 )
@@ -71,10 +74,17 @@ func TestReceiveHooksAndDatabaseShareAuthenticationResult(t *testing.T) {
 		Domain:          "test.domain",
 		Domains:         []string{"test.domain"},
 		SpamFilterLevel: 0,
+		CatchAll:        true,
+	}
+	if err := domain.Initialize(config.Instance); err != nil {
+		t.Fatalf("初始化测试域名失败：%v", err)
 	}
 	recipient := &models.User{Account: "recipient", Name: "收件人"}
 	if _, err := engine.Insert(recipient); err != nil {
 		t.Fatalf("创建测试收件人失败：%v", err)
+	}
+	if err := address.Backfill(); err != nil {
+		t.Fatalf("初始化测试邮箱地址失败：%v", err)
 	}
 
 	capture := &authenticationCaptureHook{}
@@ -134,7 +144,7 @@ func newAuthenticationTestEngine(t *testing.T) *xorm.Engine {
 		t.Fatalf("创建测试数据库失败：%v", err)
 	}
 	engine.SetMaxOpenConns(1)
-	if err = engine.Sync2(&models.User{}, &models.Email{}, &models.UserEmail{}, &models.Rule{}); err != nil {
+	if err = testschema.Sync(engine); err != nil {
 		t.Fatalf("初始化测试数据库失败：%v", err)
 	}
 	t.Cleanup(func() { _ = engine.Close() })

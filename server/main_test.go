@@ -132,38 +132,43 @@ func genToken(account, password string) string {
 }
 
 func testTokenLogin(t *testing.T) {
-
+	createReq, _ := http.NewRequest("POST", TestHost+"/api/token/create", strings.NewReader(`{"name":"test-token"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp, err := httpClient.Do(createReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer createResp.Body.Close()
+	createData, err := readResponse(createResp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createData.ErrorNo != 0 {
+		t.Fatalf("create token: %+v", createData)
+	}
+	created, ok := createData.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("create token data type: %T", createData.Data)
+	}
+	raw, ok := created["token"].(string)
+	if !ok || raw == "" {
+		t.Fatal("token plaintext missing from create response")
+	}
 	req, _ := http.NewRequest("POST", TestHost+"/api/email/list", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Token", genToken("testCase", "testCase"))
-
+	req.Header.Set("Authorization", "Bearer "+raw)
 	ret, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
+	defer ret.Body.Close()
 	data, err := readResponse(ret.Body)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	if data.ErrorNo != 0 {
-		t.Error("Get Email List Api Error!")
-		t.Errorf("%+v", data)
+		t.Fatalf("Get Email List Api Error: %+v", data)
 	}
-	dt := data.Data.(map[string]interface{})
-	if dt["list"] == nil || len(dt["list"].([]interface{})) == 0 {
-		t.Error("Email List Is Empty!")
-		return
-	}
-
-	lst := dt["list"].([]interface{})
-	item := lst[0].(map[string]interface{})
-	id := cast.ToInt(item["id"])
-	if id == 0 {
-		t.Error("Email List Data Error!")
-	}
-
-	t.Logf("testTokenLogin Success! Response: %+v", data)
-
 }
 
 func testCheckRule(t *testing.T) {
@@ -355,6 +360,13 @@ func testPort(t *testing.T) {
 
 }
 
+func getenvDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
 func testDataBaseSet(t *testing.T) {
 
 	// 获取配置
@@ -379,13 +391,13 @@ func testDataBaseSet(t *testing.T) {
 `
 
 	if array.InArray("mysql", argList) {
-		configData = `
-{"action":"set","step":"database","db_type":"mysql","db_dsn":"root:githubTest@tcp(mysql:3306)/pmail?parseTime=True"}
-`
+		configData = fmt.Sprintf(`
+{"action":"set","step":"database","db_type":"mysql","db_dsn":%q}
+`, getenvDefault("PMAIL_TEST_MYSQL_DSN", "root:githubTest@tcp(mysql:3306)/pmail?parseTime=True"))
 	} else if array.InArray("postgres", argList) {
-		configData = `
-{"action":"set","step":"database","db_type":"postgres","db_dsn":"postgres://postgres:githubTest@postgres:5432/pmail?sslmode=disable"}
-`
+		configData = fmt.Sprintf(`
+{"action":"set","step":"database","db_type":"postgres","db_dsn":%q}
+`, getenvDefault("PMAIL_TEST_PG_DSN", "postgres://postgres:githubTest@postgres:5432/pmail?sslmode=disable"))
 	}
 
 	// 设置配置

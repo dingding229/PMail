@@ -7,14 +7,12 @@ import (
 	"fmt"
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/controllers"
-	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
-	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/token"
 	"github.com/Jinnrry/pmail/session"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/id"
-	"github.com/Jinnrry/pmail/utils/password"
 	olog "log"
 	"net"
 	"net/http"
@@ -22,7 +20,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cast"
 )
 
 //go:embed dist/*
@@ -107,27 +104,25 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 			}
 			if userInfo != nil {
 				ctx.UserID = userInfo.ID
+				ctx.AuthVersion = userInfo.AuthVersion
 				ctx.UserName = userInfo.Name
 				ctx.UserAccount = userInfo.Account
 				ctx.IsAdmin = userInfo.IsAdmin == 1
 			}
 
-			if userInfo == nil {
-				token := r.Header.Get("Token")
-				if token != "" {
-					user, err := getLoginInfoByToken(token)
-					if user.ID >= 0 && err == nil {
-						ctx.UserID = user.ID
-						ctx.UserName = user.Name
-						ctx.UserAccount = user.Account
-						ctx.IsAdmin = user.IsAdmin == 1
-					} else {
-						response.NewErrorResponse(response.NeedLogin, err.Error(), "").FPrint(w)
-						return
+			if ctx.UserID == 0 {
+				rawToken := r.Header.Get("Authorization")
+				if strings.HasPrefix(strings.ToLower(rawToken), "bearer ") {
+					rawToken = strings.TrimSpace(rawToken[7:])
+				} else {
+					rawToken = r.Header.Get("Token")
+				}
+				if rawToken != "" {
+					if tokenUser, tokenErr := token.Authenticate(rawToken); tokenErr == nil {
+						ctx.UserID, ctx.UserName, ctx.UserAccount, ctx.IsAdmin, ctx.AuthVersion = tokenUser.ID, tokenUser.Name, tokenUser.Account, tokenUser.IsAdmin == 1, tokenUser.AuthVersion
 					}
 				}
 			}
-
 			if ctx.UserID == 0 {
 				if r.URL.Path != "/api/ping" && r.URL.Path != "/api/login" {
 					response.NewErrorResponse(response.NeedLogin, i18n.GetText(ctx.Lang, "login_exp"), "").FPrint(w)
@@ -140,33 +135,4 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 		}
 		h(ctx, w, r)
 	}
-}
-
-/*
-Token 格式：  {account}:md5(md5(md5(password+"pmail")+"pmail2023")+{Unix timestamp}):{Unix timestamp}
-比如：         admin::
-*/
-func getLoginInfoByToken(token string) (models.User, error) {
-	ret := models.User{}
-	data := strings.Split(token, ":")
-	if len(data) != 3 {
-		return ret, errors.New("token format error")
-	}
-	account := data[0]
-	encodePwd := data[1]
-	requestTimeStamp := cast.ToInt64(data[2])
-	if time.Now().Unix()-requestTimeStamp >= 5 {
-		return ret, errors.New("token expired")
-	}
-	var user models.User
-	db.Instance.Table("user").Where("account =? and disabled=0", account).Get(&user)
-	if user.ID == 0 {
-		return ret, errors.New("account or password error")
-	}
-	tokenPwd := password.Md5Encode(fmt.Sprintf("%s%d", user.Password, requestTimeStamp))
-	if tokenPwd != encodePwd {
-		return ret, errors.New("account or password error")
-	}
-
-	return user, nil
 }

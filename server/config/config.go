@@ -43,6 +43,8 @@ type Config struct {
 	TgBotToken           string            `json:"tgBotToken"`
 	TgChatId             string            `json:"tgChatId"`
 	SecretKey            string            `json:"-"`
+	CatchAll             bool              `json:"catchAll"`
+	AllowUserAlias       bool              `json:"allowUserAlias"`
 	IsInit               bool              `json:"isInit"`
 	WebPushUrl           string            `json:"webPushUrl"`
 	WebPushToken         string            `json:"webPushToken"`
@@ -196,6 +198,7 @@ func configPath() string {
 func ReadConfig() (*Config, error) {
 	cfg := &Config{
 		DbType:             DBTypePostgres,
+		CatchAll:           true,
 		SSLType:            SSLTypeAutoHTTP,
 		DkimPrivateKeyPath: "config/dkim/dkim.priv",
 		SSLPrivateKeyPath:  "config/ssl/private.key",

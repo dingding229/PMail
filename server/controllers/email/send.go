@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/dto/response"
@@ -12,7 +11,8 @@ import (
 	"github.com/Jinnrry/pmail/hooks/framework"
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
-	"github.com/Jinnrry/pmail/utils/array"
+	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/utils/async"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/send"
@@ -27,6 +27,7 @@ import (
 type sendRequest struct {
 	ReplyTo     []user       `json:"reply_to"`
 	From        user         `json:"from"`
+	FromAddress string       `json:"from_address"`
 	To          []user       `json:"to"`
 	Bcc         []user       `json:"bcc"`
 	Cc          []user       `json:"cc"`
@@ -65,21 +66,27 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if reqData.From.Email != "" {
-		infos := strings.Split(reqData.From.Email, "@")
-		if len(infos) != 2 || !array.InArray(infos[1], config.Instance.Domains) {
-			response.NewErrorResponse(response.ParamsError, "params error", "").FPrint(w)
+	if reqData.FromAddress != "" {
+		resolved, err := address.SendAddress(ctx.UserID, reqData.FromAddress)
+		if err != nil && !ctx.IsAdmin {
+			response.NewErrorResponse(response.NoAccessPrivileges, "forbidden sender address", "").FPrintStatus(w, http.StatusForbidden)
 			return
 		}
-		if !ctx.IsAdmin && infos[0] != ctx.UserAccount {
-			response.NewErrorResponse(response.ParamsError, "params error", "").FPrint(w)
+		if err == nil {
+			reqData.From.Email = resolved
+		}
+	}
+	if reqData.From.Email != "" && !ctx.IsAdmin {
+		resolved, err := address.SendAddress(ctx.UserID, reqData.From.Email)
+		if err != nil {
+			response.NewErrorResponse(response.NoAccessPrivileges, "forbidden sender address", "").FPrintStatus(w, http.StatusForbidden)
 			return
 		}
-
+		reqData.From.Email = resolved
 	}
 
 	if reqData.From.Email == "" {
-		reqData.From.Email = ctx.UserAccount + "@" + config.Instance.Domain
+		reqData.From.Email, _ = address.SendAddress(ctx.UserID, "")
 	}
 
 	if reqData.From.Email == "" {
@@ -162,6 +169,9 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 
 	}
 
+	// Build the exact message once so outbound and local-receive records use the actual byte size.
+	e.Size = len(e.BuildBytes(ctx, false))
+
 	log.WithContext(ctx).Debugf("插件执行--SendBefore")
 	for _, hook := range hooks.AllHooks() {
 		if hook == nil {
@@ -170,6 +180,13 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		hook.SendBefore(ctx, e)
 	}
 	log.WithContext(ctx).Debugf("插件执行--SendBefore End")
+
+	// Assign the message ID before measuring the final signed bytes so the
+	// initial sent record and local deliveries use the same actual size.
+	if e.MsgID == "" {
+		e.MsgID = parsemail.GenerateMsgID(domain.DefaultName())
+	}
+	e.Size = len(e.BuildBytes(ctx, true))
 
 	modelEmail := models.Email{
 		Type:         1,
@@ -184,6 +201,7 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		Html:         sql.NullString{String: string(e.HTML), Valid: true},
 		Sender:       json2string(e.Sender),
 		Attachments:  json2string(e.Attachments),
+		Size:         e.Size,
 		SPFCheck:     1,
 		DKIMCheck:    1,
 		SendUserID:   ctx.UserID,
@@ -191,7 +209,7 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		CronSendTime: time.Now(),
 		Status:       1,
 		CreateTime:   time.Now(),
-		MsgID:        parsemail.GenerateMsgID(config.Instance.Domain),
+		MsgID:        e.MsgID,
 	}
 
 	_, err = db.Instance.Insert(&modelEmail)

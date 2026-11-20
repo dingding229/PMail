@@ -18,8 +18,10 @@ import (
 	"github.com/Jinnrry/pmail/hooks/framework"
 	"github.com/Jinnrry/pmail/listen/imap_server"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/services/rule"
-	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/async"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/send"
@@ -33,6 +35,73 @@ import (
 // 这可以有效防止扫描器产生的垃圾邮件被存入第一个用户（管理员）的邮箱
 // 注意：此开关只能通过修改代码来更改，不暴露给用户配置
 const DropUnknownRecipientEmails = true
+
+// LocalDelivery is shared by SMTP submission and Web send to keep local mail
+// on the same persistence/rule/hook path as SMTP 25 receive.
+func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*parsemail.User) (error, map[string]error) {
+	var first error
+	errs := map[string]error{}
+	accepted := 0
+	raw := email.BuildBytes(ctx, false)
+	for _, recipient := range recipients {
+		users, saved, err := saveEmail(ctx, len(raw), email, 0, int(consts.EmailTypeReceive), []string{recipient.EmailAddress}, true, true)
+		if err == nil && len(users) == 0 && !config.Instance.CatchAll {
+			err = address.ErrNotFound
+		}
+		if err != nil {
+			errs[recipient.EmailAddress] = err
+			if first == nil {
+				first = err
+			}
+			continue
+		}
+		accepted++
+		processIncomingDelivery(ctx, email, saved, users, raw)
+	}
+	// SMTP DATA cannot report a separate result for each RCPT. Return a
+	// recipient error only when every local recipient was rejected; partial
+	// local delivery remains accepted and is reported through the per-address
+	// error map/hooks instead of making accepted recipients retry.
+	if accepted > 0 {
+		return nil, errs
+	}
+	return first, errs
+}
+
+func processIncomingDelivery(ctx *context.Context, email *parsemail.Email, dbEmail *models.Email, users []*models.User, emailData []byte) {
+	if dbEmail == nil || email == nil {
+		return
+	}
+	log.WithContext(ctx).Debugf("开始执行邮件规则！")
+	for _, user := range users {
+		for _, ruleItem := range rule.GetAllRules(ctx, user.ID) {
+			if rule.MatchRule(ctx, ruleItem, email) {
+				rule.DoRule(ctx, ruleItem, email, user, emailData)
+			}
+		}
+	}
+
+	log.WithContext(ctx).Debugf("开始执行插件ReceiveSaveAfter！")
+	var ue []*models.UserEmail
+	if err := db.Instance.Table(&models.UserEmail{}).Where("email_id=?", dbEmail.Id).Find(&ue); err != nil {
+		log.WithContext(ctx).Errorf("sql Error :%+v", err)
+	}
+	as := async.New(ctx)
+	for _, hook := range hooks.AllHooks() {
+		if hook == nil {
+			continue
+		}
+		as.WaitProcess(func(hk any) {
+			hk.(framework.EmailHook).ReceiveSaveAfter(ctx, email, ue)
+		}, hook)
+	}
+	as.Wait()
+	log.WithContext(ctx).Debugf("开始执行插件ReceiveSaveAfter！End")
+
+	for _, user := range users {
+		_ = imap_server.IdleNotice(ctx, user.ID, dbEmail)
+	}
+}
 
 func (s *Session) Data(r io.Reader) error {
 
@@ -73,9 +142,10 @@ func (s *Session) Data(r io.Reader) error {
 
 	// 判断是收信还是转发，只要是登陆了，都当成转发处理
 	if s.Ctx.UserID > 0 {
-		account, _ := email.From.GetDomainAccount()
-		if account != ctx.UserAccount && !ctx.IsAdmin {
-			return oerrors.New("No Auth")
+		if !ctx.IsAdmin {
+			if _, err := address.SendAddress(ctx.UserID, email.From.EmailAddress); err != nil {
+				return oerrors.New("No Auth")
+			}
 		}
 
 		log.WithContext(ctx).Debugf("开始执行插件SendBefore！")
@@ -103,7 +173,7 @@ func (s *Session) Data(r io.Reader) error {
 		SPFStatus = spfCheck(s.RemoteAddress.String(), email.Sender, email.Sender.EmailAddress)
 
 		_, formDomain := email.From.GetDomainAccount()
-		spoofed := array.InArray(formDomain, config.Instance.Domains) && SPFStatus == false
+		spoofed := domain.IsLocal(formDomain) && SPFStatus == false
 		if spoofed {
 			dkimStatus = false
 		}
@@ -126,45 +196,14 @@ func (s *Session) Data(r io.Reader) error {
 
 		users, dbEmail, saveErr := saveEmail(ctx, len(emailData), email, 0, 0, s.To, SPFStatus, dkimStatus)
 		if saveErr != nil {
+			if oerrors.Is(saveErr, quota.ErrExceeded) {
+				return quotaSMTPError()
+			}
 			log.WithContext(ctx).Errorf("CRITICAL audit_event=initial_persist_failed direction=inbound msg_id=%q error=%v", email.MsgID, saveErr)
 			return localPersistenceSMTPError()
 		}
 
-		if email.MessageId > 0 {
-			log.WithContext(ctx).Debugf("开始执行邮件规则！")
-			for _, user := range users {
-				// 执行邮件规则
-				rs := rule.GetAllRules(ctx, user.ID)
-				for _, r := range rs {
-					if rule.MatchRule(ctx, r, email) {
-						rule.DoRule(ctx, r, email, user, emailData)
-					}
-				}
-			}
-		}
-
-		log.WithContext(ctx).Debugf("开始执行插件ReceiveSaveAfter！")
-		var ue []*models.UserEmail
-		err = db.Instance.Table(&models.UserEmail{}).Where("email_id=?", email.MessageId).Find(&ue)
-		if err != nil {
-			log.WithContext(ctx).Errorf("sql Error :%+v", err)
-		}
-		as3 := async.New(ctx)
-		for _, hook := range hooks.AllHooks() {
-			if hook == nil {
-				continue
-			}
-			as3.WaitProcess(func(hk any) {
-				hk.(framework.EmailHook).ReceiveSaveAfter(ctx, email, ue)
-			}, hook)
-		}
-		as3.Wait()
-		log.WithContext(ctx).Debugf("开始执行插件ReceiveSaveAfter！End")
-
-		// IDLE命令通知
-		for _, user := range users {
-			imap_server.IdleNotice(ctx, user.ID, dbEmail)
-		}
+		processIncomingDelivery(ctx, email, dbEmail, users, emailData)
 
 	}
 
@@ -190,7 +229,7 @@ func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserI
 
 	msgID := email.MsgID
 	if msgID == "" {
-		msgID = parsemail.GenerateMsgID(config.Instance.Domain)
+		msgID = parsemail.GenerateMsgID(domain.DefaultName())
 	}
 	if email.Size == 0 {
 		email.Size = size
@@ -232,9 +271,34 @@ func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserI
 	}
 
 	log.WithContext(ctx).Debugf("开始入库！")
-	saved, err := persistInitialAudit(ctx, modelEmail, userIDs)
-	if err != nil {
-		return users, nil, err
+	var saved *models.Email
+	var accepted []int
+	if emailType == int(consts.EmailTypeReceive) {
+		var err error
+		saved, accepted, err = persistInitialAuditWithQuota(ctx, modelEmail, userIDs)
+		if err != nil {
+			return users, nil, err
+		}
+		if len(accepted) == 0 {
+			return users, nil, quota.ErrExceeded
+		}
+		allowed := map[int]bool{}
+		for _, id := range accepted {
+			allowed[id] = true
+		}
+		filtered := users[:0]
+		for _, u := range users {
+			if allowed[u.ID] {
+				filtered = append(filtered, u)
+			}
+		}
+		users = filtered
+	} else {
+		var err error
+		saved, err = persistInitialAudit(ctx, modelEmail, userIDs)
+		if err != nil {
+			return users, nil, err
+		}
 	}
 	email.MessageId = cast.ToInt64(saved.Id)
 	email.MsgID = saved.MsgID

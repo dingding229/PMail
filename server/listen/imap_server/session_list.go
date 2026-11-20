@@ -89,6 +89,9 @@ func getLayerName(ctx *context.Context, item *models.Group, allPath bool) string
 }
 
 func (s *serverSession) List(w *imapserver.ListWriter, ref string, patterns []string, options *imap.ListOptions) error {
+	if err := s.requireSession(); err != nil {
+		return err
+	}
 	log.WithContext(s.ctx).Debugf("imap server list, ref: %s ,patterns: %s ", ref, patterns)
 
 	if ref == "" && len(patterns) == 0 {

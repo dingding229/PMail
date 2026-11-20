@@ -19,9 +19,11 @@ type Response struct {
 	Data     any    `json:"data"`
 }
 
-func (p *Response) FPrint(w http.ResponseWriter) {
+func (p *Response) FPrint(w http.ResponseWriter) { p.FPrintStatus(w, http.StatusOK) }
+func (p *Response) FPrintStatus(w http.ResponseWriter, status int) {
 	bytesData, _ := json.Marshal(p)
-	w.Write(bytesData)
+	w.WriteHeader(status)
+	_, _ = w.Write(bytesData)
 }
 
 func NewSuccessResponse(data any) *Response {

@@ -21,8 +21,11 @@ import (
 	"github.com/Jinnrry/pmail/hooks"
 	"github.com/Jinnrry/pmail/hooks/framework"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/domain"
 	listservice "github.com/Jinnrry/pmail/services/list"
+	"github.com/Jinnrry/pmail/testschema"
 	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/dkimkey"
 	smtp "github.com/emersion/go-smtp"
 	log "github.com/sirupsen/logrus"
 	_ "modernc.org/sqlite"
@@ -115,6 +118,19 @@ func TestIncomingAuditRelationInsertRollsBackEmail(t *testing.T) {
 	if _, err := engine.Insert(recipient); err != nil {
 		t.Fatal(err)
 	}
+	key, err := dkimkey.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = engine.Insert(&models.Domain{ID: 1, Name: "example.com", IsDefault: true, DkimSelector: "default", DkimPrivateKey: key}); err != nil {
+		t.Fatal(err)
+	}
+	if err = domain.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = engine.Insert(&models.MailboxAddress{UserID: recipient.ID, LocalPart: "recipient", DomainID: 1, IsPrimary: true, CanSend: true}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := engine.Exec(`CREATE TRIGGER fail_incoming_user_email_insert
 		BEFORE INSERT ON user_email
 		BEGIN
@@ -132,8 +148,8 @@ func TestIncomingAuditRelationInsertRollsBackEmail(t *testing.T) {
 		Size:   4,
 		MsgID:  "incoming-relation-failure@example.net",
 	}
-	_, _, err := saveEmail(&context.Context{}, email.Size, email, 0, int(consts.EmailTypeReceive), []string{"recipient@example.com"}, true, true)
-	if err == nil {
+	_, _, saveErr := saveEmail(&context.Context{}, email.Size, email, 0, int(consts.EmailTypeReceive), []string{"recipient@example.com"}, true, true)
+	if saveErr == nil {
 		t.Fatal("saveEmail() error = nil, want incoming relation insert failure")
 	}
 	assertAuditCounts(t, engine, 0, 0)
@@ -143,8 +159,8 @@ func TestOutgoingAuditRetriesBusyFinalUpdateAtomically(t *testing.T) {
 	engine, dsn := newAuditTestEngine(t)
 	var blocker *sql.Tx
 
-	session := newAuditTestSession()
-	err := session.deliverOutgoingEmail(newAuditTestEmail("final-retry@example.com"), func(*context.Context, *parsemail.Email) (error, map[string]error) {
+	auditSession := newAuditTestSession()
+	err := auditSession.deliverOutgoingEmail(newAuditTestEmail("final-retry@example.com"), func(*context.Context, *parsemail.Email) (error, map[string]error) {
 		blocker = beginAuditReadTransaction(t, dsn)
 		go func() {
 			time.Sleep(35 * time.Millisecond)
@@ -432,7 +448,7 @@ func newAuditTestEngine(t *testing.T) (*xorm.Engine, string) {
 	}
 	engine.SetMaxOpenConns(1)
 	engine.SetMaxIdleConns(1)
-	if err = engine.Sync2(&models.User{}, &models.Email{}, &models.UserEmail{}); err != nil {
+	if err = testschema.Sync(engine); err != nil {
 		engine.Close()
 		t.Fatal(err)
 	}
@@ -449,7 +465,7 @@ func newAuditTestEngine(t *testing.T) (*xorm.Engine, string) {
 	oldConfig := config.Instance
 	oldHooks := hooks.HookList
 	db.Instance = engine
-	config.Instance = &config.Config{DbType: config.DBTypeSQLite, Domain: "example.com", Domains: []string{"example.com"}}
+	config.Instance = &config.Config{DbType: config.DBTypeSQLite, Domain: "example.com", Domains: []string{"example.com"}, CatchAll: true}
 	hooks.HookList = nil
 	t.Cleanup(func() {
 		db.Instance = oldDB

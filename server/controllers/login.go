@@ -1,21 +1,15 @@
 package controllers
 
 import (
-	"database/sql"
-	"encoding/json"
-	"github.com/Jinnrry/pmail/config"
-	"github.com/Jinnrry/pmail/db"
+	"errors"
+	"net/http"
+
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
-	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/auth"
+	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/session"
-	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/context"
-	"github.com/Jinnrry/pmail/utils/errors"
-	"github.com/Jinnrry/pmail/utils/password"
-	log "github.com/sirupsen/logrus"
-	"io"
-	"net/http"
 )
 
 type loginRequest struct {
@@ -24,51 +18,34 @@ type loginRequest struct {
 }
 
 func Login(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
-
-	reqBytes, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.Errorf("%+v", err)
+	var data loginRequest
+	if !readRequest(w, req, &data, false) {
+		return
 	}
-	var reqData loginRequest
-	err = json.Unmarshal(reqBytes, &reqData)
-	if err != nil {
-		log.Errorf("%+v", err)
+	u, err := auth.Authenticate(data.Account, data.Password, req.RemoteAddr)
+	if errors.Is(err, auth.ErrLocked) {
+		apiError(w, http.StatusTooManyRequests, response.ParamsError, err.Error())
+		return
 	}
-
-	var user models.User
-
-	encodePwd := password.Encode(reqData.Password)
-	_, err = db.Instance.Where("account =? and password =? and disabled=0", reqData.Account, encodePwd).Get(&user)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		log.Errorf("%+v", err)
-	}
-
-	if user.ID != 0 {
-		if err := session.Login(req.Context(), &user); err != nil {
-			log.WithContext(ctx).Errorf("Create session: %v", err)
-			response.NewErrorResponse(response.ServerError, i18n.GetText(ctx.Lang, "unknowError"), "").FPrint(w)
-			return
-		}
-
-		domains := config.Instance.Domains
-		domains = array.Difference(domains, []string{config.Instance.Domain})
-		domains = append([]string{config.Instance.Domain}, domains...)
-
-		response.NewSuccessResponse(map[string]any{
-			"account":  user.Account,
-			"name":     user.Name,
-			"is_admin": user.IsAdmin,
-			"domains":  domains,
-		}).FPrint(w)
-	} else {
+	if errors.Is(err, auth.ErrCredentials) {
 		response.NewErrorResponse(response.ParamsError, i18n.GetText(ctx.Lang, "aperror"), "").FPrint(w)
+		return
 	}
+	if err != nil {
+		serviceError(ctx, w, err)
+		return
+	}
+	if err := session.Login(req.Context(), &u); err != nil {
+		serviceError(ctx, w, err)
+		return
+	}
+	success(w, map[string]any{"account": u.Account, "name": u.Name, "is_admin": u.IsAdmin, "domains": domain.Names()})
 }
 
 func Logout(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
-	if err := session.Instance.Destroy(ctx.Context); err != nil {
-		response.NewErrorResponse(response.ServerError, i18n.GetText(ctx.Lang, "unknowError"), "").FPrint(w)
+	if err := session.Instance.Destroy(req.Context()); err != nil {
+		serviceError(ctx, w, err)
 		return
 	}
-	response.NewSuccessResponse("Success").FPrint(w)
+	success(w, i18n.GetText(ctx.Lang, "succ"))
 }

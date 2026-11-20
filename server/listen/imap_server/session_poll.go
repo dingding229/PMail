@@ -8,6 +8,9 @@ import (
 )
 
 func (s *serverSession) Poll(w *imapserver.UpdateWriter, allowExpunge bool) error {
+	if err := s.requireSession(); err != nil {
+		return err
+	}
 
 	var ue []models.UserEmail
 	db.Instance.Table("user_email").Where("user_id=? and `create` >=?", s.ctx.UserID, s.connectTime).Find(&ue)

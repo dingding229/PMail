@@ -8,6 +8,9 @@ import (
 )
 
 func (s *serverSession) Select(mailbox string, options *imap.SelectOptions) (*imap.SelectData, error) {
+	if err := s.requireSession(); err != nil {
+		return nil, err
+	}
 	if "" == mailbox {
 		return nil, &imap.Error{
 			Type: imap.StatusResponseTypeBad,

@@ -13,6 +13,9 @@ import (
 )
 
 func (s *serverSession) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) {
+	if err := s.requireSession(); err != nil {
+		return nil, err
+	}
 
 	var emailList []*response.EmailResponseData
 

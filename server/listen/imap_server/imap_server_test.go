@@ -623,6 +623,10 @@ func TestIdleNotice(t *testing.T) {
 	if user.ID == 0 {
 		t.Fatal("test user not found")
 	}
+	// imapclient.Idle waits for the continuation response. The server then
+	// registers the session asynchronously, so wait for that registration
+	// before publishing the notification to avoid a test-only race.
+	waitIdleConnectionsRegistered(t, user.ID)
 
 	ctx := &pcontext.Context{UserID: user.ID}
 	if err = IdleNotice(ctx, user.ID, &models.Email{Id: 1}); err != nil {
@@ -657,6 +661,18 @@ func readTaggedLine(reader *bufio.Reader, tag string) (string, error) {
 			return line, nil
 		}
 	}
+}
+
+func waitIdleConnectionsRegistered(t *testing.T, userId int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := userConnects.Load(userId); ok {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("idle connection was not registered")
 }
 
 func waitIdleConnectionsDeleted(t *testing.T, userId int) {

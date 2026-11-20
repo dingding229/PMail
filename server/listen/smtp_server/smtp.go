@@ -6,7 +6,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/emersion/go-smtp"
 	log "github.com/sirupsen/logrus"
 )
@@ -21,7 +21,7 @@ var listeners []listener
 func newSMTPServer(addr string) *smtp.Server {
 	server := smtp.NewServer(&Backend{})
 	server.Addr = addr
-	server.Domain = config.Instance.Domain
+	server.Domain = domain.DefaultName()
 	server.ReadTimeout = 10 * time.Second
 	server.WriteTimeout = 10 * time.Second
 	server.MaxMessageBytes = 1024 * 1024 * 30

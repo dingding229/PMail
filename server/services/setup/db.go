@@ -40,7 +40,10 @@ func GetAdminPassword(ctx *context.Context) (string, error) {
 }
 
 func SetAdminPassword(ctx *context.Context, account, pwd string) error {
-	encodePwd := password.Encode(pwd)
+	encodePwd, err := password.Hash(pwd)
+	if err != nil {
+		return err
+	}
 	var user models.User = models.User{
 		Account:  account,
 		Name:     "admin",
@@ -48,7 +51,7 @@ func SetAdminPassword(ctx *context.Context, account, pwd string) error {
 		IsAdmin:  1,
 	}
 
-	_, err := db.Instance.Insert(&user)
+	_, err = db.Instance.Insert(&user)
 	if err != nil {
 		return errors.Wrap(err)
 	}
@@ -97,10 +100,14 @@ func AutoInitialize(account, rawPassword string) error {
 		return errors.Wrap(err)
 	}
 	if !found {
+		hash, err := password.Hash(rawPassword)
+		if err != nil {
+			return err
+		}
 		_, err = db.Instance.Insert(&models.User{
 			Account:  account,
 			Name:     "admin",
-			Password: password.Encode(rawPassword),
+			Password: hash,
 			IsAdmin:  1,
 		})
 		if err != nil {

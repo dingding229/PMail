@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/services/auth"
+	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/setup/ssl"
 	"github.com/Jinnrry/pmail/signal"
 	log "github.com/sirupsen/logrus"
@@ -23,6 +25,7 @@ const (
 // Future scheduler workers can share its context and stop on reload or shutdown.
 func Start(ctx context.Context, cfg *config.Config, active *tls.Certificate) {
 	go certificateMaintenance(ctx, cfg, active)
+	go auth.RunCleanup(ctx)
 }
 
 func certificateMaintenance(ctx context.Context, cfg *config.Config, active *tls.Certificate) {
@@ -32,15 +35,17 @@ func certificateMaintenance(ctx context.Context, cfg *config.Config, active *tls
 
 	backoff := certificateRetryMin
 	for ctx.Err() == nil {
-		cert, err := ssl.LoadCertificate(cfg)
+		current := *cfg
+		current.Domain, current.Domains = domain.DefaultName(), domain.Names()
+		cert, err := ssl.LoadCertificate(&current)
 		if err == nil && certificateChanged(active, cert) {
 			requestCertificateReload(ctx)
 			return
 		}
-		if ssl.Automatic(cfg) && (err != nil || ssl.NeedsRenewal(cfg, cert)) {
-			err = ssl.ObtainCertificate(ctx, cfg)
+		if ssl.Automatic(cfg) && (err != nil || ssl.NeedsRenewal(&current, cert)) {
+			err = ssl.ObtainCertificate(ctx, &current)
 			if err == nil {
-				cert, err = ssl.LoadCertificate(cfg)
+				cert, err = ssl.LoadCertificate(&current)
 				if err == nil && certificateChanged(active, cert) {
 					requestCertificateReload(ctx)
 					return
