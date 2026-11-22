@@ -218,6 +218,102 @@ export interface InboundSettings {
   risk_block_dangerous_attachments: boolean
 }
 
+/* ==================== C9 Contract: Telegram, System Update, Signatures ==================== */
+
+export interface AdminTelegramStatus {
+  configured: boolean
+  bot_username: string | null
+  proxy_set: boolean
+  webhook_mode: 'polling'
+}
+
+export interface AdminTelegramUpdatePayload {
+  bot_token?: string
+  proxy?: string | null
+}
+
+export interface AdminTelegramTestResult {
+  ok: boolean
+  bot_username: string
+  latency_ms: number
+}
+
+export interface TelegramQuietHours {
+  start: string
+  end: string
+  tz: string
+}
+
+export interface TelegramFilters {
+  group_ids: number[] | null
+  only_verification: boolean
+  include_spam: boolean
+  include_preview: boolean
+  quiet_hours: TelegramQuietHours | null
+}
+
+export interface UserTelegramStatus {
+  available: boolean
+  bound: boolean
+  chat_title: string | null
+  bound_at: string | null
+  filters: TelegramFilters
+}
+
+export interface TelegramBindCode {
+  code: string
+  expires_at: string
+  deep_link: string
+}
+
+export interface UpdateReleaseItem {
+  version: string
+  published_at: string
+  notes_markdown: string
+  url: string
+  is_current: boolean
+}
+
+export interface AdminUpdateInfo {
+  current: string
+  latest: string | null
+  has_update: boolean
+  checked_at: string | null
+  check_error: string | null
+  releases: UpdateReleaseItem[]
+  updater: {
+    enabled: boolean
+    kind: string | null
+  }
+  manual_commands: string[]
+}
+
+export interface UpdateApplyResponse {
+  job_id: string
+}
+
+export type UpdateJobState = 'pending' | 'pulling' | 'restarting' | 'done' | 'failed'
+
+export interface UpdateJobStatus {
+  state: UpdateJobState
+  message: string | null
+}
+
+export interface SignatureRecord {
+  id: number
+  name: string
+  html: string
+  address_ids: number[]
+  is_default: boolean
+}
+
+export interface SignatureInput {
+  name: string
+  html: string
+  address_ids: number[]
+  is_default: boolean
+}
+
 export interface EmailListItem {
   id: number
   title: string
@@ -318,6 +414,18 @@ export interface SendEmailAttachment {
   data: string // data:<mime>;base64,<content>
 }
 
+export interface InlineImageRef {
+  cid: string
+}
+
+export interface InlineImageUploadResult {
+  cid: string
+  url: string
+  filename: string
+  content_type: string
+  size: number
+}
+
 export interface SendEmailRequest {
   from?: SendEmailParticipant
   from_address?: string
@@ -329,6 +437,7 @@ export interface SendEmailRequest {
   text?: string
   html?: string
   attrs?: SendEmailAttachment[]
+  inline_images?: InlineImageRef[]
   draft_id?: number
 }
 
@@ -342,6 +451,7 @@ export interface DraftSaveRequest {
   html?: string
   text?: string
   attrs?: SendEmailAttachment[]
+  inline_images?: InlineImageRef[]
 }
 
 export interface DraftSaveResponse {
@@ -356,6 +466,7 @@ export interface ForwardEmailRequest {
   html?: string
   from_address?: string
   include_attachments?: boolean
+  inline_images?: InlineImageRef[]
 }
 
 export interface RecipientDeliveryResult {

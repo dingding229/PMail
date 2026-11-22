@@ -59,13 +59,13 @@ interface RequestOptions {
   rawJson?: boolean
 }
 
-function buildHeaders(hasBody: boolean): HeadersInit {
+function buildHeaders(hasJsonBody: boolean): HeadersInit {
   const lang = getAppLanguage()
   const headers: Record<string, string> = {
     'X-PMail-Lang': lang,
     Lang: lang.startsWith('zh') ? 'zh' : 'en',
   }
-  if (hasBody) {
+  if (hasJsonBody) {
     headers['Content-Type'] = 'application/json;charset=UTF-8'
   }
   const token = getBearerToken()
@@ -94,6 +94,15 @@ const MACHINE_ERROR_KEY_MAP: Record<string, string> = {
   spam_rule_limit: 'settings.spam.errors.limitReached',
   risk_confirmation_required: 'mail.risk.confirmDownloadRequired',
   risk_preview_forbidden: 'mail.risk.previewForbidden',
+  telegram_token_invalid: 'admin.telegram.errors.tokenInvalid',
+  telegram_not_configured: 'settings.telegram.errors.notConfigured',
+  telegram_not_bound: 'settings.telegram.errors.notBound',
+  telegram_bind_expired: 'settings.telegram.errors.bindExpired',
+  telegram_rate_limited: 'settings.telegram.errors.rateLimited',
+  update_check_rate_limited: 'admin.update.errors.rateLimited',
+  updater_disabled: 'admin.update.errors.updaterDisabled',
+  inline_image_too_large: 'compose.inlineImage.errorTooLarge',
+  inline_image_type: 'compose.inlineImage.errorType',
 }
 
 function resolveApiErrorMessage(rawMessage: string | undefined, status: number): string {
@@ -133,6 +142,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     skipAuthRedirect = false,
     rawJson = false,
   } = options
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
   const hasBody = body !== undefined && method !== 'GET'
 
   let response: Response
@@ -140,8 +150,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     response = await fetch(path, {
       method,
       credentials: 'include',
-      headers: buildHeaders(hasBody),
-      body: hasBody ? JSON.stringify(body) : undefined,
+      headers: buildHeaders(hasBody && !isFormData),
+      body: hasBody ? (isFormData ? (body as FormData) : JSON.stringify(body)) : undefined,
       signal,
     })
   } catch (err) {
@@ -305,3 +315,9 @@ export const apiDelete = <T>(
   body?: unknown,
   options?: Omit<RequestOptions, 'method' | 'body'>,
 ) => apiRequest<T>(path, { ...options, method: 'DELETE', body })
+
+export const apiUpload = <T>(
+  path: string,
+  formData: FormData,
+  options?: Omit<RequestOptions, 'method' | 'body'>,
+) => apiRequest<T>(path, { ...options, method: 'POST', body: formData })

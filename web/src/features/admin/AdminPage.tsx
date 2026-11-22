@@ -1,8 +1,10 @@
 import { useNavigate, useParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import {
+  ArrowUpCircle,
   AtSign,
   Globe,
+  Send,
   SendToBack,
   Settings,
   ShieldAlert,
@@ -18,8 +20,10 @@ import { DomainsSection } from './DomainsSection'
 import { UsersSection } from './UsersSection'
 import { AdminAddressesSection } from './AdminAddressesSection'
 import { InboundSecuritySection } from './InboundSecuritySection'
+import { AdminTelegramSection } from './AdminTelegramSection'
+import { SystemUpdateSection } from './SystemUpdateSection'
 
-type AdminTabKey = 'domains' | 'users' | 'addresses' | 'inbound' | 'queue'
+type AdminTabKey = 'domains' | 'users' | 'addresses' | 'inbound' | 'telegram' | 'update' | 'queue'
 
 export function AdminPage() {
   const { t } = useTranslation()
@@ -32,6 +36,8 @@ export function AdminPage() {
     { key: 'users', label: t('admin.tabs.users'), icon: Users },
     { key: 'addresses', label: t('admin.tabs.addresses'), icon: AtSign },
     { key: 'inbound', label: t('admin.tabs.inbound'), icon: ShieldCheck },
+    { key: 'telegram', label: t('admin.tabs.telegram'), icon: Send },
+    { key: 'update', label: t('admin.tabs.update'), icon: ArrowUpCircle },
     { key: 'queue', label: t('admin.tabs.queue'), icon: SendToBack },
   ]
 
@@ -83,6 +89,8 @@ export function AdminPage() {
       {activeTab === 'users' && <UsersSection />}
       {activeTab === 'addresses' && <AdminAddressesSection />}
       {activeTab === 'inbound' && <InboundSecuritySection />}
+      {activeTab === 'telegram' && <AdminTelegramSection />}
+      {activeTab === 'update' && <SystemUpdateSection />}
       {activeTab === 'queue' && <QueueSection scope="global" />}
     </SectionPanelShell>
   )

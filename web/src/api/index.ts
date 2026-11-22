@@ -14,4 +14,8 @@ export {
   spamSettingsApi,
   spamRulesApi,
   adminInboundApi,
+  adminTelegramApi,
+  userTelegramApi,
+  adminUpdateApi,
+  signaturesApi,
 } from './settings'

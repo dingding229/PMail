@@ -8,6 +8,8 @@ import {
   KeyRound,
   MailPlus,
   Palette,
+  PenLine,
+  Send,
   SendToBack,
   Shield,
   ShieldBan,
@@ -20,9 +22,11 @@ import { SectionPanelShell, type PanelTabItem } from '@/components/common/Sectio
 import { ProfileSecuritySection } from './sections/ProfileSecuritySection'
 import { AppearanceSection } from './sections/AppearanceSection'
 import { AddressesSection } from './sections/AddressesSection'
+import { SignaturesSection } from './sections/SignaturesSection'
 import { ForwardSection } from './sections/ForwardSection'
 import { RulesSection } from './sections/RulesSection'
 import { SpamSection } from './sections/SpamSection'
+import { TelegramSection } from './sections/TelegramSection'
 import { GroupsSection } from './sections/GroupsSection'
 import { ExternalMailSection } from './sections/ExternalMailSection'
 import { TokensSection } from './sections/TokensSection'
@@ -32,9 +36,11 @@ type SettingsTabKey =
   | 'profile'
   | 'appearance'
   | 'addresses'
+  | 'signatures'
   | 'forward'
   | 'rules'
   | 'spam'
+  | 'telegram'
   | 'groups'
   | 'external'
   | 'tokens'
@@ -50,9 +56,11 @@ export function SettingsPage() {
     { key: 'profile', label: t('settings.tabs.profile'), icon: UserCog },
     { key: 'appearance', label: t('settings.tabs.appearance'), icon: Palette },
     { key: 'addresses', label: t('settings.tabs.addresses'), icon: AtSign },
+    { key: 'signatures', label: t('settings.tabs.signatures'), icon: PenLine },
     { key: 'forward', label: t('settings.tabs.forward'), icon: Forward },
     { key: 'rules', label: t('settings.tabs.rules'), icon: Filter },
     { key: 'spam', label: t('settings.tabs.spam'), icon: ShieldBan },
+    { key: 'telegram', label: t('settings.tabs.telegram'), icon: Send },
     { key: 'groups', label: t('settings.tabs.groups'), icon: Folder },
     { key: 'external', label: t('settings.tabs.external'), icon: MailPlus },
     { key: 'tokens', label: t('settings.tabs.tokens'), icon: KeyRound },
@@ -89,9 +97,11 @@ export function SettingsPage() {
       {activeTab === 'profile' && <ProfileSecuritySection />}
       {activeTab === 'appearance' && <AppearanceSection />}
       {activeTab === 'addresses' && <AddressesSection />}
+      {activeTab === 'signatures' && <SignaturesSection />}
       {activeTab === 'forward' && <ForwardSection />}
       {activeTab === 'rules' && <RulesSection />}
       {activeTab === 'spam' && <SpamSection />}
+      {activeTab === 'telegram' && <TelegramSection />}
       {activeTab === 'groups' && <GroupsSection />}
       {activeTab === 'external' && <ExternalMailSection />}
       {activeTab === 'tokens' && <TokensSection />}

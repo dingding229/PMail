@@ -9,9 +9,11 @@ import {
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import {
+  adminUpdateApi,
   authApi,
   groupApi,
   mailApi,
+  signaturesApi,
   userApi,
   SYSTEM_GROUP_IDS,
   type DraftSaveRequest,
@@ -46,6 +48,9 @@ export const queryKeys = {
   userAddresses: (userId: number) => ['admin', 'addresses', userId] as const,
   domains: ['admin', 'domains'] as const,
   adminInbound: ['admin', 'inbound'] as const,
+  adminTelegram: ['admin', 'telegram'] as const,
+  adminUpdate: ['admin', 'update'] as const,
+  userTelegram: ['settings', 'telegram'] as const,
   domainDns: (id: number) => ['admin', 'domains', 'dns', id] as const,
 }
 
@@ -73,6 +78,25 @@ export function useAddressesQuery(enabled = true) {
     queryFn: () => userApi.listAddresses(),
     enabled,
     staleTime: 5 * 60_000,
+  })
+}
+
+export function useSignaturesQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.signatures,
+    queryFn: () => signaturesApi.list(),
+    enabled,
+    staleTime: 2 * 60_000,
+  })
+}
+
+export function useAdminUpdateQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.adminUpdate,
+    queryFn: () => adminUpdateApi.get(),
+    enabled,
+    staleTime: 5 * 60_000,
+    retry: false,
   })
 }
 

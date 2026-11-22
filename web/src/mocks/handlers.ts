@@ -3,6 +3,8 @@ import dayjs from 'dayjs'
 import { version as mockBuildVersion } from '../../package.json'
 import {
   SYSTEM_GROUP_IDS,
+  type AdminTelegramStatus,
+  type AdminUpdateInfo,
   type ApiTokenItem,
   type DomainDnsResponse,
   type ExternalAccount,
@@ -13,10 +15,15 @@ import {
   type MailDomain,
   type MailRule,
   type QueueItem,
+  type SignatureInput,
+  type SignatureRecord,
   type SpamRule,
   type SpamRuleInput,
   type SpamSettings,
+  type TelegramFilters,
+  type UpdateJobState,
   type UserProfile,
+  type UserTelegramStatus,
 } from '@/api'
 import {
   buildSyntheticEmail,
@@ -54,6 +61,122 @@ let mockInboundSettings: InboundSettings = {
   clamd_addr: 'tcp://clamav:3310',
   risk_block_dangerous_attachments: true,
 }
+
+/* ==================== C9 Contract Stores: Telegram, Update, Inline Images, Signatures ==================== */
+let mockAdminTelegram: AdminTelegramStatus = {
+  configured: true,
+  bot_username: 'pmail_notify_bot',
+  proxy_set: false,
+  webhook_mode: 'polling',
+}
+
+let mockUserTelegramFilters: TelegramFilters = {
+  group_ids: null,
+  only_verification: false,
+  include_spam: false,
+  include_preview: true,
+  quiet_hours: {
+    start: '23:00',
+    end: '08:00',
+    tz: 'Asia/Shanghai',
+  },
+}
+
+let mockUserTelegramBound = true
+const mockUserTelegramChatTitle: string | null = '林深 (@linshen_dev)'
+const mockUserTelegramBoundAt: string | null = '2026-11-20T09:30:00Z'
+
+function getMockUserTelegramStatus(): UserTelegramStatus {
+  const override =
+    typeof window !== 'undefined' ? localStorage.getItem('pmail_mock_tg') : null
+  if (override === 'unavailable') {
+    return {
+      available: false,
+      bound: false,
+      chat_title: null,
+      bound_at: null,
+      filters: mockUserTelegramFilters,
+    }
+  }
+  if (override === 'unbound') {
+    return {
+      available: mockAdminTelegram.configured,
+      bound: false,
+      chat_title: null,
+      bound_at: null,
+      filters: mockUserTelegramFilters,
+    }
+  }
+  return {
+    available: mockAdminTelegram.configured,
+    bound: mockUserTelegramBound,
+    chat_title: mockUserTelegramBound ? mockUserTelegramChatTitle : null,
+    bound_at: mockUserTelegramBound ? mockUserTelegramBoundAt : null,
+    filters: mockUserTelegramFilters,
+  }
+}
+
+const mockUpdateJobStep = new Map<string, number>()
+
+function buildMockUpdateInfo(): AdminUpdateInfo {
+  const mode =
+    typeof window !== 'undefined' ? localStorage.getItem('pmail_mock_update') : null
+  const isLatest = mode === 'latest'
+  const isManual = mode === 'manual'
+  return {
+    current: isLatest ? 'v0.2.0' : 'v0.1.0',
+    latest: 'v0.2.0',
+    has_update: !isLatest,
+    checked_at: dayjs().subtract(6, 'minute').toISOString(),
+    check_error: null,
+    updater: {
+      enabled: !isManual,
+      kind: isManual ? null : 'docker',
+    },
+    manual_commands: [
+      'docker compose pull pmail',
+      'docker compose up -d pmail',
+    ],
+    releases: [
+      {
+        version: 'v0.2.0',
+        published_at: '2026-11-22T10:00:00Z',
+        url: 'https://github.com/dingding229/PMail/releases/tag/v0.2.0',
+        is_current: isLatest,
+        notes_markdown:
+          '### 新特性\n- 新增 **Telegram 实时推送** 与免打扰时段过滤\n- 新增 **系统在线更新** 与安全更新日志渲染\n- 写信支持 **CID 内嵌图片上传** 与多套富文本签名\n\n### 安全加固\n- 拦截高危脚本与可执行附件下载，新增二次确认\n- 支持 API Token 最小权限范围（`read` / `send` / `admin`）',
+      },
+      {
+        version: 'v0.1.0',
+        published_at: '2026-11-10T08:00:00Z',
+        url: 'https://github.com/dingding229/PMail/releases/tag/v0.1.0',
+        is_current: !isLatest,
+        notes_markdown:
+          '### 初始发行\n- 全新 React 19 + TanStack Virtual 三栏邮件工作区\n- 一次性注册密钥与分步 DNS 配置向导\n- 支持 SPF / DKIM / DMARC 认证详情展示',
+      },
+    ],
+  }
+}
+
+const mockInlineImageStore = new Map<string, { bytes: ArrayBuffer; contentType: string; filename: string }>()
+
+let nextSignatureId = 10
+let mockSignatures: SignatureRecord[] = [
+  {
+    id: 1,
+    name: '工作正式签名',
+    html: '<p><strong>林深 · PMail Pro</strong></p><p>系统管理员 · admin@pmail.dev · <a href="https://pmail.dev" target="_blank" rel="noopener noreferrer">pmail.dev</a></p>',
+    address_ids: [1],
+    is_default: true,
+  },
+  {
+    id: 2,
+    name: '简洁个人签名',
+    html: '<p>此致，林深</p>',
+    address_ids: [2],
+    is_default: false,
+  },
+]
 
 function resolveInitialMockMode(): { needRegister: boolean; loggedIn: boolean } {
   if (typeof window !== 'undefined') {
@@ -1740,6 +1863,248 @@ export const handlers = [
       risk_block_dangerous_attachments: Boolean(body.risk_block_dangerous_attachments),
     }
     return ok(mockInboundSettings)
+  }),
+
+  /* ==================== C9 Contract: Telegram, Update, Inline Images, Signatures ==================== */
+  http.get('/api/admin/telegram', async () => {
+    await delay(40)
+    return ok(mockAdminTelegram)
+  }),
+
+  http.put('/api/admin/telegram', async ({ request }) => {
+    await delay(100)
+    const body = (await request.json()) as { bot_token?: string; proxy?: string | null }
+    if (body.bot_token !== undefined) {
+      if (body.bot_token === '') {
+        mockAdminTelegram = {
+          configured: false,
+          bot_username: null,
+          proxy_set: false,
+          webhook_mode: 'polling',
+        }
+      } else if (body.bot_token.trim() === 'invalid' || !body.bot_token.includes(':')) {
+        return fail('Bot Token 无效，无法通过 Telegram getMe 校验', 100, 400, {
+          code: 'telegram_token_invalid',
+        })
+      } else {
+        mockAdminTelegram = {
+          ...mockAdminTelegram,
+          configured: true,
+          bot_username: 'pmail_notify_bot',
+        }
+      }
+    }
+    if (body.proxy !== undefined) {
+      mockAdminTelegram = {
+        ...mockAdminTelegram,
+        proxy_set: Boolean(body.proxy && body.proxy.trim()),
+      }
+    }
+    return ok(mockAdminTelegram)
+  }),
+
+  http.post('/api/admin/telegram/test', async () => {
+    await delay(140)
+    if (!mockAdminTelegram.configured) {
+      return fail('管理员尚未配置 Telegram 机器人', 100, 400, {
+        code: 'telegram_not_configured',
+      })
+    }
+    return ok({
+      ok: true,
+      bot_username: mockAdminTelegram.bot_username || 'pmail_notify_bot',
+      latency_ms: 118,
+    })
+  }),
+
+  http.get('/api/settings/telegram', async () => {
+    await delay(40)
+    return ok(getMockUserTelegramStatus())
+  }),
+
+  http.post('/api/settings/telegram/bind', async () => {
+    await delay(80)
+    if (!mockAdminTelegram.configured) {
+      return fail('管理员尚未配置 Telegram 机器人', 100, 400, {
+        code: 'telegram_not_configured',
+      })
+    }
+    const code = `PM-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
+    const bot = mockAdminTelegram.bot_username || 'pmail_notify_bot'
+    return ok({
+      code,
+      expires_at: dayjs().add(10, 'minute').toISOString(),
+      deep_link: `https://t.me/${bot}?start=${code}`,
+    })
+  }),
+
+  http.put('/api/settings/telegram', async ({ request }) => {
+    await delay(80)
+    const body = (await request.json()) as { filters?: TelegramFilters }
+    if (body.filters) {
+      mockUserTelegramFilters = body.filters
+    }
+    return ok(getMockUserTelegramStatus())
+  }),
+
+  http.post('/api/settings/telegram/test', async () => {
+    await delay(120)
+    return ok(null)
+  }),
+
+  http.delete('/api/settings/telegram', async () => {
+    await delay(80)
+    mockUserTelegramBound = false
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pmail_mock_tg', 'unbound')
+    }
+    return ok(null)
+  }),
+
+  http.get('/api/admin/update', async () => {
+    await delay(40)
+    return ok(buildMockUpdateInfo())
+  }),
+
+  http.post('/api/admin/update/check', async () => {
+    await delay(120)
+    return ok(buildMockUpdateInfo())
+  }),
+
+  http.post('/api/admin/update/apply', async () => {
+    await delay(100)
+    const info = buildMockUpdateInfo()
+    if (!info.updater.enabled) {
+      return fail('当前未启用在线更新器，请使用下方手动命令更新', 100, 409, {
+        code: 'updater_disabled',
+      })
+    }
+    const jobId = `upd_${Date.now()}`
+    mockUpdateJobStep.set(jobId, 0)
+    return HttpResponse.json({ errorNo: 0, errorMsg: '', data: { job_id: jobId } }, { status: 202 })
+  }),
+
+  http.get('/api/admin/update/apply/:jobId', async ({ params }) => {
+    await delay(80)
+    const jobId = String(params.jobId || '')
+    const step = mockUpdateJobStep.get(jobId) ?? 0
+    mockUpdateJobStep.set(jobId, step + 1)
+    const states: UpdateJobState[] = ['pending', 'pulling', 'restarting', 'done']
+    const state = states[Math.min(step, states.length - 1)] ?? 'done'
+    if (state === 'done' && typeof window !== 'undefined') {
+      localStorage.setItem('pmail_mock_update', 'latest')
+    }
+    return ok({
+      state,
+      message:
+        state === 'pulling'
+          ? 'Pulling ghcr.io/dingding229/pmail:v0.2.0 (78%)'
+          : state === 'restarting'
+            ? 'Restarting pmail container...'
+            : null,
+    })
+  }),
+
+  http.post('/api/compose/inline-image', async ({ request }) => {
+    await delay(180)
+    const formData = await request.formData()
+    const file = formData.get('file')
+    if (!(file instanceof File)) {
+      return fail('未检测到上传图片文件', 100, 400)
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      return fail('内嵌图片大小不能超过 10 MB', 100, 413, { code: 'inline_image_too_large' })
+    }
+    const allowed = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
+    if (file.type && !allowed.has(file.type.toLowerCase())) {
+      return fail('仅支持 PNG、JPEG、GIF、WebP 格式图片', 100, 400, { code: 'inline_image_type' })
+    }
+    const cid = `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@pmail.local`
+    const bytes = await file.arrayBuffer()
+    mockInlineImageStore.set(cid, {
+      bytes,
+      contentType: file.type || 'image/png',
+      filename: file.name || 'image.png',
+    })
+    return ok({
+      cid,
+      url: `/api/compose/inline-image/${encodeURIComponent(cid)}`,
+      filename: file.name || 'image.png',
+      content_type: file.type || 'image/png',
+      size: file.size,
+    })
+  }),
+
+  http.get('/api/compose/inline-image/:cid', async ({ params }) => {
+    const cid = decodeURIComponent(String(params.cid || ''))
+    const stored = mockInlineImageStore.get(cid)
+    if (stored) {
+      return new HttpResponse(stored.bytes, {
+        status: 200,
+        headers: { 'Content-Type': stored.contentType },
+      })
+    }
+    const fallbackSvg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="120" viewBox="0 0 320 120"><rect width="320" height="120" rx="10" fill="#e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#475569" font-family="sans-serif" font-size="14">Inline CID Image</text></svg>'
+    return new HttpResponse(fallbackSvg, {
+      status: 200,
+      headers: { 'Content-Type': 'image/svg+xml' },
+    })
+  }),
+
+  http.get('/api/settings/signatures', async () => {
+    await delay(40)
+    return ok(mockSignatures)
+  }),
+
+  http.post('/api/settings/signatures', async ({ request }) => {
+    await delay(80)
+    if (mockSignatures.length >= 20) {
+      return fail('最多可创建 20 套签名', 100, 409)
+    }
+    const body = (await request.json()) as SignatureInput
+    const created: SignatureRecord = {
+      id: nextSignatureId++,
+      name: body.name.trim(),
+      html: body.html,
+      address_ids: body.address_ids ?? [],
+      is_default: Boolean(body.is_default),
+    }
+    if (created.is_default) {
+      mockSignatures = mockSignatures.map((s) => ({ ...s, is_default: false }))
+    }
+    mockSignatures = [created, ...mockSignatures]
+    return ok(created)
+  }),
+
+  http.put('/api/settings/signatures/:id', async ({ params, request }) => {
+    await delay(80)
+    const id = Number(params.id)
+    const body = (await request.json()) as SignatureInput
+    if (body.is_default) {
+      mockSignatures = mockSignatures.map((s) => ({ ...s, is_default: false }))
+    }
+    let updated: SignatureRecord | undefined
+    mockSignatures = mockSignatures.map((s) => {
+      if (s.id !== id) return s
+      updated = {
+        id,
+        name: body.name.trim(),
+        html: body.html,
+        address_ids: body.address_ids ?? [],
+        is_default: Boolean(body.is_default),
+      }
+      return updated
+    })
+    if (!updated) return fail('签名不存在', 100, 404)
+    return ok(updated)
+  }),
+
+  http.delete('/api/settings/signatures/:id', async ({ params }) => {
+    await delay(70)
+    const id = Number(params.id)
+    mockSignatures = mockSignatures.filter((s) => s.id !== id)
+    return ok(null)
   }),
 
   http.get('/api/attachments/download/:id', async ({ params, request }) => {

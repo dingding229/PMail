@@ -1,5 +1,9 @@
 import { apiDelete, apiGet, apiPost, apiPut } from './client'
 import type {
+  AdminTelegramStatus,
+  AdminTelegramTestResult,
+  AdminTelegramUpdatePayload,
+  AdminUpdateInfo,
   ApiTokenItem,
   DomainDnsResponse,
   ExternalAccount,
@@ -14,10 +18,17 @@ import type {
   MailRule,
   QueueItem,
   RuleRequest,
+  SignatureInput,
+  SignatureRecord,
   SpamRule,
   SpamRuleInput,
   SpamSettings,
+  TelegramBindCode,
+  TelegramFilters,
   TokenCreatedResponse,
+  UpdateApplyResponse,
+  UpdateJobStatus,
+  UserTelegramStatus,
 } from './types'
 
 export const forwardApi = {
@@ -87,4 +98,36 @@ export const spamRulesApi = {
 export const adminInboundApi = {
   get: () => apiGet<InboundSettings>('/api/admin/inbound'),
   update: (payload: InboundSettings) => apiPut<InboundSettings>('/api/admin/inbound', payload),
+}
+
+export const adminTelegramApi = {
+  get: () => apiGet<AdminTelegramStatus>('/api/admin/telegram'),
+  update: (payload: AdminTelegramUpdatePayload) =>
+    apiPut<AdminTelegramStatus>('/api/admin/telegram', payload),
+  test: () => apiPost<AdminTelegramTestResult>('/api/admin/telegram/test', {}),
+}
+
+export const userTelegramApi = {
+  get: () => apiGet<UserTelegramStatus>('/api/settings/telegram'),
+  bind: () => apiPost<TelegramBindCode>('/api/settings/telegram/bind', {}),
+  updateFilters: (filters: TelegramFilters) =>
+    apiPut<UserTelegramStatus>('/api/settings/telegram', { filters }),
+  test: () => apiPost<null>('/api/settings/telegram/test', {}),
+  unbind: () => apiDelete<null>('/api/settings/telegram'),
+}
+
+export const adminUpdateApi = {
+  get: () => apiGet<AdminUpdateInfo>('/api/admin/update'),
+  check: () => apiPost<AdminUpdateInfo>('/api/admin/update/check', {}),
+  apply: () => apiPost<UpdateApplyResponse>('/api/admin/update/apply', {}),
+  jobStatus: (jobId: string) =>
+    apiGet<UpdateJobStatus>(`/api/admin/update/apply/${encodeURIComponent(jobId)}`),
+}
+
+export const signaturesApi = {
+  list: async () => (await apiGet<SignatureRecord[] | null>('/api/settings/signatures')) ?? [],
+  create: (payload: SignatureInput) => apiPost<SignatureRecord>('/api/settings/signatures', payload),
+  update: (id: number, payload: SignatureInput) =>
+    apiPut<SignatureRecord>(`/api/settings/signatures/${id}`, payload),
+  remove: (id: number) => apiDelete<null>(`/api/settings/signatures/${id}`),
 }

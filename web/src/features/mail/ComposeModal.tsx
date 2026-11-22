@@ -22,10 +22,13 @@ import {
 import {
   mailApi,
   type EmailDetail,
+  type InlineImageRef,
   type MailboxAddress,
   type SendEmailAttachment,
   type SendEmailResponse,
+  type SignatureRecord,
 } from '@/api'
+import { useSignaturesQuery } from '@/hooks/useMailQueries'
 import { formatBytes, isValidEmail, resolveAddressList } from '@/lib/format'
 import { formatMailFullTime, pickDate } from '@/lib/date'
 import { Button } from '@/components/ui/button'
@@ -48,13 +51,55 @@ import {
   sanitizePastedHtml,
 } from './editor/paste-sanitizer'
 import { htmlToMailPlainText } from './editor/html-to-text'
-import {
-  MOCK_SIGNATURES,
-  SIGNATURE_BLOCK_ATTR,
-  type InlineImageDraft,
-  type SignatureItem,
-} from './editor/types'
+import { SIGNATURE_BLOCK_ATTR, type InlineImageDraft } from './editor/types'
 import type { ComposeContext, LocalDraft } from './types'
+
+const ALLOWED_INLINE_IMAGE_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+])
+
+function prepareOutgoingHtml(html: string): { html: string; inlineImages: InlineImageRef[] } {
+  if (typeof DOMParser === 'undefined' || !html) {
+    return { html, inlineImages: [] }
+  }
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const seen = new Set<string>()
+  const inlineImages: InlineImageRef[] = []
+
+  for (const img of Array.from(doc.querySelectorAll('img[data-cid]'))) {
+    const cid = img.getAttribute('data-cid')?.trim()
+    if (!cid || cid.startsWith('uploading-')) continue
+    img.setAttribute('src', `cid:${cid}`)
+    if (!seen.has(cid)) {
+      seen.add(cid)
+      inlineImages.push({ cid })
+    }
+  }
+  return { html: doc.body.innerHTML, inlineImages }
+}
+
+function restoreDraftCidImages(html: string, sourceEmail?: EmailDetail): string {
+  if (typeof DOMParser === 'undefined' || !html) return html
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const attachmentResolver = buildCidResolver(sourceEmail)
+
+  for (const img of Array.from(doc.querySelectorAll('img'))) {
+    const src = img.getAttribute('src') || ''
+    const dataCid = img.getAttribute('data-cid')?.trim()
+    const cidMatch = /^cid:(.+)$/i.exec(src.trim())
+    const cid = cidMatch?.[1]?.trim() || dataCid
+    if (cid && (cidMatch || !src)) {
+      const previewUrl =
+        attachmentResolver?.(cid) ?? `/api/compose/inline-image/${encodeURIComponent(cid)}`
+      img.setAttribute('src', previewUrl)
+      img.setAttribute('data-cid', cid)
+    }
+  }
+  return doc.body.innerHTML
+}
 
 interface UploadedAttachment extends SendEmailAttachment {
   id: string
@@ -67,8 +112,7 @@ interface ComposeModalProps {
   userDisplayName: string
   suggestions: ContactSuggestion[]
   isMobile: boolean
-  /** Reserved for C9 backend signature list; falls back to mock signatures in MSW mode */
-  signatures?: SignatureItem[]
+  signatures?: SignatureRecord[]
   onSaveDraft: (draft: LocalDraft) => void
   onDeleteDraft: (draftId: string) => void
   onSentSuccess: () => void
@@ -195,7 +239,7 @@ export function ComposeModal({
         cc: context.draft.cc,
         bcc: context.draft.bcc,
         subject: context.draft.subject,
-        html: context.draft.html,
+        html: restoreDraftCidImages(context.draft.html),
       }
     }
 
@@ -203,6 +247,8 @@ export function ComposeModal({
     const draftId = `draft_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
 
     if (context.mode === 'serverDraft' && src) {
+      const rawDraftHtml =
+        src.html || (src.text ? `<p>${escapeHtml(src.text).replace(/\n/g, '<br>')}</p>` : '')
       return {
         draftId,
         serverDraftId: src.id,
@@ -211,7 +257,7 @@ export function ComposeModal({
         cc: resolveAddressList(src.cc_list, src.cc).map((x) => x.email),
         bcc: resolveAddressList(src.bcc_list, src.bcc).map((x) => x.email),
         subject: src.subject || '',
-        html: src.html || (src.text ? `<p>${escapeHtml(src.text).replace(/\n/g, '<br>')}</p>` : ''),
+        html: restoreDraftCidImages(rawDraftHtml, src),
       }
     }
 
@@ -322,6 +368,7 @@ export function ComposeModal({
   const [subject, setSubject] = useState(initialFields.subject)
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([])
   const [inlineImages, setInlineImages] = useState<InlineImageDraft[]>([])
+  const [uploadingImageNames, setUploadingImageNames] = useState<string[]>([])
   const [includeOrigAttachments, setIncludeOrigAttachments] = useState(
     context.mode === 'forward' && (context.sourceEmail?.attachments?.length ?? 0) > 0,
   )
@@ -338,19 +385,29 @@ export function ComposeModal({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const imageInputRef = useRef<HTMLInputElement | null>(null)
 
-  // Available signatures (C9 prop or MSW demo signatures)
-  const availableSignatures = useMemo(() => {
-    const source =
-      signatures ?? (import.meta.env.VITE_MOCK === '1' ? MOCK_SIGNATURES : [])
-    return source.filter(
-      (s) =>
-        s.enabled &&
-        (s.address === '*' ||
-          s.address.toLowerCase() === (fromAddress || defaultFrom).toLowerCase()),
-    )
-  }, [signatures, fromAddress, defaultFrom])
+  // Signatures from GET /api/settings/signatures (C9)
+  const { data: fetchedSignatures = [] } = useSignaturesQuery(!signatures)
+  const allSignatures = signatures ?? fetchedSignatures
 
   const [selectedSignatureId, setSelectedSignatureId] = useState<string>('none')
+  const manualSignatureChoiceRef = useRef(false)
+
+  // Auto-select signature by C9 rules: address-bound > default > none.
+  // Re-runs when sender changes unless user manually picked a signature.
+  useEffect(() => {
+    if (manualSignatureChoiceRef.current) return
+    if (context.mode === 'draft' || context.mode === 'serverDraft') return
+    if (allSignatures.length === 0) return
+
+    const activeEmail = (fromAddress || defaultFrom).toLowerCase()
+    const addrObj = sendableAddresses.find((a) => a.address.toLowerCase() === activeEmail)
+    const boundSig = addrObj
+      ? allSignatures.find((s) => (s.address_ids ?? []).includes(addrObj.id))
+      : undefined
+    const defaultSig = allSignatures.find((s) => s.is_default)
+    const chosen = boundSig ?? defaultSig
+    setSelectedSignatureId(chosen ? String(chosen.id) : 'none')
+  }, [allSignatures, fromAddress, defaultFrom, sendableAddresses, context.mode])
 
   // Track visualViewport height on mobile so virtual keyboard never causes modal jump
   useEffect(() => {
@@ -469,41 +526,103 @@ export function ComposeModal({
     },
   })
 
-  // Keep insertInlineImageRef synced with latest editor instance
+  // Keep insertInlineImageRef synced with latest editor instance (C9 POST /api/compose/inline-image)
   const insertInlineImageFile = useCallback(
     async (file: File) => {
       if (!editor) return
+      if (file.type && !ALLOWED_INLINE_IMAGE_TYPES.has(file.type.toLowerCase())) {
+        toast.error(t('compose.inlineImage.errorType'))
+        return
+      }
       if (file.size > MAX_INLINE_IMAGE_BYTES) {
         toast.error(t('compose.inlineImage.tooLarge', { name: file.name }))
         return
       }
+
+      const filename = file.name || 'image.png'
+      const tempCid = `uploading-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+      const tempObjectUrl = URL.createObjectURL(file)
+
+      // Insert temporary placeholder image immediately so user sees visual feedback
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: 'image',
+          attrs: {
+            src: tempObjectUrl,
+            alt: t('compose.inlineImage.uploading', { name: filename }),
+            'data-cid': tempCid,
+            'data-filename': filename,
+          },
+        })
+        .run()
+
+      setUploadingImageNames((prev) => [...prev, filename])
+
       try {
-        const dataUrl = await readFileAsDataUrl(file)
-        const cid = `cid-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@pmail.local`
-        const draftImg: InlineImageDraft = {
-          cid,
-          filename: file.name || 'image.png',
-          contentType: file.type || 'image/png',
-          size: file.size,
-          dataUrl,
+        const res = await mailApi.uploadInlineImage(file)
+        // Update placeholder node in-place with server preview url & real cid
+        const { state, view } = editor
+        let tr = state.tr
+        let updated = false
+        state.doc.descendants((node, pos) => {
+          if (node.type.name === 'image' && node.attrs['data-cid'] === tempCid) {
+            tr = tr.setNodeMarkup(pos, undefined, {
+              ...node.attrs,
+              src: res.url,
+              alt: res.filename || filename,
+              'data-cid': res.cid,
+              'data-filename': res.filename || filename,
+            })
+            updated = true
+          }
+        })
+        if (updated) {
+          view.dispatch(tr)
         }
-        setInlineImages((prev) => [...prev, draftImg])
-        editor
-          .chain()
-          .focus()
-          .insertContent({
-            type: 'image',
-            attrs: {
-              src: dataUrl,
-              alt: draftImg.filename,
-              'data-cid': cid,
-              'data-filename': draftImg.filename,
-            },
-          })
-          .run()
-        toast.success(t('compose.inlineImage.previewInserted', { name: draftImg.filename }))
-      } catch {
-        toast.error(t('common.unknownError'))
+        setInlineImages((prev) => [
+          ...prev,
+          {
+            cid: res.cid,
+            filename: res.filename || filename,
+            contentType: res.content_type || file.type || 'image/png',
+            size: res.size || file.size,
+            url: res.url,
+          },
+        ])
+        toast.success(t('compose.inlineImage.uploaded', { name: res.filename || filename }))
+      } catch (err) {
+        // Remove failed placeholder node from editor
+        const { state, view } = editor
+        let tr = state.tr
+        const positions: { from: number; to: number }[] = []
+        state.doc.descendants((node, pos) => {
+          if (node.type.name === 'image' && node.attrs['data-cid'] === tempCid) {
+            positions.push({ from: pos, to: pos + node.nodeSize })
+          }
+        })
+        for (let i = positions.length - 1; i >= 0; i--) {
+          const range = positions[i]!
+          tr = tr.delete(range.from, range.to)
+        }
+        if (positions.length > 0) {
+          view.dispatch(tr)
+        }
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : t('compose.inlineImage.uploadFailed', { name: filename }),
+        )
+      } finally {
+        URL.revokeObjectURL(tempObjectUrl)
+        setUploadingImageNames((prev) => {
+          const idx = prev.indexOf(filename)
+          if (idx < 0) return prev
+          const copy = [...prev]
+          copy.splice(idx, 1)
+          return copy
+        })
       }
     },
     [editor, t],
@@ -528,8 +647,8 @@ export function ComposeModal({
 
   // Compose final HTML including active rich-text signature block (C9 compatible)
   const selectedSignature = useMemo(
-    () => availableSignatures.find((s) => s.id === selectedSignatureId) ?? null,
-    [availableSignatures, selectedSignatureId],
+    () => allSignatures.find((s) => String(s.id) === selectedSignatureId) ?? null,
+    [allSignatures, selectedSignatureId],
   )
 
   const sanitizedSignatureHtml = useMemo(() => {
@@ -550,16 +669,18 @@ export function ComposeModal({
 
   // Auto-save draft (debounced 2.5s)
   useEffect(() => {
-    if (sendResult || !editor) return
+    if (sendResult || !editor || uploadingImageNames.length > 0) return
     const timer = window.setTimeout(() => {
-      const html = buildFinalHtml()
-      const text = htmlToMailPlainText(html)
+      const rawFinalHtml = buildFinalHtml()
+      const { html, inlineImages: cidRefs } = prepareOutgoingHtml(rawFinalHtml)
+      const text = htmlToMailPlainText(rawFinalHtml)
       const hasContent =
         to.length > 0 ||
         cc.length > 0 ||
         bcc.length > 0 ||
         subject.trim().length > 0 ||
-        text.length > 0
+        text.length > 0 ||
+        cidRefs.length > 0
       if (!hasContent) return
 
       const nowIso = new Date().toISOString()
@@ -574,6 +695,7 @@ export function ComposeModal({
           html,
           text,
           attrs: attachments.map(({ name, data }) => ({ name, data })),
+          ...(cidRefs.length > 0 ? { inline_images: cidRefs } : {}),
         })
         .then((savedId) => {
           serverDraftIdRef.current = savedId
@@ -616,6 +738,7 @@ export function ComposeModal({
     onDeleteDraft,
     onSentSuccess,
     sendResult,
+    uploadingImageNames.length,
     context.mode,
     context.sourceEmail?.id,
   ])
@@ -670,8 +793,9 @@ export function ComposeModal({
       return
     }
 
-    const html = buildFinalHtml()
-    const text = htmlToMailPlainText(html)
+    const rawFinalHtml = buildFinalHtml()
+    const { html, inlineImages: cidRefs } = prepareOutgoingHtml(rawFinalHtml)
+    const text = htmlToMailPlainText(rawFinalHtml)
 
     setSending(true)
     try {
@@ -692,6 +816,7 @@ export function ComposeModal({
           html,
           text,
           include_attachments: true,
+          ...(cidRefs.length > 0 ? { inline_images: cidRefs } : {}),
         })
       } else {
         result = await mailApi.send({
@@ -704,6 +829,7 @@ export function ComposeModal({
           html,
           text,
           attrs: attachments.map(({ name, data }) => ({ name, data })),
+          ...(cidRefs.length > 0 ? { inline_images: cidRefs } : {}),
           ...(serverDraftIdRef.current ? { draft_id: serverDraftIdRef.current } : {}),
         })
       }
@@ -1173,8 +1299,17 @@ export function ComposeModal({
             {/* Attachments & Inline Image Indicator */}
             {((context.mode === 'forward' && (context.sourceEmail?.attachments?.length ?? 0) > 0) ||
               attachments.length > 0 ||
-              inlineImages.length > 0) && (
+              inlineImages.length > 0 ||
+              uploadingImageNames.length > 0) && (
               <div className="shrink-0 space-y-2 border-t border-[var(--border-hairline)] bg-[var(--surface-subtle)]/40 px-4 py-2">
+                {uploadingImageNames.length > 0 && (
+                  <div className="flex items-center gap-2 text-[12px] text-[var(--accent-ink)]">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--accent)]" />
+                    <span className="truncate">
+                      {t('compose.inlineImage.uploading', { name: uploadingImageNames[0] })}
+                    </span>
+                  </div>
+                )}
                 {context.mode === 'forward' &&
                   (context.sourceEmail?.attachments?.length ?? 0) > 0 && (
                     <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-[var(--ink-secondary)]">
@@ -1271,8 +1406,8 @@ export function ComposeModal({
                   <span className="hidden sm:inline">{t('compose.addAttachment')}</span>
                 </Button>
 
-                {/* Reserved Per-Address Rich-Text Signature Selector (C9 interface) */}
-                {availableSignatures.length > 0 && (
+                {/* Per-Address Rich-Text Signature Selector (C9 /api/settings/signatures) */}
+                {allSignatures.length > 0 && (
                   <label className="inline-flex min-w-0 items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)]/70 px-2 py-1 text-[12px] text-[var(--ink-secondary)]">
                     <PenLine className="h-3.5 w-3.5 shrink-0 text-[var(--ink-muted)]" />
                     <select
@@ -1280,22 +1415,23 @@ export function ComposeModal({
                       value={selectedSignatureId}
                       onChange={(e) => {
                         const nextId = e.target.value
+                        manualSignatureChoiceRef.current = true
                         setSelectedSignatureId(nextId)
                         if (nextId === 'none') {
                           toast(t('compose.signature.removed'))
                         } else {
-                          const found = availableSignatures.find((s) => s.id === nextId)
+                          const found = allSignatures.find((s) => String(s.id) === nextId)
                           if (found) {
-                            toast.success(t('compose.signature.applied', { name: found.label }))
+                            toast.success(t('compose.signature.applied', { name: found.name }))
                           }
                         }
                       }}
                       className="max-w-[120px] truncate bg-transparent text-[12px] text-[var(--ink-primary)] outline-none sm:max-w-[150px]"
                     >
                       <option value="none">{t('compose.signature.none')}</option>
-                      {availableSignatures.map((sig) => (
-                        <option key={sig.id} value={sig.id}>
-                          {sig.label}
+                      {allSignatures.map((sig) => (
+                        <option key={sig.id} value={String(sig.id)}>
+                          {sig.name}
                         </option>
                       ))}
                     </select>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
+import { useAdminUpdateQuery } from '@/hooks/useMailQueries'
 import {
   Check,
   ChevronDown,
@@ -410,20 +411,12 @@ export function MailSidebar({
         </button>
 
         {user?.is_admin === 1 && (
-          <button
-            type="button"
+          <AdminNavButton
+            collapsed={collapsed}
             onMouseEnter={prefetchAdminPage}
             onFocus={prefetchAdminPage}
             onClick={() => navigate('/admin')}
-            title={collapsed ? t('nav.admin') : undefined}
-            className={cn(
-              'flex w-full items-center rounded-[var(--radius-sm)] text-[13px] text-[var(--ink-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--ink-primary)]',
-              collapsed ? 'justify-center py-2' : 'gap-2.5 px-2.5 py-1.5',
-            )}
-          >
-            <Shield className="h-4 w-4 shrink-0 text-[var(--ink-muted)]" />
-            {!collapsed && <span className="truncate">{t('nav.admin')}</span>}
-          </button>
+          />
         )}
 
         {/* User Account Menu */}
@@ -568,5 +561,56 @@ export function MailSidebar({
         </DialogContent>
       </Dialog>
     </aside>
+  )
+}
+
+function AdminNavButton({
+  collapsed,
+  onMouseEnter,
+  onFocus,
+  onClick,
+}: {
+  collapsed: boolean
+  onMouseEnter: () => void
+  onFocus: () => void
+  onClick: () => void
+}) {
+  const { t } = useTranslation()
+  const { data: updateInfo } = useAdminUpdateQuery(true)
+  const hasUpdate = Boolean(updateInfo?.has_update)
+
+  return (
+    <button
+      type="button"
+      onMouseEnter={onMouseEnter}
+      onFocus={onFocus}
+      onClick={onClick}
+      title={collapsed ? t('nav.admin') : undefined}
+      className={cn(
+        'relative flex w-full items-center rounded-[var(--radius-sm)] text-[13px] text-[var(--ink-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--ink-primary)]',
+        collapsed ? 'justify-center py-2' : 'gap-2.5 px-2.5 py-1.5',
+      )}
+    >
+      <span className="relative inline-flex shrink-0">
+        <Shield className="h-4 w-4 text-[var(--ink-muted)]" />
+        {hasUpdate && collapsed && (
+          <span
+            aria-label={t('admin.update.availableBadge')}
+            className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[var(--danger)] ring-2 ring-[var(--surface-sidebar)]"
+          />
+        )}
+      </span>
+      {!collapsed && (
+        <>
+          <span className="min-w-0 flex-1 truncate text-left">{t('nav.admin')}</span>
+          {hasUpdate && (
+            <span
+              aria-label={t('admin.update.availableBadge')}
+              className="h-2 w-2 shrink-0 rounded-full bg-[var(--danger)]"
+            />
+          )}
+        </>
+      )}
+    </button>
   )
 }

@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './client'
+import { apiGet, apiPost, apiUpload } from './client'
 import type {
   AttachmentPreviewResponse,
   DraftSaveRequest,
@@ -7,6 +7,7 @@ import type {
   EmailListRequest,
   EmailListResponse,
   ForwardEmailRequest,
+  InlineImageUploadResult,
   SendEmailRequest,
   SendEmailResponse,
 } from './types'
@@ -70,4 +71,11 @@ export const mailApi = {
   /** OpenAPI text/code attachment preview route: /api/attachments/preview/{emailId}.{index} */
   previewAttachment: (emailId: number, index: number) =>
     apiGet<AttachmentPreviewResponse>(`/api/attachments/preview/${emailId}.${index}`),
+
+  /** C9 inline image upload (multipart field: file, max 10 MiB, png/jpeg/gif/webp) */
+  uploadInlineImage: (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiUpload<InlineImageUploadResult>('/api/compose/inline-image', formData)
+  },
 }
