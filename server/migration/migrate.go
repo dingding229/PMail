@@ -16,7 +16,7 @@ import (
 	"github.com/lib/pq"
 )
 
-var tables = []string{"user", "email", "group", "rule", "user_email", "version", "domain", "mailbox_address", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "external_account", "external_seen", "bounce_notice"}
+var tables = []string{"user", "email", "group", "rule", "user_email", "version", "domain", "mailbox_address", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "external_account", "external_seen", "bounce_notice", "inbound_settings", "spam_preference", "spam_rule", "spam_training", "spam_totals", "spam_token"}
 
 const batchSize = 200
 
@@ -109,7 +109,7 @@ func Run(args []string) error {
 	for _, table := range tables {
 		if err := copyTable(sourceTx, tx, *fromType, table, qualified(table)); err != nil {
 			message := strings.ToLower(err.Error())
-			if slices.Contains([]string{"domain", "mailbox_address", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "external_account", "external_seen", "bounce_notice"}, table) && (strings.Contains(message, "no such table") || strings.Contains(message, "doesn't exist") || strings.Contains(message, "undefined table")) {
+			if slices.Contains([]string{"domain", "mailbox_address", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "external_account", "external_seen", "bounce_notice", "inbound_settings", "spam_preference", "spam_rule", "spam_training", "spam_totals", "spam_token"}, table) && (strings.Contains(message, "no such table") || strings.Contains(message, "doesn't exist") || strings.Contains(message, "undefined table")) {
 				fmt.Printf("%s: source table absent; normal startup will backfill it\n", table)
 				continue
 			}
@@ -200,10 +200,14 @@ func copyTable(source, target *sql.Tx, driver, name, dest string) error {
 	}
 	var sourceNames, targetNames, params []string
 	idColumn := migrationKeyColumn(name)
+	binary := map[int]bool{}
 	idIndex := -1
 	for i, col := range cols {
 		if !slices.Contains(targetCols, col) {
 			return fmt.Errorf("source column %q is missing from PostgreSQL; refusing to drop data", col)
+		}
+		if col == "wire_data" || col == "raw_data" {
+			binary[i] = true
 		}
 		if col == idColumn {
 			idIndex = i
@@ -212,7 +216,7 @@ func copyTable(source, target *sql.Tx, driver, name, dest string) error {
 		targetNames = append(targetNames, pq.QuoteIdentifier(col))
 		params = append(params, fmt.Sprintf("$%d", i+1))
 	}
-	if idIndex == -1 {
+	if idIndex == -1 && idColumn != "" {
 		return fmt.Errorf("missing source migration key column %q", idColumn)
 	}
 	insert, err := target.Prepare(fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", dest,
@@ -223,6 +227,19 @@ func copyTable(source, target *sql.Tx, driver, name, dest string) error {
 	defer insert.Close()
 
 	selectSQL := "SELECT " + strings.Join(sourceNames, ", ") + " FROM " + from
+	if idColumn == "" {
+		// Composite/hashed keys: stream rows between independent database
+		// transactions. Do not put the full training vocabulary in memory.
+		rows, err := source.Query(selectSQL)
+		if err != nil {
+			return err
+		}
+		n, err := copyRows(rows, insert, len(cols), -1, nil, binary)
+		if err == nil {
+			fmt.Printf("%s: %d rows copied (pending commit)\n", name, n)
+		}
+		return err
+	}
 	order := " ORDER BY " + quoteSource(idColumn) + " LIMIT ?"
 	var copied, lastID int64
 	for {
@@ -235,7 +252,7 @@ func copyTable(source, target *sql.Tx, driver, name, dest string) error {
 		if err != nil {
 			return err
 		}
-		n, err := copyRows(rows, insert, len(cols), idIndex, &lastID)
+		n, err := copyRows(rows, insert, len(cols), idIndex, &lastID, binary)
 		if err != nil {
 			return err
 		}
@@ -258,27 +275,34 @@ func columns(tx *sql.Tx, table string) ([]string, error) {
 	return rows.Columns()
 }
 
-func copyRows(rows *sql.Rows, insert *sql.Stmt, width, idIndex int, lastID *int64) (int, error) {
+func copyRows(rows *sql.Rows, insert *sql.Stmt, width, idIndex int, lastID *int64, binary map[int]bool) (int, error) {
 	defer rows.Close()
 	values, pointers := make([]any, width), make([]any, width)
 	for i := range values {
 		pointers[i] = &values[i]
 	}
-	pointers[idIndex] = lastID
+	if idIndex >= 0 {
+		pointers[idIndex] = lastID
+	}
 	count := 0
 	for rows.Next() {
 		if err := rows.Scan(pointers...); err != nil {
 			return count, err
 		}
-		values[idIndex] = *lastID
+		if idIndex >= 0 {
+			values[idIndex] = *lastID
+		}
 		for i, value := range values {
-			if b, ok := value.([]byte); ok {
-				// The six data tables contain text, not BYTEA. MySQL returns strings/dates as bytes.
+			if b, ok := value.([]byte); ok && !binary[i] {
+				// MySQL returns text/dates as bytes; keep binary queue payloads as bytes.
 				values[i] = string(b)
 			}
 		}
 		if _, err := insert.Exec(values...); err != nil {
-			return count, fmt.Errorf("insert id %d: %w", *lastID, err)
+			if idIndex >= 0 {
+				return count, fmt.Errorf("insert id %d: %w", *lastID, err)
+			}
+			return count, err
 		}
 		count++
 	}
@@ -286,14 +310,17 @@ func copyRows(rows *sql.Rows, insert *sql.Stmt, width, idIndex int, lastID *int6
 }
 
 func migrationKeyColumn(table string) string {
-	if table == "forward_setting" {
+	switch table {
+	case "forward_setting", "spam_preference", "spam_totals":
 		return "user_id"
+	case "spam_training", "spam_token":
+		return ""
 	}
 	return "id"
 }
 
 func resetSequence(tx *sql.Tx, table string) error {
-	if strings.Contains(table, "forward_setting") {
+	if strings.Contains(table, "forward_setting") || strings.HasSuffix(table, `."inbound_settings"`) || strings.HasSuffix(table, `."spam_preference"`) || strings.HasSuffix(table, `."spam_totals"`) || strings.HasSuffix(table, `."spam_training"`) || strings.HasSuffix(table, `."spam_token"`) {
 		return nil
 	}
 	var value int64

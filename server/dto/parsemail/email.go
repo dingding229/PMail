@@ -76,16 +76,17 @@ func NewEmailAuthentication(spfPassed, dkimPassed bool) *EmailAuthentication {
 
 // Email is the type used for email messages
 type Email struct {
-	ReplyTo    []*User
-	From       *User
-	To         []*User
-	Bcc        []*User
-	Cc         []*User
-	Subject    string
-	Text       []byte // Plaintext message (optional)
-	TextFormat string
-	HTML       []byte // Html message (optional)
-	Sender     *User  // override From as SMTP envelope sender (optional)
+	ReplyTo      []*User
+	From         *User
+	To           []*User
+	Bcc          []*User
+	Cc           []*User
+	Subject      string
+	Text         []byte // Plaintext message (optional)
+	TextFormat   string
+	TextFromHTML bool   `json:"-"`
+	HTML         []byte // Html message (optional)
+	Sender       *User  // override From as SMTP envelope sender (optional)
 	// Headers contains custom transport headers that must survive generated mail.
 	Headers        textproto.MIMEHeader
 	Attachments    []*Attachment
@@ -420,6 +421,7 @@ func parseMessage(to []string, r io.Reader, size int) (*Email, error) {
 	}
 	if len(ret.Text) == 0 && len(ret.HTML) != 0 {
 		ret.Text = []byte(HTMLText(string(ret.HTML)))
+		ret.TextFromHTML = true
 	}
 	if len(ret.Text) > mailbudget.Message || len(ret.HTML) > mailbudget.Part {
 		return nil, mailbudget.ErrLimit

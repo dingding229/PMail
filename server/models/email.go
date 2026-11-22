@@ -28,6 +28,7 @@ type Email struct {
 	AttachmentInfo  []MailAttachmentInfo `xorm:"-" json:"-"`
 	Attachments     string               `xorm:"attachments longtext comment('附件')" json:"attachments"`
 	SPFCheck        int8                 `xorm:"spf_check tinyint(1) comment('spf校验是否通过')" json:"spf_check"`
+	InboundAnalysis sql.NullString       `xorm:"inbound_analysis text" json:"-"`
 	AuthResults     sql.NullString       `xorm:"auth_results text" json:"-"`
 	AuthUnchecked   bool                 `xorm:"auth_unchecked bool notnull default(false)" json:"-"`
 	DKIMCheck       int8                 `xorm:"dkim_check tinyint(1) comment('dkim校验是否通过')" json:"dkim_check"`
