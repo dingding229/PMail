@@ -16,6 +16,7 @@ import (
 
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/errors"
+	"github.com/Jinnrry/pmail/utils/securefile"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -103,6 +104,8 @@ var Instance = &Config{}
 
 type logFormatter struct{}
 
+var escapeLogLine = strings.NewReplacer("\r", `\r`, "\n", `\n`, "\x00", `\0`, "\u2028", `\u2028`, "\u2029", `\u2029`)
+
 func (l *logFormatter) Format(entry *log.Entry) ([]byte, error) {
 	var b bytes.Buffer
 	b.WriteString(fmt.Sprintf("[%s]", entry.Level.String()))
@@ -112,8 +115,10 @@ func (l *logFormatter) Format(entry *log.Entry) ([]byte, error) {
 			b.WriteString(fmt.Sprintf("[%s]", ctx.GetValue(context.LogID)))
 		}
 	}
-	b.WriteString(fmt.Sprintf("[%s:%d]", entry.Caller.File, entry.Caller.Line))
-	b.WriteString(entry.Message)
+	if entry.Caller != nil {
+		b.WriteString(fmt.Sprintf("[%s:%d]", entry.Caller.File, entry.Caller.Line))
+	}
+	b.WriteString(escapeLogLine.Replace(entry.Message))
 	b.WriteByte('\n')
 	return b.Bytes(), nil
 }
@@ -122,6 +127,14 @@ func Init() error {
 	cfg, err := ReadEffectiveConfig()
 	if err != nil {
 		return err
+	}
+	if err := ValidateWebRoot(cfg); err != nil {
+		return err
+	}
+	for _, name := range []string{"PMAIL_TRUSTED_PROXIES", "PMAIL_TRUSTED_RELAYS"} {
+		if _, err := CIDRs(os.Getenv(name)); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
 	}
 	cfg.SecretKey, err = loadSecretKey()
 	if err != nil {
@@ -154,7 +167,7 @@ func Init() error {
 // key is reported to the caller so certificate maintenance can retry safely.
 func ReadPrivateKey() (*ecdsa.PrivateKey, error) {
 	path := filepath.Join(ROOT_PATH, "config", "ssl", "account_private.pem")
-	data, err := os.ReadFile(path)
+	data, err := securefile.Read(path)
 	if err == nil {
 		block, _ := pem.Decode(data)
 		if block == nil {
@@ -173,7 +186,9 @@ func ReadPrivateKey() (*ecdsa.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := writeConfigFile(path, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: encoded})); err != nil {
+	if err := securefile.Write(path, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: encoded}), true); os.IsExist(err) {
+		return ReadPrivateKey()
+	} else if err != nil {
 		return nil, err
 	}
 	return key, nil

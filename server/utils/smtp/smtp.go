@@ -72,13 +72,13 @@ func Dial(addr, fromDomain string) (*Client, error) {
 // with tls
 func DialTls(addr, domain, fromDomain string) (*Client, error) {
 	if domain == "" {
-		domain = fromDomain
+		domain, _, _ = net.SplitHostPort(addr)
 	}
 
 	// TLS config
 	tlsconfig := &tls.Config{
-		InsecureSkipVerify: true,
-		ServerName:         domain,
+		MinVersion: tls.VersionTLS12,
+		ServerName: domain,
 	}
 
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 2 * time.Second}, "tcp", addr, tlsconfig)
@@ -573,8 +573,8 @@ func (c *Client) Quit() error {
 
 // validateLine checks to see if a line has CR or LF as per RFC 5321.
 func validateLine(line string) error {
-	if strings.ContainsAny(line, "\n\r") {
-		return errors.New("smtp: A line must not contain CR or LF")
+	if strings.ContainsAny(line, "\n\r\x00") {
+		return errors.New("smtp: A line must not contain CR, LF or NUL")
 	}
 	return nil
 }

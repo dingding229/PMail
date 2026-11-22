@@ -55,16 +55,21 @@ func normalizeMail(row models.Email) normalizedMail {
 }
 
 type mailAuthenticationView struct {
-	IsDraft    bool   `json:"is_draft"`
-	Dangerous  bool   `json:"dangerous"`
-	AuthStatus string `json:"auth_status"`
+	IsDraft     bool                    `json:"is_draft"`
+	Dangerous   bool                    `json:"dangerous"`
+	AuthStatus  string                  `json:"auth_status"`
+	AuthResults *models.MailAuthResults `json:"auth_results"`
 }
 
 func mailAuthentication(row models.Email, mailboxStatus int8) mailAuthenticationView {
+	evidence := row.TransportAuth()
 	draft := row.Status == consts.EmailStatusDrafts || mailboxStatus == consts.EmailStatusDrafts
 	switch {
 	case draft || row.Type == consts.EmailTypeSend || mailboxStatus == consts.EmailStatusSent:
-		return mailAuthenticationView{IsDraft: draft, AuthStatus: "not_applicable"}
+		return mailAuthenticationView{IsDraft: draft, AuthStatus: "not_applicable", AuthResults: evidence}
+	case evidence != nil && !row.AuthUnchecked:
+		status := evidence.Status()
+		return mailAuthenticationView{AuthStatus: status, Dangerous: status == "fail", AuthResults: evidence}
 	case row.AuthUnchecked:
 		return mailAuthenticationView{AuthStatus: "none"}
 	case row.SPFCheck == 1 || row.DKIMCheck == 1:

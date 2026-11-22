@@ -33,17 +33,20 @@ func TestExternalPasswordEncryptionRoundTripAndTamper(t *testing.T) {
 	old := config.Instance
 	config.Instance = &config.Config{SecretKey: "external-test-secret"}
 	t.Cleanup(func() { config.Instance = old })
-	ciphertext, err := EncryptPassword("app-password")
+	account := models.ExternalAccount{ID: 77, Host: "mail.example.net", Port: 993, Username: "alice"}
+	ciphertext, err := encryptAccount(account, "app-password")
 	if err != nil {
 		t.Fatal(err)
 	}
-	plain, err := DecryptPassword(ciphertext)
-	if err != nil || plain != "app-password" {
+	account.PasswordEnc = ciphertext
+	plain, legacy, err := decryptAccount(account)
+	if err != nil || legacy || plain != "app-password" {
 		t.Fatalf("decrypt = %q, err=%v", plain, err)
 	}
-	last := ciphertext[len(ciphertext)-1]
-	mutated := ciphertext[:len(ciphertext)-1] + string(last^1)
-	if _, err := DecryptPassword(mutated); err == nil {
+	first := len(passwordVersion) + 1
+	mutated := ciphertext[:first] + string(ciphertext[first]^1) + ciphertext[first+1:]
+	account.PasswordEnc = mutated
+	if _, _, err := decryptAccount(account); err == nil {
 		t.Fatal("tampered ciphertext accepted")
 	}
 }

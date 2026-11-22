@@ -6,39 +6,55 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/models"
 	"golang.org/x/crypto/hkdf"
 )
 
-const passwordVersion = "v1"
+const passwordVersion = "v2"
+const legacyPasswordVersion = "v1"
 
-func deriveKey() ([]byte, error) {
+type endpoint struct {
+	ID                          int
+	Host                        string
+	Port                        int
+	Username, Protocol, TLSMode string
+	InsecureSkipVerify          bool
+}
+
+func binding(a models.ExternalAccount) endpoint {
+	return endpoint{a.ID, strings.ToLower(strings.TrimSuffix(strings.TrimSpace(a.Host), ".")), a.Port, a.Username, a.Protocol, a.TLSMode, a.InsecureSkipVerify}
+}
+
+func (e endpoint) additionalData() []byte {
+	b, _ := json.Marshal(e)
+	return b
+}
+
+func passwordCipher(version string) (cipher.AEAD, error) {
 	if config.Instance.SecretKey == "" {
 		return nil, errors.New("PMAIL_SECRET_KEY is not configured")
 	}
-	reader := hkdf.New(sha256.New, []byte(config.Instance.SecretKey), []byte("pmail-external-password"), []byte("aes-256-gcm-v1"))
 	key := make([]byte, 32)
+	reader := hkdf.New(sha256.New, []byte(config.Instance.SecretKey), []byte("pmail-external-password"), []byte("aes-256-gcm-"+version))
 	if _, err := io.ReadFull(reader, key); err != nil {
 		return nil, err
 	}
-	return key, nil
-}
-
-func EncryptPassword(password string) (string, error) {
-	key, err := deriveKey()
-	if err != nil {
-		return "", err
-	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	gcm, err := cipher.NewGCM(block)
+	return cipher.NewGCM(block)
+}
+
+func sealPassword(version, password string, aad []byte) (string, error) {
+	gcm, err := passwordCipher(version)
 	if err != nil {
 		return "", err
 	}
@@ -46,35 +62,38 @@ func EncryptPassword(password string) (string, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return "", err
 	}
-	sealed := gcm.Seal(nil, nonce, []byte(password), nil)
-	payload := append(nonce, sealed...)
-	return fmt.Sprintf("%s:%s", passwordVersion, base64.RawStdEncoding.EncodeToString(payload)), nil
+	payload := gcm.Seal(nonce, nonce, []byte(password), aad)
+	return fmt.Sprintf("%s:%s", version, base64.RawStdEncoding.EncodeToString(payload)), nil
 }
 
-func DecryptPassword(value string) (string, error) {
-	version, encoded, ok := strings.Cut(value, ":")
-	if !ok || version != passwordVersion {
-		return "", errors.New("unsupported external password version")
+func encryptAccount(a models.ExternalAccount, password string) (string, error) {
+	if a.ID <= 0 {
+		return "", errors.New("external account ID is required before encrypting")
 	}
-	payload, err := base64.RawStdEncoding.DecodeString(encoded)
-	if err != nil {
-		return "", err
+	return sealPassword(passwordVersion, password, binding(a).additionalData())
+}
+
+func decryptAccount(a models.ExternalAccount) (password string, legacy bool, err error) {
+	version, encoding, ok := strings.Cut(a.PasswordEnc, ":")
+	if !ok || (version != passwordVersion && version != legacyPasswordVersion) {
+		return "", false, errors.New("unsupported external password version")
 	}
-	key, err := deriveKey()
+	payload, err := base64.RawStdEncoding.DecodeString(encoding)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	block, err := aes.NewCipher(key)
+	gcm, err := passwordCipher(version)
 	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if len(payload) < gcm.NonceSize() {
-		return "", errors.New("invalid external password payload")
+		return "", false, errors.New("invalid external password payload")
 	}
-	plain, err := gcm.Open(nil, payload[:gcm.NonceSize()], payload[gcm.NonceSize():], nil)
-	return string(plain), err
+	legacy = version == legacyPasswordVersion
+	var aad []byte
+	if !legacy {
+		aad = binding(a).additionalData()
+	}
+	plain, err := gcm.Open(nil, payload[:gcm.NonceSize()], payload[gcm.NonceSize():], aad)
+	return string(plain), legacy, err
 }

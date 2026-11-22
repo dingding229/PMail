@@ -4,6 +4,7 @@ package smtp_server
 
 import (
 	"bytes"
+	stdctx "context"
 	"net"
 	"net/netip"
 	"path/filepath"
@@ -11,10 +12,14 @@ import (
 
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/db"
+	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/utils/context"
 )
 
-// These legacy DATA smoke cases perform live DKIM/SPF lookups for sample messages.
+// Legacy DATA examples exercise storage and delivery, not live DNS.
+func fixtureTransportAuth(stdctx.Context, netip.Addr, string, string, []byte) models.MailAuthResults {
+	return models.MailAuthResults{SPF: models.MailAuthCheck{Result: "pass", Reason: "fixture", Aligned: true}, DKIM: models.MailAuthCheck{Result: "none", Reason: "fixture"}, DMARC: models.MailAuthCheck{Result: "none", Reason: "no_policy"}}
+}
 func testInit(t *testing.T) {
 	t.Helper()
 	oldConfig, oldDB := config.Instance, db.Instance
@@ -113,9 +118,10 @@ PGRpdiBkaXI9Imx0ciI+PGRpdj7mraPmlofmtYvor5UyPC9kaXY+PC9kaXY+DQo=
 `
 
 	s := Session{
-		RemoteAddress: net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
-		Ctx:           &context.Context{},
-		To:            []string{"xfox@linuxuser.site"},
+		AuthenticateInbound: fixtureTransportAuth,
+		RemoteAddress:       net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
+		Ctx:                 &context.Context{},
+		To:                  []string{"xfox@linuxuser.site"},
 	}
 
 	s.Data(bytes.NewReader([]byte(emailData)))
@@ -160,7 +166,8 @@ Content-Type: text/html
 --3c13260efb7bd8bad8315c21215489fe283f36cdf82813674f6e11215f6c--
 `
 	s := Session{
-		RemoteAddress: net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
+		AuthenticateInbound: fixtureTransportAuth,
+		RemoteAddress:       net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
 		Ctx: &context.Context{
 			UserID:      0,
 			UserName:    "",
@@ -325,8 +332,9 @@ Content-Type: text/html
 --bdfa9bf94e22e218105281e06bd59bd6df3ce70e71367bf49fbe73301af3--`
 
 	s := Session{
-		RemoteAddress: net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
-		Ctx:           &context.Context{},
+		AuthenticateInbound: fixtureTransportAuth,
+		RemoteAddress:       net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
+		Ctx:                 &context.Context{},
 	}
 
 	s.Data(bytes.NewReader([]byte(deleteEmail)))
@@ -376,8 +384,9 @@ Content-Type: text/html
 --9e33a130a8a976102a93e296d6408d228e151f7841ca9ee0d777234fd6f3--`
 
 	s := Session{
-		RemoteAddress: net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
-		Ctx:           &context.Context{},
+		AuthenticateInbound: fixtureTransportAuth,
+		RemoteAddress:       net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
+		Ctx:                 &context.Context{},
 	}
 
 	s.Data(bytes.NewReader([]byte(readEmail)))
@@ -425,8 +434,9 @@ Content-Type: text/html
 --bdfa9bf94e22e218105281e06bd59bd6df3ce70e71367bf49fbe73301af3--`
 
 	s := Session{
-		RemoteAddress: net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
-		Ctx:           &context.Context{},
+		AuthenticateInbound: fixtureTransportAuth,
+		RemoteAddress:       net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
+		Ctx:                 &context.Context{},
 	}
 
 	s.Data(bytes.NewReader([]byte(deleteEmail)))
@@ -468,8 +478,9 @@ Pui/meaYr+S4gOWwgeadpeiHqlJlbGF4RHJhbWHnmoTmoKHpqozpgq7ku7Ys55So5LqO5qCh6aqM
 
 --6edc2ef285d93010a080caccc858c67b--`
 	s := Session{
-		RemoteAddress: net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
-		Ctx:           &context.Context{},
+		AuthenticateInbound: fixtureTransportAuth,
+		RemoteAddress:       net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
+		Ctx:                 &context.Context{},
 	}
 
 	s.Data(bytes.NewReader([]byte(emailData)))
@@ -516,8 +527,9 @@ Content-Type: text/html
 --c84d60b253aa6caee345c73e717ad59b1975448bbdfad7a23ac4d76e022d--`
 
 	s := Session{
-		RemoteAddress: net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
-		Ctx:           &context.Context{},
+		AuthenticateInbound: fixtureTransportAuth,
+		RemoteAddress:       net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
+		Ctx:                 &context.Context{},
 	}
 
 	s.Data(bytes.NewReader([]byte(moveEmail)))
@@ -550,8 +562,9 @@ PGRpdj7ov5nph4zmmK/lhoXlrrk8L2Rpdj48ZGl2PjwhLS1lbXB0eXNpZ24tLT48L2Rpdj4=
 ------=_Part_174_107154538.1712718674768--`
 
 	s := Session{
-		RemoteAddress: net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
-		Ctx:           &context.Context{},
+		AuthenticateInbound: fixtureTransportAuth,
+		RemoteAddress:       net.TCPAddrFromAddrPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 25)),
+		Ctx:                 &context.Context{},
 	}
 
 	s.Data(bytes.NewReader([]byte(data)))

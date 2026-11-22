@@ -23,7 +23,7 @@ func apiOrAttachment(path string) bool {
 
 // Do not load or vary by session for static assets, ACME, or health checks.
 func apiSessions(next *http.ServeMux) http.Handler {
-	withSession := session.Instance.LoadAndSave(next)
+	withSession := session.SecureCookies(session.Instance.Cookie.Name, session.Instance.LoadAndSave(next))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if apiOrAttachment(r.URL.Path) && r.URL.Path != "/api/ping" {
 			if _, pattern := next.Handler(r); pattern == "/" || pattern == "" {

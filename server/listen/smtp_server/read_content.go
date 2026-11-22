@@ -2,10 +2,11 @@ package smtp_server
 
 import (
 	"bytes"
+	stdctx "context"
+	"crypto/sha256"
 	"database/sql"
 	oerrors "errors"
 	"io"
-	"net"
 	"net/netip"
 	"strings"
 	"time"
@@ -19,12 +20,12 @@ import (
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
+	"github.com/Jinnrry/pmail/services/inboundauth"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/services/rule"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/send"
 	smtp "github.com/emersion/go-smtp"
-	"github.com/mileusna/spf"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cast"
 )
@@ -75,7 +76,11 @@ func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*p
 	accepted := 0
 	raw := email.RawData
 	if len(raw) == 0 {
-		raw = email.BuildBytes(ctx, false)
+		var err error
+		raw, err = email.BuildBytes(ctx, false)
+		if err != nil {
+			return err, errs
+		}
 	}
 	for _, recipient := range recipients {
 		// saveEmail assigns MessageId/MsgID on the parsed email. Use a per-
@@ -128,6 +133,9 @@ func processIncomingDelivery(ctx *context.Context, email *parsemail.Email, dbEma
 }
 
 func (s *Session) Data(r io.Reader) error {
+	if err := s.validateSubmission(); err != nil {
+		return err
+	}
 
 	ctx := s.Ctx
 
@@ -139,7 +147,7 @@ func (s *Session) Data(r io.Reader) error {
 		return err
 	}
 
-	log.WithContext(ctx).Debugf("%s", string(emailData))
+	log.WithContext(ctx).Debugf("smtp data received bytes=%d sha256=%x", len(emailData), sha256.Sum256(emailData))
 
 	email := parsemail.NewEmailFromReader(s.To, bytes.NewReader(emailData), len(emailData))
 	email.EnvelopeFrom = s.From
@@ -160,6 +168,9 @@ func (s *Session) Data(r io.Reader) error {
 
 	// 判断是收信还是转发，只要是登陆了，都当成转发处理
 	if s.Ctx.UserID > 0 {
+		if email.From == nil {
+			return &smtp.SMTPError{Code: 550, Message: "missing sender"}
+		}
 		if !ctx.IsAdmin {
 			if _, err := address.SendAddress(ctx.UserID, email.From.EmailAddress); err != nil {
 				return oerrors.New("No Auth")
@@ -169,18 +180,27 @@ func (s *Session) Data(r io.Reader) error {
 		return s.deliverOutgoingEmail(email, send.Send)
 
 	} else {
-		// 收件
-		var dkimStatus, SPFStatus bool
-
-		// DKIM校验
-		dkimStatus = parsemail.Check(ctx, bytes.NewReader(emailData))
-
-		SPFStatus = spfCheck(s.RemoteAddress.String(), email.Sender, email.Sender.EmailAddress)
-
-		_, formDomain := email.From.GetDomainAccount()
-		spoofed := domain.IsLocal(formDomain) && SPFStatus == false
-		if spoofed {
-			dkimStatus = false
+		var peer netip.Addr
+		if s.RemoteAddress != nil {
+			if endpoint, err := netip.ParseAddrPort(s.RemoteAddress.String()); err == nil {
+				peer = endpoint.Addr()
+			}
+		}
+		verify := s.AuthenticateInbound
+		if verify == nil {
+			verify = inboundauth.Verify
+		}
+		hello := s.HELO
+		if s.currentHELO != nil {
+			hello = s.currentHELO()
+		}
+		evidence := verify(stdctx.Background(), peer, s.From, hello, emailData)
+		email.AuthResults = &evidence
+		SPFStatus, dkimStatus := evidence.SPF.Aligned, evidence.DKIM.Aligned
+		spoofed := false
+		if email.From != nil {
+			_, host := email.From.GetDomainAccount()
+			spoofed = domain.IsLocal(host) && evidence.Status() != "pass" && evidence.DMARC.Result != "temperror" && evidence.SPF.Result != "temperror" && evidence.DKIM.Result != "temperror"
 		}
 		email.Authentication = parsemail.NewEmailAuthentication(SPFStatus, dkimStatus)
 
@@ -250,6 +270,7 @@ func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserI
 		SPFCheck:      boolInt8(SPFStatus),
 		DKIMCheck:     boolInt8(dkimStatus),
 		AuthUnchecked: email.AuthUnchecked,
+		AuthResults:   sql.NullString{String: email.AuthResults.Storage(), Valid: email.AuthResults != nil},
 		SendUserID:    sendUserID,
 		SendDate:      time.Now(),
 		Status:        cast.ToInt8(email.Status),
@@ -302,27 +323,4 @@ func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserI
 	email.MessageId = cast.ToInt64(saved.Id)
 	email.MsgID = saved.MsgID
 	return users, saved, nil
-}
-
-func spfCheck(remoteAddress string, sender *parsemail.User, senderString string) bool {
-	//spf校验
-	ipAddress, _ := netip.ParseAddrPort(remoteAddress)
-
-	ip := net.ParseIP(ipAddress.Addr().String())
-	if ip.IsPrivate() {
-		return true
-	}
-
-	tmp := strings.Split(sender.EmailAddress, "@")
-	if len(tmp) < 2 {
-		return false
-	}
-
-	res := spf.CheckHost(ip, tmp[1], senderString, "")
-
-	if res == spf.None || res == spf.Pass {
-		// spf校验通过
-		return true
-	}
-	return false
 }

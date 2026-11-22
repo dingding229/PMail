@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"errors"
+	"github.com/Jinnrry/pmail/utils/clientip"
 	"net/http"
 
 	"github.com/Jinnrry/pmail/dto/response"
@@ -22,7 +23,7 @@ func Login(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	if !readRequest(ctx, w, req, &data, false) {
 		return
 	}
-	u, err := auth.Authenticate(data.Account, data.Password, req.RemoteAddr)
+	u, err := auth.Authenticate(data.Account, data.Password, clientip.Source(req))
 	if errors.Is(err, auth.ErrLocked) {
 		apiError(ctx, w, http.StatusTooManyRequests, response.ParamsError, "rate_limit")
 		return
@@ -43,6 +44,12 @@ func Login(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 }
 
 func Logout(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		apiError(ctx, w, http.StatusMethodNotAllowed, response.ParamsError, "method_not_allowed")
+		return
+	}
+
 	if err := session.Instance.Destroy(req.Context()); err != nil {
 		serviceError(ctx, w, err)
 		return

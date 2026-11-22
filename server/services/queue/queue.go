@@ -339,7 +339,7 @@ func deliver(ctx context.Context, row models.OutboundQueue) error {
 	if fn == nil {
 		return errors.New("external delivery handler is unavailable")
 	}
-	pctx := &pcontext.Context{UserID: row.UserID}
+	pctx := &pcontext.Context{Context: ctx, UserID: row.UserID}
 	return fn(pctx, row.MailFrom, row.RawData, row.RcptTo)
 }
 

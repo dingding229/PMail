@@ -139,7 +139,11 @@ func EnqueueForUser(ctx *pcontext.Context, userID int, email *parsemail.Email, r
 		return errors.New("forward source email is missing")
 	}
 	if len(raw) == 0 {
-		raw = email.BuildBytes(ctx, false)
+		var err error
+		raw, err = email.BuildBytes(ctx, false)
+		if err != nil {
+			return err
+		}
 	}
 	if parsemail.ShouldSkipForward(email, raw) {
 		log.WithContext(ctx).Infof("skip forwarding automatic or daemon message to %s", target)
@@ -196,7 +200,10 @@ func EnqueueForUser(ctx *pcontext.Context, userID int, email *parsemail.Email, r
 		fromDomain = primary.Domain
 	}
 	mailFrom := BuildSRS(email.From.EmailAddress, fromDomain)
-	decorated := parsemail.SignBytes(forwardedRaw, "mailer-daemon@"+fromDomain)
+	decorated, err := parsemail.SignBytes(forwardedRaw, "mailer-daemon@"+fromDomain)
+	if err != nil {
+		return err
+	}
 	_, err = queue.Enqueue(queue.KindForward, userID, int(email.MessageId), mailFrom, target, decorated)
 	return err
 }
@@ -207,7 +214,11 @@ func Apply(ctx *pcontext.Context, userID int, email *parsemail.Email, raw []byte
 		return
 	}
 	if len(raw) == 0 && email != nil {
-		raw = email.BuildBytes(ctx, false)
+		raw, err = email.BuildBytes(ctx, false)
+		if err != nil {
+			log.WithContext(ctx).Warnf("cannot rebuild forward source: %v", err)
+			return
+		}
 	}
 	if parsemail.ShouldSkipForward(email, raw) {
 		log.WithContext(ctx).Infof("skip forwarding automatic or daemon message user=%d", userID)

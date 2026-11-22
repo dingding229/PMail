@@ -1,11 +1,10 @@
 package imap_server
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
-	"mime"
 	"strings"
-	"time"
 
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/dto/response"
@@ -15,6 +14,7 @@ import (
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
+	mtp "github.com/emersion/go-message/textproto"
 	"github.com/spf13/cast"
 )
 
@@ -126,8 +126,7 @@ func (s *serverSession) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, opt
 	if err != nil {
 		return &imap.Error{Type: imap.StatusResponseTypeNo, Text: "could not read mailbox messages"}
 	}
-	write(s.ctx, w, emails, options)
-	return nil
+	return write(s.ctx, w, emails, options)
 }
 
 // 纯文本 text/plain
@@ -218,11 +217,18 @@ func bsMixedWithAttachments(alt *imap.BodyStructureMultiPart, extend bool, atts 
 	}
 }
 
-func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*response.EmailResponseData, options *imap.FetchOptions) {
+func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*response.EmailResponseData, options *imap.FetchOptions) error {
 	for _, email := range emailList {
-		writer := w.CreateMessage(cast.ToUint32(email.SerialNumber))
-
 		traEmail := parsemail.NewEmailFromModel(email.Email)
+		var emailContent []byte
+		if options.RFC822Size || len(options.BodySection) > 0 {
+			var err error
+			emailContent, err = traEmail.BuildBytes(ctx, false)
+			if err != nil {
+				return &imap.Error{Type: imap.StatusResponseTypeNo, Text: "could not encode mailbox message"}
+			}
+		}
+		writer := w.CreateMessage(cast.ToUint32(email.SerialNumber))
 
 		if options.UID {
 			writer.WriteUID(imap.UID(email.UeId))
@@ -245,14 +251,15 @@ func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*respons
 
 			var attrs []imap.BodyStructure
 			for _, attachment := range traEmail.Attachments {
-				attrs = append(attrs, bsAttachment(attachment.Filename, attachment.ContentType, uint32(len(attachment.Content)), "base64"))
+				if attachment != nil {
+					attrs = append(attrs, bsAttachment(attachment.Filename, attachment.ContentType, uint32(len(attachment.Content)), "base64"))
+				}
 			}
 			bs := bsMixedWithAttachments(alt, options.BodyStructure.Extended, attrs...) // 最终的 BodyStructure（接口值）
 
 			writer.WriteBodyStructure(bs)
 		}
 		if options.RFC822Size {
-			emailContent := traEmail.BuildBytes(ctx, false)
 			writer.WriteRFC822Size(cast.ToInt64(len(emailContent)))
 		}
 		for _, section := range options.BodySection {
@@ -269,80 +276,35 @@ func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*respons
 			writer.WriteInternalDate(email.CreateTime)
 		}
 		for _, section := range options.BodySection {
-			emailContent := traEmail.BuildBytes(ctx, false)
 
-			// 优先检查是否请求 HEADER.FIELDS
-			if len(section.HeaderFields) > 0 || section.Specifier == imap.PartSpecifierHeader {
+			if len(section.HeaderFields) > 0 || len(section.HeaderFieldsNot) > 0 || section.Specifier == imap.PartSpecifierHeader {
+				hdr, err := mtp.ReadHeader(bufio.NewReader(bytes.NewReader(emailContent)))
+				if err != nil {
+					writer.Close()
+					return &imap.Error{Type: imap.StatusResponseTypeNo, Text: "could not encode message headers"}
+				}
+				wanted := func(fields []string, key string) bool {
+					for _, name := range fields {
+						if strings.EqualFold(name, key) {
+							return true
+						}
+					}
+					return false
+				}
+				fields := hdr.Fields()
+				for fields.Next() {
+					if (len(section.HeaderFields) > 0 && !wanted(section.HeaderFields, fields.Key())) || wanted(section.HeaderFieldsNot, fields.Key()) {
+						fields.Del()
+					}
+				}
 				var b bytes.Buffer
-				fields := section.HeaderFields
-
-				if fields == nil || len(fields) == 0 {
-					// 没有指定字段，返回所有常见头部
-					fields = []string{
-						"date", "subject", "from", "to", "cc", "message-id", "content-type",
-					}
+				if err := mtp.WriteHeader(&b, hdr); err != nil {
+					writer.Close()
+					return &imap.Error{Type: imap.StatusResponseTypeNo, Text: "could not encode message headers"}
 				}
-
-				for _, field := range fields {
-					fieldLower := strings.ToLower(field)
-					switch fieldLower {
-					case "date":
-						fmt.Fprintf(&b, "Date: %s\r\n", email.CreateTime.Format(time.RFC1123Z))
-					case "subject":
-						fmt.Fprintf(&b, "Subject: %s\r\n", mime.QEncoding.Encode("utf-8", email.Subject))
-					case "from":
-						if email.FromName != "" {
-							fmt.Fprintf(&b, "From: %s <%s>\r\n", mime.QEncoding.Encode("utf-8", email.FromName), email.FromAddress)
-						} else {
-							fmt.Fprintf(&b, "From: %s\r\n", email.FromAddress)
-						}
-					case "sender":
-						if email.FromName != "" {
-							fmt.Fprintf(&b, "Sender: %s <%s>\r\n", mime.QEncoding.Encode("utf-8", email.FromName), email.FromAddress)
-						} else {
-							fmt.Fprintf(&b, "Sender: %s\r\n", email.FromAddress)
-						}
-					case "reply-to":
-						if len(traEmail.ReplyTo) > 0 && traEmail.ReplyTo[0].EmailAddress != "" {
-							if traEmail.ReplyTo[0].Name != "" {
-								fmt.Fprintf(&b, "Reply-To: %s <%s>\r\n", mime.QEncoding.Encode("utf-8", traEmail.ReplyTo[0].Name), traEmail.ReplyTo[0].EmailAddress)
-							} else {
-								fmt.Fprintf(&b, "Reply-To: %s\r\n", traEmail.ReplyTo[0].EmailAddress)
-							}
-						}
-					case "to":
-						toStr := traEmail.BuildTo2String()
-						if toStr != "" {
-							fmt.Fprintf(&b, "To: %s\r\n", toStr)
-						}
-					case "cc":
-						if len(traEmail.Cc) > 0 {
-							fmt.Fprintf(&b, "Cc: %s\r\n", traEmail.BuildCc2String())
-						}
-					case "bcc":
-						if len(traEmail.Bcc) > 0 {
-							fmt.Fprintf(&b, "Bcc: %s\r\n", traEmail.BuildBcc2String())
-						}
-					case "message-id":
-						fmt.Fprintf(&b, "Message-ID: <%d@%s>\r\n", email.Id, domain.DefaultName())
-					case "content-type":
-						args := strings.SplitN(string(emailContent), "\r\n", 3)
-						if len(args) >= 2 {
-							fmt.Fprintf(&b, "%s%s\r\n", args[0], args[1])
-						}
-					case "references", "in-reply-to", "thread-topic", "thread-index", "x-priority", "x-mailer", "x-android-message-id":
-						// 这些头部我们目前不存储，跳过
-					default:
-						// 其他未知头部，忽略
-					}
-				}
-
-				// 添加结束空行
-				b.WriteString("\r\n")
-
-				bodyWriter := writer.WriteBodySection(section, cast.ToInt64(b.Len()))
-				bodyWriter.Write(b.Bytes())
-				bodyWriter.Close()
+				bodyWriter := writer.WriteBodySection(section, int64(b.Len()))
+				_, _ = bodyWriter.Write(b.Bytes())
+				_ = bodyWriter.Close()
 			} else if section.Specifier == imap.PartSpecifierNone || section.Specifier == imap.PartSpecifierText {
 				if len(section.Part) >= 1 {
 					// 获取指定 part 的内容
@@ -365,4 +327,5 @@ func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*respons
 		}
 		writer.Close()
 	}
+	return nil
 }

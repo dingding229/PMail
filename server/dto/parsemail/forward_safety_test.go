@@ -56,7 +56,10 @@ func TestBounceHeaderBuildBytes(t *testing.T) {
 		Headers: map[string][]string{"Auto-Submitted": {"auto-replied"}, "X-PMail-DSN": {"1"}},
 		Text:    []byte("failure"),
 	}
-	raw := email.BuildBytes(nil, false)
+	raw, err := email.BuildBytes(nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	message, err := mail.ReadMessage(bytes.NewReader(raw))
 	if err != nil {
 		t.Fatalf("generated bounce is not a valid message: %v", err)

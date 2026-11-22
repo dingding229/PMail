@@ -13,6 +13,7 @@ import (
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/id"
 	olog "log"
+	"mime"
 	"net"
 	"net/http"
 	"strings"
@@ -91,15 +92,38 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 
 		ctx := i18n.ForRequest(r)
 		ctx.SetValue(context.LogID, id.GenLogID())
+		refuse := func(status, code int, key string) { response.Localized(ctx, code, key).FPrintStatus(w, status) }
+		if r.URL.Path == "/api/logout" && r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			refuse(http.StatusMethodNotAllowed, response.ParamsError, "method_not_allowed")
+			return
+		}
+		if r.Method != http.MethodOptions && inNamespace(r.URL.Path, "/api") && (r.ContentLength != 0 || (r.Method == http.MethodPost && (r.URL.Path == "/api/login" || publicRegister))) {
+			media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			if err != nil || media != "application/json" {
+				refuse(http.StatusUnsupportedMediaType, response.ParamsError, "json_media_type_required")
+				return
+			}
+		}
+		if !isSafeMethod(r.Method) && (publicRegister || r.URL.Path == "/api/login") &&
+			(r.Header.Get("Origin") != "" || r.Header.Get("Referer") != "") && !sameOrigin(r) {
+			refuse(http.StatusForbidden, response.NoAccessPrivileges, "origin_forbidden")
+			return
+		}
 		if publicRegister {
 			h(ctx, w, r)
 			return
 		}
 		if config.IsInit {
+			scope := ""
 			userInfo, err := session.CurrentUser(ctx)
 			if err != nil {
 				log.WithContext(ctx).Errorf("Validate session: %v", err)
 				response.Localized(ctx, response.ServerError, "internal_error").FPrint(w)
+				return
+			}
+			if userInfo != nil && !isSafeMethod(r.Method) && !sameOrigin(r) {
+				refuse(http.StatusForbidden, response.NoAccessPrivileges, "origin_forbidden")
 				return
 			}
 			if userInfo == nil {
@@ -110,17 +134,25 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 					rawToken = r.Header.Get("Token")
 				}
 				if rawToken != "" {
-					if tokenUser, tokenErr := token.Authenticate(rawToken); tokenErr == nil {
-						userInfo = &tokenUser
+					if tokenUser, granted, tokenErr := token.Authenticate(rawToken); tokenErr == nil {
+						if !token.Allows(granted, r.Method, r.URL.Path) {
+							refuse(http.StatusForbidden, response.NoAccessPrivileges, "token_scope_forbidden")
+							return
+						}
+						if granted == token.Legacy {
+							w.Header().Set("Deprecation", "@0")
+						}
+						userInfo, scope = &tokenUser, granted
 					}
 				}
 			}
 			if userInfo != nil {
 				ctx.UserID = userInfo.ID
 				ctx.AuthVersion = userInfo.AuthVersion
+				ctx.TokenScope = scope
 				ctx.UserName = userInfo.Name
 				ctx.UserAccount = userInfo.Account
-				ctx.IsAdmin = userInfo.IsAdmin == 1
+				ctx.IsAdmin = userInfo.IsAdmin == 1 && (scope == "" || scope == token.Admin || scope == token.Legacy)
 				if lang, ok := i18n.Preference(userInfo.Lang); ok && lang != "" {
 					ctx.Lang = lang
 				}

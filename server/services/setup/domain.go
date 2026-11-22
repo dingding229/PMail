@@ -2,6 +2,7 @@ package setup
 
 import (
 	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/errors"
 	"strings"
@@ -27,11 +28,13 @@ func SetDomainSettings(smtpDomain, webDomain, multiDomains string) error {
 		return errors.Wrap(err)
 	}
 
-	if smtpDomain == "" {
+	smtpDomain, err = domain.Normalize(smtpDomain)
+	if err != nil {
 		return ErrDomainRequired
 	}
 
-	if webDomain == "" {
+	webDomain, err = domain.Normalize(webDomain)
+	if err != nil {
 		return ErrWebDomainRequired
 	}
 
@@ -39,7 +42,13 @@ func SetDomainSettings(smtpDomain, webDomain, multiDomains string) error {
 
 	if multiDomains != "" {
 		domains := strings.Split(multiDomains, ",")
-		configData.Domains = domains
+		for _, item := range domains {
+			normalized, e := domain.Normalize(item)
+			if e != nil {
+				return ErrDomainRequired
+			}
+			configData.Domains = append(configData.Domains, normalized)
+		}
 	}
 
 	if !array.InArray(smtpDomain, configData.Domains) {

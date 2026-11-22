@@ -8,27 +8,31 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/dkimkey"
+	"github.com/Jinnrry/pmail/utils/securefile"
 	log "github.com/sirupsen/logrus"
 )
 
-// HasAuth 检查当前用户是否有某个邮件的auth
-func HasAuth(ctx *context.Context, email *models.Email) bool {
-	if ctx.IsAdmin && email.Status != 4 {
-		return true
-	}
-	var ue []models.UserEmail
-	err := db.Instance.Table(&models.UserEmail{}).Where("email_id = ? and user_id = ?", email.Id, ctx.UserID).Find(&ue)
-	if err != nil {
-		log.Errorf("Error while checking user: %v", err)
+// AdminMailOverride is reserved for deliberate, audited operator access.
+func AdminMailOverride(ctx *context.Context, email *models.Email) bool {
+	if !ctx.IsAdmin || os.Getenv("PMAIL_ADMIN_MAIL_ACCESS") != "1" || email.Status == 4 {
 		return false
 	}
+	log.WithContext(ctx).Warnf("audit_event=admin_cross_mail_access actor_id=%d email_id=%d", ctx.UserID, email.Id)
+	return true
+}
 
-	return len(ue) != 0
+func HasAuth(ctx *context.Context, email *models.Email) bool {
+	linked, err := db.Instance.Where("email_id=? AND user_id=?", email.Id, ctx.UserID).Exist(&models.UserEmail{})
+	if err != nil {
+		log.Errorf("mail access check failed: %v", err)
+		return false
+	}
+	return linked || AdminMailOverride(ctx, email)
 }
 
 // EnsureDKIM maintains the legacy setup wizard's DNS record file.
 func EnsureDKIM(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := securefile.Read(path)
 	if os.IsNotExist(err) {
 		raw, err := dkimkey.Generate()
 		if err != nil {
@@ -38,7 +42,9 @@ func EnsureDKIM(path string) (string, error) {
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			return "", err
 		}
-		if err := os.WriteFile(path, data, 0600); err != nil {
+		if err := securefile.Write(path, data, true); os.IsExist(err) {
+			return EnsureDKIM(path)
+		} else if err != nil {
 			return "", err
 		}
 	} else if err != nil {

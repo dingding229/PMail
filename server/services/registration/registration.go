@@ -6,7 +6,9 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -228,7 +230,7 @@ func logNotice(ctx context.Context, webDomain string) bool {
 	}
 	target := (&url.URL{Scheme: "https", Host: webDomain, Path: "/"}).String()
 	// Stdout also keeps this visible at restrictive PMail log levels.
-	fmt.Printf("\n==================== PMail 首次注册 / First registration ====================\n注册密钥 / Registration key: %s\n请打开 %s 使用此密钥创建管理员账号。\nOpen %s and use this key to create the administrator account.\n==============================================================================\n", key, target, target)
+	writeNotice(os.Stdout, key, target, os.Getenv("PMAIL_PRINT_REGISTRATION_KEY") == "1")
 	return true
 }
 
@@ -252,4 +254,11 @@ func StartNotices(ctx context.Context, webDomain string) {
 			}
 		}
 	}()
+}
+
+func writeNotice(w io.Writer, key, target string, printKey bool) {
+	fmt.Fprintf(w, "PMail 首次注册 / First registration: %s; 注册密钥文件 / Registration key file: %q\n", target, config.RegistrationKeyPath())
+	if printKey {
+		fmt.Fprintf(w, "注册密钥 / Registration key: %s\n", key)
+	}
 }

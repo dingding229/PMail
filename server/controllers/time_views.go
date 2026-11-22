@@ -6,6 +6,7 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/token"
 	"github.com/Jinnrry/pmail/services/user"
 	"github.com/Jinnrry/pmail/utils/isotime"
 )
@@ -89,12 +90,15 @@ func apiQueueItem(row models.OutboundQueue) any {
 }
 
 func apiToken(row models.APIToken) any {
+	row.Scope = token.Scope(row)
 	return struct {
 		models.APIToken
 		LastUsedAtISO *time.Time `json:"last_used_at_iso"`
 		ExpiresAtISO  *time.Time `json:"expires_at_iso"`
 		CreatedISO    *time.Time `json:"created_iso"`
-	}{row, isotime.Optional(row.LastUsedAt), isotime.Optional(row.ExpiresAt), isotime.UTC(row.Created)}
+		LegacyScope   bool       `json:"legacy_scope"`
+		NeverExpires  bool       `json:"never_expires"`
+	}{row, isotime.Optional(row.LastUsedAt), isotime.Optional(row.ExpiresAt), isotime.UTC(row.Created), row.Scope == token.Legacy, row.ExpiresAt == nil}
 }
 
 func apiForward(row models.ForwardSetting) any {

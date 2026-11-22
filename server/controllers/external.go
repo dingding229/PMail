@@ -151,10 +151,22 @@ func externalFailure(ctx *context.Context, w http.ResponseWriter, err error, fal
 		serviceError(ctx, w, err)
 		return
 	}
+	if errors.Is(err, external.ErrEndpointOwner) {
+		apiError(ctx, w, http.StatusForbidden, 405, "external_endpoint_owner")
+		return
+	}
+	if errors.Is(err, external.ErrCredentialRace) {
+		apiError(ctx, w, http.StatusConflict, responseParams, "external_credential_conflict")
+		return
+	}
 	key := fallback
 	switch {
 	case errors.Is(err, external.ErrNotFound):
 		key = "external_not_found"
+	case errors.Is(err, external.ErrPasswordRequired):
+		key = "external_endpoint_password_required"
+	case errors.Is(err, external.ErrControlCharacters):
+		key = "external_control_characters"
 	case errors.Is(err, external.ErrHostRequired):
 		key = "external_host_required"
 	case errors.Is(err, external.ErrPrivateHost):

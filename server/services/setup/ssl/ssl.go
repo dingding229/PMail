@@ -6,13 +6,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"github.com/Jinnrry/pmail/utils/securefile"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/Jinnrry/pmail/config"
-	"github.com/Jinnrry/pmail/services/setup"
+	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/utils/errors"
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
@@ -76,6 +77,28 @@ func SetSSL(sslType, priKey, crtKey string) error {
 		// 手动设置证书的情况下后台地址默认不启用https
 		cfg.HttpsEnabled = 2
 	}
+	candidate, err := config.EffectiveConfig(cfg)
+	if err != nil {
+		return err
+	}
+	if candidate.Domain == "" || candidate.WebDomain == "" {
+		return ErrDomainRequired
+	}
+	if err := config.ValidateWebRoot(candidate); err != nil {
+		return err
+	}
+	if cfg.SSLType == config.SSLTypeUser {
+		if _, err := LoadCertificate(candidate); err != nil {
+			return err
+		}
+	}
+	engine, err := db.Open(candidate, false)
+	if err != nil {
+		return errors.New("candidate database is not reachable")
+	}
+	if err = engine.Close(); err != nil {
+		return err
+	}
 
 	err = config.WriteConfig(cfg)
 	if err != nil {
@@ -108,7 +131,15 @@ func certificateDomains(cfg *config.Config) []string {
 // LoadCertificate only reads local files and checks the leaf validity window.
 // Return the loaded pair so listeners never need to reopen the files at startup.
 func LoadCertificate(cfg *config.Config) (*tls.Certificate, error) {
-	cert, err := tls.LoadX509KeyPair(cfg.SSLPublicKeyPath, cfg.SSLPrivateKeyPath)
+	key, err := securefile.Read(cfg.SSLPrivateKeyPath)
+	if err != nil {
+		return nil, err
+	}
+	public, err := os.ReadFile(cfg.SSLPublicKeyPath)
+	if err != nil {
+		return nil, err
+	}
+	cert, err := tls.X509KeyPair(public, key)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +245,7 @@ func ObtainCertificate(ctx context.Context, cfg *config.Config) error {
 			return err
 		}
 	}
-	if err := os.WriteFile(cfg.SSLPrivateKeyPath, certs.PrivateKey, 0600); err != nil {
+	if err := securefile.Write(cfg.SSLPrivateKeyPath, certs.PrivateKey, false); err != nil {
 		return err
 	}
 	if err := os.WriteFile(cfg.SSLPublicKeyPath, certs.Certificate, 0644); err != nil {
@@ -223,29 +254,6 @@ func ObtainCertificate(ctx context.Context, cfg *config.Config) error {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(cfg.SSLPublicKeyPath), "issuerCert.crt"), certs.IssuerCertificate, 0644); err != nil {
 		log.Warnf("Could not save ACME issuer certificate: %v", err)
 	}
-	return nil
-}
-
-func GenSSL(update bool) error {
-	cfg, err := config.ReadEffectiveConfig()
-	if err != nil {
-		return err
-	}
-	if update {
-		return ObtainCertificate(context.Background(), cfg)
-	}
-	// The web wizard must respond while HTTP-01/DNS-01 challenges are in progress.
-	go func() {
-		if _, err := LoadCertificate(cfg); err != nil && cfg.SSLType != config.SSLTypeDisabled {
-			if err = ObtainCertificate(context.Background(), cfg); err != nil {
-				log.Errorf("SSL setup failed: %v", err)
-				return
-			}
-		}
-		if err := setup.Finish(); err != nil {
-			log.Errorf("Finish setup: %v", err)
-		}
-	}()
 	return nil
 }
 

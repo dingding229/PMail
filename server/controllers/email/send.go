@@ -171,7 +171,12 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	if e.MsgID == "" {
 		e.MsgID = parsemail.GenerateMsgID(domain.DefaultName())
 	}
-	e.Size = len(e.BuildBytes(ctx, true))
+	raw, buildErr := e.BuildBytes(ctx, true)
+	if buildErr != nil {
+		response.Localized(ctx, response.ParamsError, "mail_invalid_header").FPrintStatus(w, http.StatusBadRequest)
+		return
+	}
+	e.Size = len(raw)
 
 	modelEmail := models.Email{
 		Type:         1,

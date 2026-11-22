@@ -33,7 +33,9 @@ import (
 func Init(serverVersion string) {
 	_, _, bootstrap := config.BootstrapCredentials()
 	if !config.IsInit && !bootstrap {
-		go http_server.SetupStart(serverVersion)
+		if err := http_server.SetupStart(serverVersion); err != nil {
+			log.Fatalf("Complete environment configuration or enable local legacy setup: %v", err)
+		}
 		<-signal.InitChan
 		http_server.SetupStop()
 		if err := config.Init(); err != nil {

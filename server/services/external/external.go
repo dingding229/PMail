@@ -23,17 +23,23 @@ import (
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/quota"
 	pcontext "github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/wiretext"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 	log "github.com/sirupsen/logrus"
+	"xorm.io/xorm"
 )
 
 var (
-	ErrNotFound = errors.New("external account not found")
-	ErrProtocol = errors.New("protocol must be imap or pop3")
-	ErrTLSMode  = errors.New("tls_mode must be tls, starttls or none")
-	ErrPort     = errors.New("invalid external port")
-	ErrAuth     = errors.New("external mailbox authentication failed")
+	ErrNotFound          = errors.New("external account not found")
+	ErrProtocol          = errors.New("protocol must be imap or pop3")
+	ErrTLSMode           = errors.New("tls_mode must be tls, starttls or none")
+	ErrPort              = errors.New("invalid external port")
+	ErrPasswordRequired  = errors.New("external endpoint change requires a new password")
+	ErrEndpointOwner     = errors.New("only the account owner may change the external endpoint")
+	ErrCredentialRace    = errors.New("external settings changed concurrently; retry")
+	ErrControlCharacters = errors.New("external credentials or folder contain control characters")
+	ErrAuth              = errors.New("external mailbox authentication failed")
 )
 
 var accountLocks sync.Map
@@ -64,53 +70,57 @@ func List(userID int, admin bool) ([]models.ExternalAccount, error) {
 }
 
 func Create(userID int, input models.ExternalAccount, password string) (models.ExternalAccount, error) {
+	if password == "" {
+		return models.ExternalAccount{}, ErrPasswordRequired
+	}
 	if err := normalize(&input); err != nil {
-		return input, err
+		return models.ExternalAccount{}, err
+	}
+	if !wiretext.Line(password) {
+		return models.ExternalAccount{}, ErrControlCharacters
 	}
 	if err := validateHost(input.Host); err != nil {
-		return input, err
+		return models.ExternalAccount{}, err
 	}
-	enc, err := EncryptPassword(password)
-	if err != nil {
-		return input, err
+	var stored models.ExternalAccount
+	err := db.Transaction(db.Instance, func(tx *xorm.Session) error {
+		row := input
+		row.ID, row.UserID, row.PasswordEnc = 0, userID, ""
+		row.Created = time.Now()
+		row.Updated = row.Created
+		if _, err := tx.Insert(&row); err != nil {
+			return err
+		}
+		encoded, err := encryptAccount(row, password)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ID(row.ID).NoAutoTime().Cols("password_enc").Update(&models.ExternalAccount{PasswordEnc: encoded}); err != nil {
+			return err
+		}
+		stored = row
+		return nil
+	})
+	if err == nil {
+		log.Infof("audit_event=external_credential_created actor_id=%d external_id=%d", userID, stored.ID)
 	}
-	input.ID = 0 // Create must not accept a caller-supplied primary key.
-	input.UserID = userID
-	input.PasswordEnc = enc
-	input.Created = time.Now()
-	input.Updated = input.Created
-	_, err = db.Instance.Insert(&input)
-	input.PasswordEnc = ""
-	return input, err
+	return stored, err
 }
 
 func Update(userID int, admin bool, input models.ExternalAccount, password string) (models.ExternalAccount, error) {
+	empty := models.ExternalAccount{}
 	q := db.Instance.ID(input.ID)
 	if !admin {
-		q = q.Where("user_id=?", userID)
+		q.Where("user_id=?", userID)
 	}
 	var current models.ExternalAccount
 	found, err := q.Get(&current)
-	if err != nil || !found {
-		return current, ErrNotFound
+	if err != nil {
+		return empty, err
 	}
-	if input.Host != "" {
-		if err := validateHost(input.Host); err != nil {
-			return current, err
-		}
+	if !found {
+		return empty, ErrNotFound
 	}
-	if err := normalize(&input); err != nil {
-		return current, err
-	}
-	input.UserID = current.UserID
-	input.PasswordEnc = current.PasswordEnc
-	if password != "" {
-		input.PasswordEnc, err = EncryptPassword(password)
-		if err != nil {
-			return current, err
-		}
-	}
-	input.Updated = time.Now()
 	if input.Name == "" {
 		input.Name = current.Name
 	}
@@ -135,8 +145,42 @@ func Update(userID int, admin bool, input models.ExternalAccount, password strin
 	if input.IntervalMinutes == 0 {
 		input.IntervalMinutes = current.IntervalMinutes
 	}
-	_, err = db.Instance.ID(input.ID).Cols("name", "protocol", "host", "port", "tls_mode", "username", "password_enc", "folder", "interval_minutes", "initial_days", "delete_remote", "target_group_id", "enabled", "insecure_skip_verify", "updated").Update(&input)
+	if err := normalize(&input); err != nil {
+		return empty, err
+	}
+	if changed := binding(input) != binding(current); changed {
+		if userID != current.UserID {
+			log.Warnf("audit_event=external_endpoint_change_denied actor_id=%d owner_id=%d external_id=%d", userID, current.UserID, current.ID)
+			return empty, ErrEndpointOwner
+		}
+		if password == "" {
+			return empty, ErrPasswordRequired
+		}
+		if err := validateHost(input.Host); err != nil {
+			return empty, err
+		}
+	}
+	input.UserID = current.UserID
+	input.PasswordEnc = current.PasswordEnc
+	if password != "" {
+		if !wiretext.Line(password) {
+			return empty, ErrControlCharacters
+		}
+		input.PasswordEnc, err = encryptAccount(input, password)
+		if err != nil {
+			return empty, err
+		}
+	}
+	input.Created = current.Created
+	input.Updated = time.Now()
+	n, err := db.Instance.ID(input.ID).Where("user_id=? AND password_enc=?", current.UserID, current.PasswordEnc).NoAutoTime().Cols("name", "protocol", "host", "port", "tls_mode", "username", "password_enc", "folder", "interval_minutes", "initial_days", "delete_remote", "target_group_id", "enabled", "insecure_skip_verify", "updated").Update(&input)
 	input.PasswordEnc = ""
+	if err == nil && n == 0 {
+		return empty, ErrCredentialRace
+	}
+	if err == nil && password != "" {
+		log.Infof("audit_event=external_credential_updated actor_id=%d owner_id=%d external_id=%d endpoint_changed=%t", userID, current.UserID, current.ID, binding(input) != binding(current))
+	}
 	return input, err
 }
 
@@ -171,6 +215,9 @@ func SyncNow(ctx context.Context, userID int, admin bool, id int) error {
 }
 
 func TestConnection(input models.ExternalAccount, password string) ([]string, error) {
+	if !wiretext.Line(password) {
+		return nil, ErrControlCharacters
+	}
 	if err := normalize(&input); err != nil {
 		return nil, err
 	}
@@ -297,10 +344,27 @@ func syncAccountLocked(ctx context.Context, id int) (resultErr error) {
 	syncCtx, cancel := context.WithTimeout(ctx, syncDeadline)
 	defer cancel()
 	syncCtx = context.WithValue(syncCtx, syncCounterKey{}, &counter)
-	password, err := DecryptPassword(account.PasswordEnc)
+	password, legacy, err := decryptAccount(account)
 	if err != nil {
 		resultErr = recordError(account, err, false)
 		return resultErr
+	}
+	if !wiretext.Line(password) || !wiretext.Line(account.Username) || !wiretext.Line(account.Folder) {
+		return recordError(account, ErrControlCharacters, false)
+	}
+	if legacy {
+		replacement, err := encryptAccount(account, password)
+		if err != nil {
+			return recordError(account, err, false)
+		}
+		n, err := db.Instance.ID(account.ID).Where("password_enc=?", account.PasswordEnc).NoAutoTime().Cols("password_enc").Update(&models.ExternalAccount{PasswordEnc: replacement})
+		if err != nil {
+			return recordError(account, err, false)
+		}
+		if n == 0 {
+			return ErrCredentialRace
+		}
+		log.Infof("audit_event=external_credential_bound external_id=%d owner_id=%d", account.ID, account.UserID)
 	}
 	var syncErr error
 	if account.Protocol == "imap" {
@@ -451,7 +515,7 @@ func syncPOP3(ctx context.Context, account models.ExternalAccount, password stri
 	count := 0
 	for _, line := range lines {
 		parts := strings.Fields(line)
-		if len(parts) != 2 || count >= 200 {
+		if len(parts) != 2 || count >= 200 || !popSequence(parts[0]) {
 			continue
 		}
 		uidl := parts[1]
@@ -561,6 +625,10 @@ func isAuthError(err error) bool {
 }
 
 func normalize(a *models.ExternalAccount) error {
+	if !wiretext.Line(a.Username) || !wiretext.Line(a.Folder) || !wiretext.Line(a.Host) {
+		return ErrControlCharacters
+	}
+	a.Host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(a.Host), "."))
 	a.Protocol = strings.ToLower(strings.TrimSpace(a.Protocol))
 	a.TLSMode = strings.ToLower(strings.TrimSpace(a.TLSMode))
 	if a.Folder == "" {
@@ -750,7 +818,18 @@ func testPOP3(a models.ExternalAccount, password string) ([]string, error) {
 	}
 	return []string{"INBOX"}, nil
 }
+func popSequence(num string) bool {
+	if num == "" || strings.IndexFunc(num, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+		return false
+	}
+	n, err := strconv.ParseUint(num, 10, 31)
+	return err == nil && n > 0
+}
+
 func popCommand(c net.Conn, r *bufio.Reader, command string) error {
+	if !wiretext.Line(command) {
+		return ErrControlCharacters
+	}
 	if _, err := fmt.Fprintf(c, "%s\r\n", command); err != nil {
 		return err
 	}
@@ -785,6 +864,9 @@ func readMultiPOP3(r *bufio.Reader) ([]string, error) {
 	}
 }
 func popRetrieve(c net.Conn, r *bufio.Reader, num string) ([]byte, error) {
+	if !popSequence(num) {
+		return nil, ErrControlCharacters
+	}
 	if _, err := fmt.Fprintf(c, "RETR %s\r\n", num); err != nil {
 		return nil, err
 	}

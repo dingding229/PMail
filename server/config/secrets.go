@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"github.com/Jinnrry/pmail/utils/securefile"
 	"net"
 	"net/url"
 	"os"
@@ -81,7 +82,7 @@ func ensureSearchableSecretDir(dir string) error {
 // character, for 80 bits of entropy in sixteen characters.
 const registrationAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
-func registrationKeyPath() string { return filepath.Join(ROOT_PATH, "config", "registration_key") }
+func RegistrationKeyPath() string { return filepath.Join(ROOT_PATH, "config", "registration_key") }
 
 func EnsureRegistrationKey() (string, error) {
 	var random [16]byte
@@ -95,26 +96,19 @@ func EnsureRegistrationKey() (string, error) {
 		}
 		key.WriteByte(registrationAlphabet[b&31])
 	}
-	value, err := loadOrCreateSecret(registrationKeyPath(), key.String(), 0)
-	if err != nil {
+	path := RegistrationKeyPath()
+	if err := securefile.Write(path, []byte(key.String()+"\n"), true); err != nil && !os.IsExist(err) {
 		return "", err
 	}
-	value, err = validateRegistrationKey(value)
-	if err != nil {
-		return "", err
-	}
-	if err := os.Chmod(registrationKeyPath(), 0600); err != nil {
-		return "", err
-	}
-	return value, nil
+	return ReadRegistrationKey()
 }
 
 func ReadRegistrationKey() (string, error) {
-	value, err := readSecret(registrationKeyPath())
+	data, err := securefile.Read(RegistrationKeyPath())
 	if err != nil {
 		return "", err
 	}
-	return validateRegistrationKey(value)
+	return validateRegistrationKey(strings.TrimRight(string(data), "\n"))
 }
 
 func validateRegistrationKey(value string) (string, error) {
@@ -131,11 +125,11 @@ func validateRegistrationKey(value string) (string, error) {
 			return value, nil
 		}
 	}
-	return "", fmt.Errorf("invalid registration key format in %s", registrationKeyPath())
+	return "", fmt.Errorf("invalid registration key format in %s", RegistrationKeyPath())
 }
 
 func RemoveRegistrationKey() error {
-	err := os.Remove(registrationKeyPath())
+	err := os.Remove(RegistrationKeyPath())
 	if os.IsNotExist(err) {
 		return nil
 	}

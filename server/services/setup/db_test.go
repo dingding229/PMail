@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/Jinnrry/pmail/config"
@@ -27,5 +28,29 @@ func TestLegacySetupReadsExistingAdminOnly(t *testing.T) {
 	}
 	if account, err := GetAdminAccount(); err != nil || account != "root" {
 		t.Fatalf("existing administrator: account=%q, err=%v", account, err)
+	}
+}
+
+func TestC7InvalidCandidateDoesNotReplaceSetupConfig(t *testing.T) {
+	old := config.ROOT_PATH
+	config.ROOT_PATH = t.TempDir()
+	t.Cleanup(func() { config.ROOT_PATH = old })
+	t.Setenv("PMAIL_DB_DSN", "")
+	t.Setenv("PMAIL_DB_TYPE", "")
+	t.Setenv("PMAIL_DB_PASSWORD_FILE", "")
+	t.Setenv("PMAIL_WEB_ROOT", filepath.Join(config.ROOT_PATH, "web"))
+	baseline := &config.Config{DbType: config.DBTypePostgres, DbDSN: "postgres://user:fixture@db.invalid:5432/example"}
+	if err := config.WriteConfig(baseline); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetDatabaseSettings(nil, config.DBTypePostgres, "invalid DSN"); err == nil {
+		t.Fatal("invalid candidate was accepted")
+	}
+	got, err := config.ReadConfig()
+	if err != nil || got.DbDSN != baseline.DbDSN {
+		t.Fatalf("old configuration was overwritten: %v", err)
+	}
+	if _, dsn, err := GetDatabaseSettings(nil); err != nil || dsn != "" {
+		t.Fatalf("database settings exposed DSN: %v", err)
 	}
 }

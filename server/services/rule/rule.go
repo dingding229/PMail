@@ -97,7 +97,11 @@ func doForward(ctx *context.Context, email *parsemail.Email, forwardAddress stri
 		return fmt.Errorf("invalid forward address: %s", forwardAddress)
 	}
 	if len(rawEmailData) == 0 && email != nil && email.From != nil {
-		rawEmailData = email.BuildBytes(ctx, false)
+		var err error
+		rawEmailData, err = email.BuildBytes(ctx, false)
+		if err != nil {
+			return err
+		}
 	}
 	for _, target := range targets {
 		if err := forward.EnqueueForUser(ctx, user.ID, email, rawEmailData, target); err != nil {

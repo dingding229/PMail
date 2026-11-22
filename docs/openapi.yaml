@@ -3,7 +3,7 @@ info:
   title: PMail Pro HTTP API
   version: 0.0.1
   description: |-
-    PMail Pro runtime contract. For timestamps use the additive *_iso fields (RFC3339 with an explicit offset); legacy fields are unchanged. Cookie, Bearer token, and the legacy Token header are alternative credentials; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource; any admin override is stated per operation.
+    PMail Pro runtime contract. For timestamps use the additive *_iso fields (RFC3339 with an explicit offset); legacy fields are unchanged. Cookie, scoped Bearer token, and the legacy Token header are alternative credentials. Cookie-authenticated writes require same-origin Origin/Referer; JSON requests with a body require application/json; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource. Administrator access to other users' non-draft mail requires PMAIL_ADMIN_MAIL_ACCESS=1 and is audited.
 
     JSON responses use {errorNo, errorMsg, data} unless stated otherwise. Legacy failures can return HTTP 200. x-error-codes lists application codes by HTTP status. Don't infer success from HTTP status alone. Unmatched /api requests return HTTP 404 with the localized JSON envelope (errorNo 404). The reusable UnknownApiPath response describes this routing error. Resource-not-found errors on matched routes keep their existing error codes. Unsupported attachment subpaths never return SPA HTML. The legacy setup endpoint is available only on the setup listener; when HTTPS is active the plain HTTP listener serves ping and ACME directly and redirects other requests to HTTPS. Listed GET/POST variants are supported contracts; incidental verbs accepted by some older handlers are not part of the contract.
 
@@ -135,11 +135,12 @@ paths:
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
   /api/logout:
     post:
       operationId: logout
       tags: [Auth]
-      summary: Destroy the browser session
+      summary: Destroy the browser session (POST only; requires same-origin Cookie request)
       x-permission: user
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}
@@ -160,15 +161,16 @@ paths:
               schema: {type: string}
         '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
   /api/setup:
     post:
       operationId: legacySetup
       tags: [Bootstrap]
-      summary: Read or write a legacy setup step
-      x-permission: public
-      description: 'Available only on the legacy configuration listener. Legacy password/set and account/set always return
-        403: first administrator creation belongs to /api/register.'
-      security: []
+      summary: Read or write an opt-in local configuration step
+      x-permission: setup-token
+      description: Loopback-only listener, disabled unless PMAIL_LEGACY_SETUP=1. The separate setup token is kept in a local file, consumed when setup finishes. Database credentials are never returned.
+      security: [{SetupToken: []}]
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
@@ -195,6 +197,7 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
   /api/register:
     post:
       operationId: register
@@ -239,6 +242,7 @@ paths:
               schema: {type: integer}
               description: Seconds before retrying.
         '500': {$ref: '#/components/responses/InternalError'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
   /api/group:
     get:
       operationId: groupTreeGet
@@ -610,6 +614,7 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
   /api/email/forward:
     post:
       operationId: forwardMail
@@ -637,6 +642,7 @@ paths:
                 - {$ref: '#/components/schemas/DeliveryResultSuccess'}
                 - {$ref: '#/components/schemas/Error100402403500DeliveryData'}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
   /api/forward/get:
     get:
       operationId: getForwardSettingsGet
@@ -1005,6 +1011,7 @@ paths:
       tags: [External]
       summary: Change an external mailbox
       x-permission: owner
+      x-endpoint-policy: Only the owner can change endpoints; a new password is required.
       description: Mailbox owner or admin. Send the complete editable form; not every omitted field preserves the stored
         value.
       parameters:
@@ -1029,6 +1036,7 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '409': {$ref: '#/components/responses/Conflict'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
   /api/external/delete:
     post:
       operationId: deleteExternal
@@ -1999,6 +2007,7 @@ paths:
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '409': {$ref: '#/components/responses/Conflict'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
   /api/token/delete:
     post:
       operationId: deleteToken
@@ -2376,6 +2385,10 @@ paths:
         '404': {description: No such route or challenge token.}
 components:
   securitySchemes:
+    SetupToken:
+      type: apiKey
+      in: header
+      name: X-PMail-Setup-Token
     Session: {type: apiKey, in: cookie, name: session}
     BearerToken: {type: http, scheme: bearer}
     LegacyToken: {type: apiKey, in: header, name: Token}
@@ -2437,6 +2450,11 @@ components:
         type: integer
         description: Omit or use zero for the current account; only an administrator can select another user.
   responses:
+    JSONMediaTypeRequired:
+      description: A JSON request body requires Content-Type application/json.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error100EmptyData'}
     BadRequest:
       description: Invalid parameters or credentials (or resource rejected by some legacy handlers).
       content:
@@ -2702,6 +2720,26 @@ components:
       format: date-time
       description: RFC3339 date-time with an explicit UTC offset. Clients should use *_iso instead of legacy time fields.
         Null means unknown or unset.
+    MailAuthCheck:
+      type: object
+      required: [result, reason]
+      properties:
+        result: {type: string, enum: [pass, fail, none, neutral, softfail, temperror, permerror, not_applicable]}
+        reason: {type: string, description: Stable machine-readable reason, not arbitrary DNS or mail data.}
+        domain: {type: string, description: Authenticated/evaluated domain when known.}
+        aligned: {type: boolean, description: Whether a passing identity aligned with the From domain.}
+    MailAuthResults:
+      type: [object, 'null']
+      description: Null for legacy messages that lack detailed transport results. Trust is recorded separately and is not a protocol pass.
+      required: [spf, dkim, dmarc, trusted_relay]
+      properties:
+        spf: {$ref: '#/components/schemas/MailAuthCheck'}
+        dkim: {$ref: '#/components/schemas/MailAuthCheck'}
+        dmarc:
+          allOf: [{$ref: '#/components/schemas/MailAuthCheck'}]
+          properties:
+            policy: {type: string, enum: [none, quarantine, reject]}
+        trusted_relay: {type: boolean}
     MailListItem:
       type: object
       required:
@@ -2720,6 +2758,7 @@ components:
       - is_draft
       - dangerous
       - auth_status
+      - auth_results
       - is_starred
       - title
       - desc
@@ -2754,11 +2793,11 @@ components:
         is_draft: {type: boolean}
         dangerous:
           type: boolean
-          description: True only for inbound mail whose known checks both failed; false for drafts/outbound mail.
+          description: True for evaluated inbound mail with a failing authentication summary; false for drafts and outbound mail.
+        auth_results: {$ref: '#/components/schemas/MailAuthResults'}
         auth_status:
           enum: [pass, fail, none, not_applicable]
-          description: pass if at least one check passed; fail if neither passed for checked inbound mail; none when no
-            check is known or performed; not_applicable for drafts and outgoing mail.
+          description: pass for aligned inbound authentication, fail for an evaluated failure, none for absent or inconclusive evidence, and not_applicable for drafts and outgoing mail. Older messages retain their legacy classification.
         is_starred: {type: boolean}
         title: {type: string}
         desc: {type: string}
@@ -2817,11 +2856,11 @@ components:
         is_draft: {type: boolean}
         dangerous:
           type: boolean
-          description: True only for inbound mail whose known checks both failed; false for drafts/outbound mail.
+          description: True for evaluated inbound mail with a failing authentication summary; false for drafts and outbound mail.
+        auth_results: {$ref: '#/components/schemas/MailAuthResults'}
         auth_status:
           enum: [pass, fail, none, not_applicable]
-          description: pass if at least one check passed; fail if neither passed for checked inbound mail; none when no
-            check is known or performed; not_applicable for drafts and outgoing mail.
+          description: pass for aligned inbound authentication, fail for an evaluated failure, none for absent or inconclusive evidence, and not_applicable for drafts and outgoing mail. Older messages retain their legacy classification.
         is_read: {type: boolean}
         is_starred: {type: boolean}
         mailbox_status: {type: integer}
@@ -2924,6 +2963,7 @@ components:
       - is_draft
       - dangerous
       - auth_status
+      - auth_results
       - is_read
       - is_starred
       - mailbox_status
@@ -3627,7 +3667,7 @@ components:
         quota_mb: {type: integer, minimum: 0}
     Token:
       type: object
-      required: [last_used_at_iso, expires_at_iso, created_iso, id, user_id, name, prefix, last_used_at, expires_at, created]
+      required: [last_used_at_iso, expires_at_iso, created_iso, id, user_id, name, prefix, last_used_at, expires_at, created, scope, legacy_scope, never_expires]
       properties:
         last_used_at_iso: {$ref: '#/components/schemas/IsoTimestamp'}
         expires_at_iso: {$ref: '#/components/schemas/IsoTimestamp'}
@@ -3636,6 +3676,9 @@ components:
         user_id: {type: integer}
         name: {type: string}
         prefix: {type: string}
+        scope: {type: string, enum: [read, send, admin, legacy]}
+        legacy_scope: {type: boolean, description: Deprecated legacy full-account authorization; rotate this token.}
+        never_expires: {type: boolean}
         last_used_at:
           type: [string, 'null']
           format: date-time
@@ -3647,6 +3690,8 @@ components:
       type: object
       properties:
         name: {type: string, default: API token}
+        scope: {type: string, enum: [read, send, admin], default: read, description: Admin is available only to administrators. Send includes read access plus sending and drafts.}
+        never_expires: {type: boolean, default: false, description: Set explicitly to issue a token with no expiry; cannot be combined with an explicit expiry.}
         expires_at:
           type: [string, 'null']
           format: date-time
@@ -3729,10 +3774,9 @@ components:
         description: Localized acknowledgement for a successful set; password/get returns the configured account name
           or an empty string.
       - type: object
-        required: [db_type, db_dsn]
+        required: [db_type]
         properties:
           db_type: {type: string}
-          db_dsn: {type: string}
       - type: object
         required: [smtp_domain, web_domain, domains]
         properties:

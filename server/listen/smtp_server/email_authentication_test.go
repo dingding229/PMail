@@ -2,6 +2,7 @@ package smtp_server
 
 import (
 	"bytes"
+	stdctx "context"
 	"net"
 	"net/netip"
 	"testing"
@@ -48,8 +49,11 @@ func TestReceivePersistsAuthenticationResult(t *testing.T) {
 	emailData := []byte("From: sender\r\nTo: recipient@test.domain\r\nSubject: authentication flow\r\n\r\nbody")
 	session := Session{
 		RemoteAddress: net.TCPAddrFromAddrPort(netip.MustParseAddrPort("203.0.113.1:25")),
-		Ctx:           &context.Context{},
-		To:            []string{"recipient@test.domain"},
+		AuthenticateInbound: func(stdctx.Context, netip.Addr, string, string, []byte) models.MailAuthResults {
+			return models.MailAuthResults{SPF: models.MailAuthCheck{Result: "none", Reason: "no_record"}, DKIM: models.MailAuthCheck{Result: "none", Reason: "no_signature"}, DMARC: models.MailAuthCheck{Result: "none", Reason: "no_policy"}}
+		},
+		Ctx: &context.Context{},
+		To:  []string{"recipient@test.domain"},
 	}
 	if err := session.Data(bytes.NewReader(emailData)); err != nil {
 		t.Fatalf("收信流程执行失败：%v", err)
@@ -62,6 +66,9 @@ func TestReceivePersistsAuthenticationResult(t *testing.T) {
 	}
 	if !has {
 		t.Fatal("未找到落库邮件")
+	}
+	if saved.TransportAuth() == nil {
+		t.Fatal("missing transport authentication evidence")
 	}
 	if saved.SPFCheck != 0 || saved.DKIMCheck != 0 {
 		t.Fatalf("落库认证结果不正确：SPF=%d DKIM=%d", saved.SPFCheck, saved.DKIMCheck)

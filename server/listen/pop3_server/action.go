@@ -85,7 +85,11 @@ func (d *maildrop) render(ref *messageRef) (string, error) {
 	if !found {
 		return "", errNoSuchMessage
 	}
-	body := crlf.Replace(string(parsemail.NewEmailFromModel(mail).BuildBytes(d.ctx, false)))
+	raw, err := parsemail.NewEmailFromModel(mail).BuildBytes(d.ctx, false)
+	if err != nil {
+		return "", err
+	}
+	body := crlf.Replace(string(raw))
 	if !strings.HasSuffix(body, "\r\n") {
 		body += "\r\n"
 	}

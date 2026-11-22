@@ -1,7 +1,9 @@
 package setup
 
 import (
+	stdctx "context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/Jinnrry/pmail/config"
@@ -32,6 +34,15 @@ func GetDNSSettings(ctx *context.Context) (map[string][]*DNSItem, error) {
 		return nil, errors.Wrap(err)
 	}
 	ret := make(map[string][]*DNSItem)
+	base := stdctx.Background()
+	if ctx != nil && ctx.Context != nil {
+		base = ctx.Context
+	}
+	v4, _ := ip.PublicAddresses(base, os.Getenv("PMAIL_PUBLIC_IPV4"), os.Getenv("PMAIL_PUBLIC_IPV6"))
+	ipv4 := ""
+	if v4.IsValid() {
+		ipv4 = v4.String()
+	}
 
 	// A web hostname belongs to its most specific configured DNS zone, not
 	// to every mail domain. An external web zone is configured separately.
@@ -45,10 +56,10 @@ func GetDNSSettings(ctx *context.Context) (map[string][]*DNSItem, error) {
 	}
 	for _, domain := range configData.Domains {
 		ret[domain] = []*DNSItem{
-			{Type: "A", Host: "smtp", Value: ip.GetIp(), TTL: 3600, Tips: i18n.T(ctx, "ip_taps")},
-			{Type: "A", Host: "imap", Value: ip.GetIp(), TTL: 3600, Tips: i18n.T(ctx, "ip_taps")},
-			{Type: "A", Host: "pop", Value: ip.GetIp(), TTL: 3600, Tips: i18n.T(ctx, "ip_taps")},
-			{Type: "A", Host: "@", Value: ip.GetIp(), TTL: 3600, Tips: i18n.T(ctx, "ip_taps")},
+			{Type: "A", Host: "smtp", Value: ipv4, TTL: 3600, Tips: i18n.T(ctx, "ip_taps")},
+			{Type: "A", Host: "imap", Value: ipv4, TTL: 3600, Tips: i18n.T(ctx, "ip_taps")},
+			{Type: "A", Host: "pop", Value: ipv4, TTL: 3600, Tips: i18n.T(ctx, "ip_taps")},
+			{Type: "A", Host: "@", Value: ipv4, TTL: 3600, Tips: i18n.T(ctx, "ip_taps")},
 			{Type: "MX", Host: "@", Value: fmt.Sprintf("smtp.%s", domain), TTL: 3600},
 			{Type: "TXT", Host: "@", Value: "v=spf1 a mx ~all", TTL: 3600},
 			{Type: "TXT", Host: "default._domainkey", Value: record, TTL: 3600},
@@ -60,7 +71,7 @@ func GetDNSSettings(ctx *context.Context) (map[string][]*DNSItem, error) {
 				// These A records already appear in the list.
 			default:
 				ret[domain] = append(ret[domain], &DNSItem{
-					Type: "A", Host: host, Value: ip.GetIp(), TTL: 3600, Tips: i18n.T(ctx, "ip_taps"),
+					Type: "A", Host: host, Value: ipv4, TTL: 3600, Tips: i18n.T(ctx, "ip_taps"),
 				})
 			}
 		}

@@ -19,6 +19,8 @@ var Instance *scs.SessionManager
 
 func Init() {
 	Instance = scs.New()
+	Instance.Cookie.HttpOnly = true
+	Instance.Cookie.SameSite = http.SameSiteLaxMode
 	Instance.ErrorFunc = func(w http.ResponseWriter, r *http.Request, err error) {
 		log.WithContext(r.Context()).Errorf("Session middleware: %v", err)
 		w.Header().Set("Content-Type", "application/json")

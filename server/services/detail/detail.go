@@ -5,11 +5,13 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/services/list"
 	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/errors"
 	log "github.com/sirupsen/logrus"
+	"os"
 	"strings"
 )
 import . "xorm.io/builder"
@@ -19,9 +21,9 @@ func GetEmailDetail(ctx *context.Context, id int, markRead bool) (*response.Emai
 	var ue models.UserEmail
 	_, err := db.Instance.Where("email_id = ? AND user_id = ?", id, ctx.UserID).Get(&ue)
 	if err != nil {
-		log.Error(err)
+		return nil, err
 	}
-	if ue.ID == 0 && !ctx.IsAdmin {
+	if ue.ID == 0 && (!ctx.IsAdmin || os.Getenv("PMAIL_ADMIN_MAIL_ACCESS") != "1") {
 		return nil, errors.New("Not authorized")
 	}
 
@@ -37,7 +39,7 @@ func GetEmailDetail(ctx *context.Context, id int, markRead bool) (*response.Emai
 		return nil, errors.New("message not found")
 	}
 
-	if ue.ID == 0 && email.Status == 4 {
+	if ue.ID == 0 && !auth.AdminMailOverride(ctx, &email.Email) {
 		return nil, errors.New("Not authorized")
 	}
 	email.IsRead = ue.IsRead

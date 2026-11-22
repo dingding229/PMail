@@ -51,7 +51,11 @@ func TestEmailDateFromReaderPreservesInstant(t *testing.T) {
 		t.Fatalf("stored Date changed instant: got %s, want %s", stored, expected)
 	}
 
-	got := builtMessageDate(t, email.BuildBytes(nil, false))
+	rebuilt, err := email.BuildBytes(nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := builtMessageDate(t, rebuilt)
 	if !got.Equal(expected) {
 		t.Fatalf("rebuilt Date changed instant: got %s, want %s", got, expected)
 	}
@@ -72,7 +76,11 @@ func TestEmailDateFromModelPreservesUTCInstant(t *testing.T) {
 		t.Fatalf("model Date = %q, want %q", email.Date, expected.Format(time.RFC3339))
 	}
 
-	got := builtMessageDate(t, email.BuildBytes(nil, false))
+	raw, err := email.BuildBytes(nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := builtMessageDate(t, raw)
 	if !got.Equal(expected) {
 		t.Fatalf("rebuilt model Date changed instant: got %s, want %s", got, expected)
 	}
@@ -94,7 +102,11 @@ func TestEmailBuildBytesAcceptsLegacyDate(t *testing.T) {
 		MsgID:   "date-legacy@example.com",
 	}
 
-	got := builtMessageDate(t, email.BuildBytes(nil, false))
+	raw, err := email.BuildBytes(nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := builtMessageDate(t, raw)
 	if !got.Equal(expected) {
 		t.Fatalf("legacy Date changed instant: got %s, want %s", got, expected)
 	}
@@ -292,7 +304,10 @@ func TestEmail_builder(t *testing.T) {
 		},
 	}
 
-	rest := e.BuildBytes(nil, false)
+	rest, err := e.BuildBytes(nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	fmt.Println(string(rest))
 }
 

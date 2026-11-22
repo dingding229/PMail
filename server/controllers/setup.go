@@ -42,12 +42,12 @@ func Setup(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	ack := func() { success(w, i18n.T(ctx, "succ")) }
 	switch data["step"] + "/" + data["action"] {
 	case "database/get":
-		dbType, dbDSN, err := setup.GetDatabaseSettings(ctx)
+		dbType, _, err := setup.GetDatabaseSettings(ctx)
 		if err != nil {
 			fail("setup_db_failed", err)
 			return
 		}
-		success(w, map[string]string{"db_type": dbType, "db_dsn": dbDSN})
+		success(w, map[string]string{"db_type": dbType})
 	case "database/set":
 		if err := setup.SetDatabaseSettings(ctx, data["db_type"], data["db_dsn"]); err == nil {
 			ack()
@@ -115,18 +115,12 @@ func Setup(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 			}
 			return
 		}
-		if sslType == config.SSLTypeAutoHTTP || sslType == config.SSLTypeAutoDNS {
-			if err := ssl.GenSSL(false); err != nil {
-				fail("setup_ssl_failed", err)
-				return
-			}
+		// Automatic issuance runs after the normal listeners are started.
+		if err := setup.Finish(); err != nil {
+			fail("setup_ssl_failed", err)
+			return
 		}
 		ack()
-		if sslType == config.SSLTypeUser || sslType == config.SSLTypeDisabled {
-			if err := setup.Finish(); err != nil {
-				log.WithContext(ctx).Errorf("Finish legacy setup: %v", err)
-			}
-		}
 	default:
 		response.Localized(ctx, response.ParamsError, "setup_invalid_step").FPrint(w)
 	}

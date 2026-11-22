@@ -9,6 +9,7 @@ type APIToken struct {
 	TokenHash   string     `xorm:"token_hash char(64) notnull unique" json:"-"`
 	Prefix      string     `xorm:"prefix char(8) notnull index" json:"prefix"`
 	AuthVersion int64      `xorm:"auth_version bigint notnull default(0)" json:"-"`
+	Scope       string     `xorm:"scope varchar(16) notnull default('legacy')" json:"scope"`
 	LastUsedAt  *time.Time `xorm:"last_used_at" json:"last_used_at"`
 	ExpiresAt   *time.Time `xorm:"expires_at" json:"expires_at"`
 	Created     time.Time  `xorm:"created" json:"created"`

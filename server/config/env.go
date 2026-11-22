@@ -14,6 +14,13 @@ func ReadEffectiveConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	return EffectiveConfig(cfg)
+}
+
+func EffectiveConfig(candidate *Config) (*Config, error) {
+	copy := *candidate
+	cfg := &copy
+	var err error
 	mode := os.Getenv("PMAIL_WEB_MODE")
 	// Preserve settings from a legacy standalone config unless a mode was
 	// requested. Compose always supplies its selected mode.

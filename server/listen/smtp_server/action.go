@@ -1,7 +1,10 @@
 package smtp_server
 
 import (
+	stdctx "context"
 	"errors"
+	"github.com/Jinnrry/pmail/models"
+	"net/netip"
 
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/services/address"
@@ -30,18 +33,22 @@ func (bkd *Backend) NewSession(conn *smtp.Conn) (smtp.Session, error) {
 
 	return &Session{
 		RemoteAddress: remoteAddress,
+		currentHELO:   conn.Hostname,
 		Ctx:           ctx,
 	}, nil
 }
 
 // A Session is returned after EHLO.
 type Session struct {
-	RemoteAddress net.Addr
-	User          string
-	From          string
-	To            []string
-	Size          int64
-	Ctx           *context.Context
+	RemoteAddress       net.Addr
+	User                string
+	HELO                string
+	currentHELO         func() string
+	AuthenticateInbound func(stdctx.Context, netip.Addr, string, string, []byte) models.MailAuthResults
+	From                string
+	To                  []string
+	Size                int64
+	Ctx                 *context.Context
 }
 
 // AuthMechanisms returns a slice of available auth mechanisms
@@ -79,10 +86,21 @@ func (s *Session) AuthPlain(username, pwd string) error {
 	}
 	s.User = username
 	s.Ctx.UserAccount, s.Ctx.UserID, s.Ctx.UserName, s.Ctx.IsAdmin = user.Account, user.ID, user.Name, user.IsAdmin == 1
+	s.Ctx.AuthVersion = user.AuthVersion
+	return nil
+}
+
+func (s *Session) validateSubmission() error {
+	if s.Ctx.UserID > 0 && auth.ValidateSessionRole(s.Ctx.UserID, s.Ctx.AuthVersion, s.Ctx.IsAdmin) != nil {
+		return &smtp.SMTPError{Code: 535, EnhancedCode: smtp.EnhancedCode{5, 7, 8}, Message: "authentication expired; reconnect and authenticate"}
+	}
 	return nil
 }
 
 func (s *Session) Mail(from string, opts *smtp.MailOptions) error {
+	if err := s.validateSubmission(); err != nil {
+		return err
+	}
 	if s.Ctx.UserID > 0 && !s.Ctx.IsAdmin {
 		if _, err := address.SendAddress(s.Ctx.UserID, from); err != nil {
 			return &smtp.SMTPError{Code: 550, EnhancedCode: smtp.EnhancedCode{5, 7, 1}, Message: "sender address is not owned by authenticated user"}

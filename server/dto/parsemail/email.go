@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -18,6 +19,7 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/wiretext"
 	"github.com/emersion/go-message"
 	_ "github.com/emersion/go-message/charset"
 	"github.com/emersion/go-message/mail"
@@ -93,6 +95,7 @@ type Email struct {
 	MsgID          string // RFC-compliant Message-ID, persisted in DB
 	Size           int
 	Authentication *EmailAuthentication
+	AuthResults    *models.MailAuthResults
 	AuthUnchecked  bool // explicitly imported without transport authentication
 	// EnvelopeFrom is set by SMTP sessions when the envelope sender is known.
 	EnvelopeFrom      string `json:"-"`
@@ -170,6 +173,9 @@ func ShouldSkipForward(email *Email, raw []byte) bool {
 func GenerateMsgID(domain string) string {
 	randBytes := make([]byte, 16)
 	_, _ = rand.Read(randBytes)
+	if domain == "" {
+		domain = "localhost"
+	}
 	return fmt.Sprintf("%x.%d@%s", randBytes, time.Now().UnixNano(), domain)
 }
 
@@ -307,6 +313,7 @@ func NewEmailFromModel(d models.Email) *Email {
 		Date:        d.SendDate.Format(time.RFC3339),
 	}
 	if d.Type == 0 {
+		ret.AuthResults = d.TransportAuth()
 		ret.Authentication = NewEmailAuthentication(d.SPFCheck == 1, d.DKIMCheck == 1)
 	}
 	return ret
@@ -539,92 +546,41 @@ func buildUsers(strs []string) []*User {
 	return ret
 }
 
-func (e *Email) ForwardBuildBytes(ctx *context.Context, sender *models.User, forwardAddress string, senderAddresses ...string) []byte {
-	senderEmailAddress := ""
+func (e *Email) ForwardBuildBytes(ctx *context.Context, sender *models.User, forwardAddress string, senderAddresses ...string) ([]byte, error) {
+	if e == nil || sender == nil || !wiretext.Address(forwardAddress) {
+		return nil, ErrInvalidMailHeader
+	}
+	senderAddress := ""
 	if len(senderAddresses) > 0 {
-		senderEmailAddress = senderAddresses[0]
+		senderAddress = senderAddresses[0]
 	}
-	if senderEmailAddress == "" {
-		senderEmailAddress = sender.Account + "@" + domain.DefaultName()
+	if senderAddress == "" {
+		senderAddress = sender.Account + "@" + domain.DefaultName()
 	}
-	var b bytes.Buffer
-
-	forwardUser := buildUser(forwardAddress)
-	to := []*mail.Address{{Name: forwardUser.Name, Address: forwardUser.EmailAddress}}
-
-	senderAddress := []*mail.Address{{Name: sender.Name, Address: senderEmailAddress}}
-	// Create our mail header
-	var h mail.Header
-	h.SetDate(time.Now())
-	h.SetAddressList("From", senderAddress)
-	h.SetAddressList("Sender", senderAddress)
-	h.SetAddressList("To", to)
+	copy := *e
+	copy.From = &User{Name: sender.Name, EmailAddress: senderAddress}
+	copy.Sender = copy.From
+	copy.To = []*User{{EmailAddress: forwardAddress}}
+	copy.Cc = nil
+	copy.Bcc = nil
+	copy.ReplyTo = nil
+	copy.Date = ""
+	copy.MsgID = GenerateMsgID(domain.DefaultName())
+	copy.Headers = make(textproto.MIMEHeader)
 	if e.From != nil && e.From.EmailAddress != "" {
-		h.SetAddressList("Reply-To", []*mail.Address{{Name: e.From.Name, Address: e.From.EmailAddress}})
-		h.Set("X-Original-From", e.From.Build())
+		copy.ReplyTo = []*User{e.From}
+		copy.Headers.Set("X-Original-From", e.From.Build())
 	}
-	h.Set("X-Forwarded-By", senderEmailAddress)
-	h.Set("X-Forwarded-To", forwardUser.EmailAddress)
-	h.SetText("Subject", e.Subject)
-	h.SetMessageID(GenerateMsgID(domain.DefaultName()))
+	copy.Headers.Set("X-Forwarded-By", senderAddress)
+	copy.Headers.Set("X-Forwarded-To", forwardAddress)
 	if e.MsgID != "" {
-		h.Set("References", fmt.Sprintf("<%s>", e.MsgID))
-		h.Set("In-Reply-To", fmt.Sprintf("<%s>", e.MsgID))
-	}
-
-	// Create a new mail writer
-	mw, err := mail.CreateWriter(&b, h)
-	if err != nil {
-		log.WithContext(ctx).Fatal(err)
-	}
-
-	// Create a text part
-	tw, err := mw.CreateInline()
-	if err != nil {
-		log.WithContext(ctx).Fatal(err)
-	}
-	var th mail.InlineHeader
-	th.Set("Content-Type", "text/plain")
-	w, err := tw.CreatePart(th)
-	if err != nil {
-		log.Fatal(err)
-	}
-	io.WriteString(w, string(e.Text))
-	w.Close()
-
-	var html mail.InlineHeader
-	html.Set("Content-Type", "text/html")
-	w, err = tw.CreatePart(html)
-	if err != nil {
-		log.Fatal(err)
-	}
-	io.WriteString(w, string(e.HTML))
-	w.Close()
-
-	tw.Close()
-
-	// Create an attachment
-	for _, attachment := range e.Attachments {
-		var ah mail.AttachmentHeader
-		ah.Set("Content-Type", attachment.ContentType)
-		ah.SetFilename(attachment.Filename)
-		w, err = mw.CreateAttachment(ah)
-		if err != nil {
-			log.WithContext(ctx).Fatal(err)
-			continue
+		if !safeMessageID(e.MsgID) {
+			return nil, ErrInvalidMailHeader
 		}
-		w.Write(attachment.Content)
-		w.Close()
+		copy.Headers.Set("References", "<"+e.MsgID+">")
+		copy.Headers.Set("In-Reply-To", "<"+e.MsgID+">")
 	}
-
-	mw.Close()
-
-	if instance == nil {
-		return b.Bytes()
-	}
-
-	// dkim 签名后返回
-	return sign(b.String(), senderEmailAddress)
+	return copy.BuildBytes(ctx, true)
 }
 
 func (e *Email) BuildPart(ctx *context.Context, loc []int) []byte {
@@ -690,118 +646,181 @@ func (e *Email) BuildPart(ctx *context.Context, loc []int) []byte {
 	return nil
 }
 
-func (e *Email) BuildBytes(ctx *context.Context, dkim bool) []byte {
-	var b bytes.Buffer
+var ErrInvalidMailHeader = errors.New("invalid address or header in mail")
 
-	from := []*mail.Address{{Name: e.From.Name, Address: e.From.EmailAddress}}
-	to := []*mail.Address{}
-	for _, user := range e.To {
-		to = append(to, &mail.Address{
-			Name:    user.Name,
-			Address: user.EmailAddress,
-		})
+func safeMessageID(id string) bool {
+	if len(id) > 998 || !wiretext.HeaderValue(id) || strings.ContainsAny(id, "<> \t") {
+		return false
+	}
+	left, right, ok := strings.Cut(id, "@")
+	return ok && left != "" && right != "" && !strings.Contains(right, "@")
+}
+
+func wireAddressList(users []*User) ([]*mail.Address, error) {
+	out := make([]*mail.Address, 0, len(users))
+	for _, user := range users {
+		if user == nil || !wiretext.Address(user.EmailAddress) || !wiretext.HeaderValue(user.Name) {
+			return nil, ErrInvalidMailHeader
+		}
+		out = append(out, &mail.Address{Name: user.Name, Address: user.EmailAddress})
+	}
+	return out, nil
+}
+
+func (e *Email) BuildBytes(ctx *context.Context, shouldSign bool) ([]byte, error) {
+	if e == nil || e.From == nil || !wiretext.HeaderValue(e.Subject) {
+		return nil, ErrInvalidMailHeader
+	}
+	from, err := wireAddressList([]*User{e.From})
+	if err != nil {
+		return nil, err
+	}
+	to, err := wireAddressList(e.To)
+	if err != nil {
+		return nil, err
+	}
+	cc, err := wireAddressList(e.Cc)
+	if err != nil {
+		return nil, err
+	}
+	reply, err := wireAddressList(e.ReplyTo)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := wireAddressList(e.Bcc); err != nil {
+		return nil, err
+	}
+	if e.Sender != nil {
+		if _, err := wireAddressList([]*User{e.Sender}); err != nil {
+			return nil, err
+		}
 	}
 
-	// Create our mail header
 	var h mail.Header
+	date := time.Now()
 	if e.Date != "" {
-		t, err := time.Parse(time.RFC3339, e.Date)
+		parsed, err := time.Parse(time.RFC3339, e.Date)
 		if err != nil {
-			// Keep compatibility with Date values stored before timezone offsets were preserved.
-			t, err = time.ParseInLocation(time.DateTime, e.Date, time.Local)
+			parsed, err = time.ParseInLocation(time.DateTime, e.Date, time.Local)
 		}
-		if err != nil {
-			log.WithContext(ctx).Errorf("Time Error ! Err:%+v", err)
-			h.SetDate(time.Now())
-		} else {
-			h.SetDate(t)
+		if err == nil {
+			date = parsed
 		}
-	} else {
-		h.SetDate(time.Now())
 	}
-	if e.MsgID != "" {
-		h.SetMessageID(e.MsgID)
-	} else {
-		h.SetMessageID(fmt.Sprintf("%d@%s", e.MessageId, domain.DefaultName()))
+	h.SetDate(date)
+	msgID := e.MsgID
+	if msgID == "" {
+		host := domain.DefaultName()
+		if host == "" {
+			host = "localhost"
+		}
+		msgID = fmt.Sprintf("%d@%s", e.MessageId, host)
 	}
+	if !safeMessageID(msgID) {
+		return nil, ErrInvalidMailHeader
+	}
+	h.SetMessageID(msgID)
 	h.SetAddressList("From", from)
 	h.SetAddressList("Sender", from)
-	h.SetAddressList("To", to)
-	h.SetText("Subject", e.Subject)
-	if len(e.Cc) != 0 {
-		cc := []*mail.Address{}
-		for _, user := range e.Cc {
-			cc = append(cc, &mail.Address{
-				Name:    user.Name,
-				Address: user.EmailAddress,
-			})
-		}
+	if len(to) > 0 {
+		h.SetAddressList("To", to)
+	}
+	if len(cc) > 0 {
 		h.SetAddressList("Cc", cc)
 	}
-	for key, values := range e.Headers {
+	if len(reply) > 0 {
+		h.SetAddressList("Reply-To", reply)
+	}
+	h.SetText("Subject", e.Subject)
+	for name, values := range e.Headers {
+		switch strings.ToLower(name) {
+		case "from", "to", "cc", "bcc", "sender", "reply-to", "date", "message-id", "subject", "return-path", "received", "mime-version", "content-type", "content-transfer-encoding", "dkim-signature", "authentication-results":
+			return nil, ErrInvalidMailHeader
+		}
+		if !wiretext.HeaderName(name) {
+			return nil, ErrInvalidMailHeader
+		}
 		for _, value := range values {
-			h.Add(key, value)
+			if !wiretext.HeaderValue(value) {
+				return nil, ErrInvalidMailHeader
+			}
+			h.Add(name, value)
 		}
 	}
-
-	// Create a new mail writer
+	var b bytes.Buffer
 	mw, err := mail.CreateWriter(&b, h)
 	if err != nil {
-		log.WithContext(ctx).Fatal(err)
+		return nil, err
 	}
-
-	// Create a text part
 	tw, err := mw.CreateInline()
 	if err != nil {
-		log.WithContext(ctx).Fatal(err)
+		return nil, err
 	}
-
+	body := func(media string, data []byte) error {
+		var h mail.InlineHeader
+		h.Header.Set("Content-Transfer-Encoding", "base64")
+		h.SetContentType(media, map[string]string{"charset": "UTF-8"})
+		part, err := tw.CreatePart(h)
+		if err != nil {
+			return err
+		}
+		_, err = part.Write(data)
+		closeErr := part.Close()
+		return errors.Join(err, closeErr)
+	}
 	if len(e.Text) > 0 || len(e.HTML) == 0 {
-		var th mail.InlineHeader
-		th.Header.Set("Content-Transfer-Encoding", "base64")
-		th.SetContentType("text/plain", map[string]string{"charset": "UTF-8"})
-		part, err := tw.CreatePart(th)
-		if err != nil {
-			log.Fatal(err)
+		if err := body("text/plain", e.Text); err != nil {
+			return nil, err
 		}
-		_, _ = part.Write(e.Text)
-		_ = part.Close()
 	}
-
-	// Never put raw text/plain in a text/html part: code such as <script>
-	// is literal data and must not become markup when a message is rebuilt.
 	if len(e.HTML) > 0 {
-		var body mail.InlineHeader
-		body.SetContentType("text/html", map[string]string{"charset": "UTF-8"})
-		body.Header.Set("Content-Transfer-Encoding", "base64")
-		part, err := tw.CreatePart(body)
-		if err != nil {
-			log.Fatal(err)
+		if err := body("text/html", e.HTML); err != nil {
+			return nil, err
 		}
-		_, _ = part.Write(e.HTML)
-		_ = part.Close()
 	}
-	tw.Close()
-
-	// Create an attachment
-	for _, attachment := range e.Attachments {
+	if err := tw.Close(); err != nil {
+		return nil, err
+	}
+	for _, a := range e.Attachments {
+		if a == nil || !wiretext.HeaderValue(a.Filename) || !wiretext.HeaderValue(a.ContentType) {
+			return nil, ErrInvalidMailHeader
+		}
 		var ah mail.AttachmentHeader
-		ah.Set("Content-Type", attachment.ContentType)
-		ah.SetFilename(attachment.Filename)
-		w, err := mw.CreateAttachment(ah)
-		if err != nil {
-			log.WithContext(ctx).Fatal(err)
-			continue
+		ct := a.ContentType
+		if ct == "" {
+			ct = "application/octet-stream"
 		}
-		w.Write(attachment.Content)
-		w.Close()
+		media, params, err := mime.ParseMediaType(ct)
+		if err != nil || !strings.Contains(media, "/") {
+			return nil, ErrInvalidMailHeader
+		}
+		for key, value := range params {
+			if !wiretext.HeaderName(key) || !wiretext.HeaderValue(value) {
+				return nil, ErrInvalidMailHeader
+			}
+		}
+		ah.SetContentType(media, params)
+		ah.SetFilename(a.Filename)
+		if a.ContentID != "" {
+			if !wiretext.HeaderValue(a.ContentID) || strings.ContainsAny(a.ContentID, "<> \t") {
+				return nil, ErrInvalidMailHeader
+			}
+			ah.Set("Content-ID", "<"+a.ContentID+">")
+		}
+		part, err := mw.CreateAttachment(ah)
+		if err != nil {
+			return nil, err
+		}
+		_, err = part.Write(a.Content)
+		if err = errors.Join(err, part.Close()); err != nil {
+			return nil, err
+		}
 	}
-
-	mw.Close()
-
-	if dkim {
-		// dkim 签名后返回
-		return sign(b.String(), e.From.EmailAddress)
+	if err := mw.Close(); err != nil {
+		return nil, err
 	}
-	return b.Bytes()
+	if shouldSign {
+		return SignBytes(b.Bytes(), e.From.EmailAddress)
+	}
+	return b.Bytes(), nil
 }

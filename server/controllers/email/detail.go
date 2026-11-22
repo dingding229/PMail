@@ -11,6 +11,7 @@ import (
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/services/detail"
+	"github.com/Jinnrry/pmail/services/token"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
 )
@@ -30,7 +31,8 @@ func EmailDetail(ctx *context.Context, w http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	email, err := detail.GetEmailDetail(ctx, retData.ID, true)
+	markRead := ctx.TokenScope != token.Read && ctx.TokenScope != token.Send
+	email, err := detail.GetEmailDetail(ctx, retData.ID, markRead)
 	if err != nil {
 		log.WithContext(ctx).Warnf("Read mail detail: %v", err)
 		response.Localized(ctx, response.ServerError, "mail_not_found").FPrint(w)

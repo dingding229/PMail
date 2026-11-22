@@ -73,7 +73,12 @@ func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request
 	orig := parsemail.NewEmailFromModel(original.Email)
 	e := buildForwardEmail(orig, ctx.UserName, fromAddress, to, cc, body.Text, body.HTML, body.IncludeAttachments)
 	e.MsgID = parsemail.GenerateMsgID(fromDomain(fromAddress))
-	e.Size = len(e.BuildBytes(ctx, true))
+	raw, buildErr := e.BuildBytes(ctx, true)
+	if buildErr != nil {
+		response.Localized(ctx, response.ParamsError, "mail_invalid_header").FPrintStatus(w, http.StatusBadRequest)
+		return
+	}
+	e.Size = len(raw)
 	modelEmail := models.Email{
 		Type: consts.EmailTypeSend, Subject: e.Subject, FromName: e.From.Name, FromAddress: e.From.EmailAddress,
 		To: json2string(to), Cc: json2string(cc), Text: sql.NullString{String: string(e.Text), Valid: true},

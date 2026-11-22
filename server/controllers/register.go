@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"errors"
+	"github.com/Jinnrry/pmail/utils/clientip"
 	"net/http"
 
 	"github.com/Jinnrry/pmail/dto/response"
@@ -23,7 +24,7 @@ func Register(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		apiError(ctx, w, http.StatusForbidden, response.NoAccessPrivileges, "already_initialized")
 		return
 	}
-	finish, ok := auth.ReserveRegistration(r.RemoteAddr)
+	finish, ok := auth.ReserveRegistration(clientip.Source(r))
 	if !ok {
 		w.Header().Set("Retry-After", "600")
 		apiError(ctx, w, http.StatusTooManyRequests, response.ParamsError, "registration_rate_limit")

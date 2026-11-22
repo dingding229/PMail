@@ -36,7 +36,11 @@ func (s *Session) deliverOutgoingEmail(email *parsemail.Email, sender outgoingSe
 	if email.MsgID == "" {
 		email.MsgID = parsemail.GenerateMsgID(domain.DefaultName())
 	}
-	email.Size = len(email.BuildBytes(ctx, true))
+	raw, err := email.BuildBytes(ctx, true)
+	if err != nil {
+		return &smtp.SMTPError{Code: 554, EnhancedCode: smtp.EnhancedCode{5, 6, 0}, Message: "message headers or MIME serialization are invalid"}
+	}
+	email.Size = len(raw)
 	_, saved, err := saveEmail(ctx, email.Size, email, ctx.UserID, int(consts.EmailTypeSend), nil, true, true)
 	if err != nil {
 		log.WithContext(ctx).Errorf("CRITICAL audit_event=initial_persist_failed direction=outbound msg_id=%q error=%v", email.MsgID, err)

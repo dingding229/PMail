@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"errors"
 	"fmt"
+	"github.com/Jinnrry/pmail/utils/securefile"
 	"os"
 	"strings"
 	"sync"
@@ -82,7 +83,7 @@ func Initialize(cfg *config.Config) error {
 			d := models.Domain{Name: name, IsDefault: len(seen) == 0, DkimSelector: "default"}
 			seen[name] = true
 			if d.IsDefault && cfg.DkimPrivateKeyPath != "" {
-				key, err := os.ReadFile(cfg.DkimPrivateKeyPath)
+				key, err := securefile.Read(cfg.DkimPrivateKeyPath)
 				if err != nil && !os.IsNotExist(err) {
 					return fmt.Errorf("read legacy DKIM key: %w", err)
 				}

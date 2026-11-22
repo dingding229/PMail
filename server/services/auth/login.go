@@ -55,6 +55,11 @@ func Authenticate(login, secret, remote string) (models.User, error) {
 	if len(login) > 320 {
 		return user, ErrCredentials
 	}
+	release, ok := lookupLimits.acquire(ipOf(remote), time.Now())
+	if !ok {
+		return user, ErrLocked
+	}
+	defer release()
 	login = strings.TrimSpace(login)
 	user, found, err := address.OwnerForLogin(login)
 	if err != nil {
@@ -123,8 +128,13 @@ func Authenticate(login, secret, remote string) (models.User, error) {
 // The completion callback must be called exactly once with a matching outcome.
 func ReserveRegistration(remote string) (func(failed bool), bool) {
 	const window = 10 * time.Minute
+	release, ok := lookupLimits.acquire(ipOf(remote), time.Now())
+	if !ok {
+		return nil, false
+	}
 	key := ipOf(remote) + "|first-registration"
 	if !reserve(key, window) {
+		release()
 		return nil, false
 	}
 	return func(failed bool) {
@@ -133,6 +143,7 @@ func ReserveRegistration(remote string) (func(failed bool), bool) {
 			outcome = -1
 		}
 		complete(key, outcome, window)
+		release()
 	}, true
 }
 
@@ -243,10 +254,26 @@ func RunCleanup(ctx context.Context) {
 
 // ValidateSession re-checks long-lived mail protocol connections after password changes or disabling.
 func ValidateSession(userID int, version int64) error {
+	return validateSession(userID, version, nil)
+}
+
+func ValidateSessionRole(userID int, version int64, admin bool) error {
+	return validateSession(userID, version, &admin)
+}
+
+func validateSession(userID int, version int64, admin *bool) error {
 	if userID <= 0 {
 		return ErrCredentials
 	}
-	ok, err := db.Instance.ID(userID).Where("disabled = 0 AND auth_version = ?", version).Exist(&models.User{})
+	query := db.Instance.ID(userID).Where("disabled = 0 AND auth_version = ?", version)
+	if admin != nil {
+		role := 0
+		if *admin {
+			role = 1
+		}
+		query.Where("is_admin = ?", role)
+	}
+	ok, err := query.Exist(&models.User{})
 	if err != nil {
 		return err
 	}

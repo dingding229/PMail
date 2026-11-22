@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/services/domain"
 	log "github.com/sirupsen/logrus"
@@ -105,6 +106,7 @@ func serveConnection(conn net.Conn, host string, secure bool, tlsConfig *tls.Con
 		}
 		return dot.Close() // dot-stuff and flush the final line
 	}
+	allowPlainAuth := config.Flag("PMAIL_POP3_ALLOW_PLAINTEXT_AUTH")
 	var login string
 	var drop *maildrop // nil is AUTHORIZATION; otherwise TRANSACTION until QUIT
 	defer func() {
@@ -127,7 +129,10 @@ func serveConnection(conn net.Conn, host string, secure bool, tlsConfig *tls.Con
 		command = strings.ToUpper(command)
 		switch command {
 		case "CAPA":
-			capabilities := "USER\r\nTOP\r\nUIDL\r\n"
+			capabilities := "TOP\r\nUIDL\r\n"
+			if secure || allowPlainAuth {
+				capabilities += "USER\r\n"
+			}
 			if drop == nil && !secure && tlsConfig != nil {
 				capabilities += "STLS\r\n"
 			}
@@ -147,6 +152,10 @@ func serveConnection(conn net.Conn, host string, secure bool, tlsConfig *tls.Con
 			_ = send("+OK bye")
 			return
 		case "USER":
+			if !secure && !allowPlainAuth {
+				err = send("-ERR STLS is required before authentication")
+				break
+			}
 			if drop != nil {
 				err = send("-ERR already signed in")
 				break
@@ -160,6 +169,10 @@ func serveConnection(conn net.Conn, host string, secure bool, tlsConfig *tls.Con
 			login = fields[0]
 			err = send("+OK")
 		case "PASS":
+			if !secure && !allowPlainAuth {
+				err = send("-ERR STLS is required before authentication")
+				break
+			}
 			if drop != nil {
 				err = send("-ERR already signed in")
 				break

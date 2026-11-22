@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -19,13 +20,27 @@ func TokenList(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 }
 func TokenCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name      string     `json:"name"`
-		ExpiresAt *time.Time `json:"expires_at"`
+		Name         string     `json:"name"`
+		ExpiresAt    *time.Time `json:"expires_at"`
+		Scope        string     `json:"scope"`
+		NeverExpires bool       `json:"never_expires"`
 	}
 	if !readRequest(ctx, w, r, &body, false) {
 		return
 	}
-	row, raw, err := token.Create(ctx.UserID, body.Name, body.ExpiresAt)
+	row, raw, err := token.Create(ctx.UserID, body.Name, body.Scope, body.ExpiresAt, body.NeverExpires)
+	if errors.Is(err, token.ErrScope) || errors.Is(err, token.ErrExpiry) {
+		key := "token_invalid_scope"
+		if errors.Is(err, token.ErrExpiry) {
+			key = "token_invalid_expiry"
+		}
+		apiError(ctx, w, http.StatusBadRequest, response.ParamsError, key)
+		return
+	}
+	if errors.Is(err, token.ErrAdminScope) {
+		apiError(ctx, w, http.StatusForbidden, response.NoAccessPrivileges, "token_scope_forbidden")
+		return
+	}
 	if err != nil {
 		serviceError(ctx, w, err)
 		return

@@ -1,6 +1,8 @@
 package setup
 
 import (
+	"os"
+
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
@@ -16,7 +18,7 @@ var (
 )
 
 func GetDatabaseSettings(ctx *context.Context) (string, string, error) {
-	configData, err := config.ReadConfig()
+	configData, err := config.ReadEffectiveConfig()
 	if err != nil {
 		return "", "", errors.Wrap(err)
 	}
@@ -25,7 +27,7 @@ func GetDatabaseSettings(ctx *context.Context) (string, string, error) {
 		return config.DBTypePostgres, "", nil
 	}
 
-	return configData.DbType, configData.DbDSN, nil
+	return configData.DbType, "", nil
 }
 
 func GetAdminAccount() (string, error) {
@@ -47,23 +49,31 @@ func SetDatabaseSettings(ctx *context.Context, dbType, dbDSN string) error {
 		return ErrDbType
 	}
 
-	if dbDSN == "" {
+	if dbDSN == "" || os.Getenv("PMAIL_DB_DSN") != "" || (dbType == config.DBTypePostgres && os.Getenv("PMAIL_DB_PASSWORD_FILE") != "") {
 		return ErrDbDSN
 	}
 
 	configData.DbType = dbType
 	configData.DbDSN = dbDSN
 
-	err = config.WriteConfig(configData)
+	candidate, err := config.EffectiveConfig(configData)
 	if err != nil {
 		return errors.Wrap(err)
 	}
-	if err := config.Init(); err != nil {
+	if candidate.DbType != dbType {
+		return ErrDbType
+	}
+	if err := config.ValidateWebRoot(candidate); err != nil {
+		return err
+	}
+	engine, err := db.Open(candidate, false)
+	if err != nil {
+		return errors.New("candidate database is not reachable")
+	}
+	if err := engine.Close(); err != nil {
 		return errors.Wrap(err)
 	}
-	// 检查数据库是否能正确连接
-	err = db.Init("")
-	if err != nil {
+	if err := config.WriteConfig(configData); err != nil {
 		return errors.Wrap(err)
 	}
 	return nil

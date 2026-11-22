@@ -157,6 +157,9 @@ func integrationRequest(t *testing.T, client *http.Client, method, path string, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	if method == http.MethodPost {
+		req.Header.Set("Origin", testHost)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

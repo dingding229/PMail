@@ -128,7 +128,7 @@ func TestPOP3WireSequenceAndUpdate(t *testing.T) {
 	go func() {
 		defer close(done)
 		defer server.Close()
-		serveConnection(server, "mail.example.test", false, nil)
+		serveConnection(server, "mail.example.test", true, nil)
 	}()
 	reader := bufio.NewReader(client)
 	read := func() string {
@@ -201,7 +201,7 @@ func TestPOP3DisconnectDoesNotCommit(t *testing.T) {
 	go func() {
 		defer close(done)
 		defer server.Close()
-		serveConnection(server, "mail.example.test", false, nil)
+		serveConnection(server, "mail.example.test", true, nil)
 	}()
 	reader := bufio.NewReader(client)
 	for _, command := range []string{"", "USER " + owner.Account, "PASS " + fixturePassword, "DELE 1"} {

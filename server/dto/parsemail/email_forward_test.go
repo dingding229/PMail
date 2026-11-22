@@ -13,14 +13,11 @@ import (
 
 func TestForwardBuildBytesRemailsFromLocalUser(t *testing.T) {
 	oldConfig := config.Instance
-	oldDkim := instance
 	defer func() {
 		config.Instance = oldConfig
-		instance = oldDkim
 	}()
 
 	config.Instance = &config.Config{Domain: "example.com", Domains: []string{"example.com"}}
-	instance = nil
 
 	email := &Email{
 		From:    &User{Name: "Original Sender", EmailAddress: "sender@example.com"},
@@ -30,7 +27,10 @@ func TestForwardBuildBytesRemailsFromLocalUser(t *testing.T) {
 		MsgID:   "original-message@example.com",
 	}
 
-	data := email.ForwardBuildBytes(&context.Context{}, &models.User{Name: "forwarder", Account: "forwarder"}, "recipient@example.net", "forwarder@example.com")
+	data, err := email.ForwardBuildBytes(&context.Context{}, &models.User{Name: "forwarder", Account: "forwarder"}, "recipient@example.net", "forwarder@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	msg, err := mail.CreateReader(bytes.NewReader(data))
 	if err != nil {

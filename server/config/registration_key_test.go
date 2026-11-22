@@ -17,7 +17,7 @@ func TestRegistrationKeyPersistsWithRestrictedPermissions(t *testing.T) {
 	if len(registrationAlphabet) != 32 || !regexp.MustCompile(`^[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){3}$`).MatchString(key) {
 		t.Fatal("registration key does not have four groups from the 32-symbol alphabet")
 	}
-	info, err := os.Stat(registrationKeyPath())
+	info, err := os.Stat(RegistrationKeyPath())
 	if err != nil {
 		t.Fatal(err)
 	}

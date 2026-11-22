@@ -17,11 +17,11 @@ require (
 	github.com/go-sql-driver/mysql v1.10.2
 	github.com/lib/pq v1.12.3
 	github.com/microcosm-cc/bluemonday v1.0.27
-	github.com/mileusna/spf v0.9.5
 	github.com/sirupsen/logrus v1.10.2
 	github.com/spf13/cast v1.10.0
 	golang.org/x/crypto v0.59.0
 	golang.org/x/net v0.63.0
+	golang.org/x/sys v0.50.0
 	golang.org/x/text v0.44.0
 	modernc.org/sqlite v1.62.0
 	xorm.io/builder v0.3.13
@@ -47,7 +47,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/syndtr/goleveldb v1.0.0 // indirect
-	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/tools v0.53.0 // indirect
 	modernc.org/libc v1.82.2 // indirect
 	modernc.org/mathutil v1.7.1 // indirect

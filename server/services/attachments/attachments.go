@@ -25,14 +25,14 @@ func GetAttachments(ctx *context.Context, emailId int, cid string) *parsemail.At
 
 	// 获取邮件内容
 	var email models.Email
-	_, err := db.Instance.ID(emailId).Get(&email)
+	found, err := db.Instance.ID(emailId).Get(&email)
 	if err != nil {
 		log.WithContext(ctx).Errorf("SQL error:%+v", err)
 		return nil
 	}
 
 	// 检查权限
-	if !auth.HasAuth(ctx, &email) {
+	if !found || !auth.HasAuth(ctx, &email) {
 		return nil
 	}
 
@@ -50,14 +50,14 @@ func GetAttachmentsByIndex(ctx *context.Context, emailId int, index int) *parsem
 
 	// 获取邮件内容
 	var email models.Email
-	_, err := db.Instance.ID(emailId).Get(&email)
+	found, err := db.Instance.ID(emailId).Get(&email)
 	if err != nil {
 		log.WithContext(ctx).Errorf("SQL error:%+v", err)
 		return nil
 	}
 
 	// 检查权限
-	if !auth.HasAuth(ctx, &email) {
+	if !found || !auth.HasAuth(ctx, &email) {
 		return nil
 	}
 

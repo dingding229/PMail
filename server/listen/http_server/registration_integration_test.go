@@ -80,6 +80,12 @@ func TestRegistrationKeyHTTPFlow(t *testing.T) {
 			payload, _ = json.Marshal(body)
 		}
 		r := httptest.NewRequest(method, path, bytes.NewReader(payload))
+		if body != nil {
+			r.Header.Set("Content-Type", "application/json")
+		}
+		if method == http.MethodPost {
+			r.Header.Set("Origin", "http://"+r.Host)
+		}
 		for _, c := range cookies {
 			r.AddCookie(c)
 		}

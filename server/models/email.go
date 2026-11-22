@@ -24,6 +24,7 @@ type Email struct {
 	Sender        string         `xorm:"sender text comment('发送人')" json:"sender"`
 	Attachments   string         `xorm:"attachments longtext comment('附件')" json:"attachments"`
 	SPFCheck      int8           `xorm:"spf_check tinyint(1) comment('spf校验是否通过')" json:"spf_check"`
+	AuthResults   sql.NullString `xorm:"auth_results text" json:"-"`
 	AuthUnchecked bool           `xorm:"auth_unchecked bool notnull default(false)" json:"-"`
 	DKIMCheck     int8           `xorm:"dkim_check tinyint(1) comment('dkim校验是否通过')" json:"dkim_check"`
 	Status        int8           `xorm:"status tinyint(4) notnull default(0) comment('0未发送，1已发送，2发送失败')" json:"status"` // 0未发送，1已发送，2发送失败
