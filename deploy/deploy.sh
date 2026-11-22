@@ -7,7 +7,9 @@ project_name="${PMAIL_PROJECT_NAME:-}"
 YES=false
 PURGE=false
 FILL_MISSING=false
-UPGRADE_VERSION=""
+UPGRADE_VERSION="${UPGRADE_VERSION:-}"
+INIT_CADDY=false
+INIT_WEB_PUBLIC=false
 OLD_CONFIG=""
 FORCE_PROJECT=false
 
@@ -37,12 +39,14 @@ usage() {
   --domains <list>             附加域名，逗号分隔
   --web-domain <name>          Web 域名
   --ssl-type <0|1|2|3>         证书模式
-  --web-public                 Web 绑定 0.0.0.0
+  --caddy                      init 时启用内置 Caddy 反代（新建 .env）
+  --web-public                 直接公开 Web；SSL 模式 0/1/2 同时启用 Web HTTPS
   --admin-account <name>       管理员账号
   --admin-password <password>  管理员密码
   --purge                      uninstall 时删除数据卷
   --fill-missing               init 时只补齐 .env 中的空密钥/密码
   --version <tag>              upgrade 使用的镜像 tag（预构建镜像模式）
+                               也可设置 UPGRADE_VERSION，--version 优先；默认 latest
   --old-config <dir>           旧版 config/ 目录，用于迁移域名和 DKIM
   --force-project              跳过项目目录冲突拒绝（仍必须二次确认）
   -h, --help                   显示帮助
@@ -83,6 +87,7 @@ parse_options() {
             --domains) INIT_DOMAINS="$2"; shift 2 ;;
             --web-domain) INIT_WEB_DOMAIN="$2"; shift 2 ;;
             --ssl-type) INIT_SSL_TYPE="$2"; shift 2 ;;
+            --caddy) INIT_CADDY=true; shift ;;
             --web-public) INIT_WEB_PUBLIC=true; shift ;;
             --admin-account) INIT_ADMIN_ACCOUNT="$2"; shift 2 ;;
             --admin-password) INIT_ADMIN_PASSWORD="$2"; shift 2 ;;
@@ -132,22 +137,28 @@ check_project_safety() {
         found=true
         echo "检测到项目 $project_name 已在其他目录运行：$other" >&2
     done <<< "$containers"
-    [[ "$found" == true ]] || return 0
-    if [[ "$FORCE_PROJECT" != true ]]; then
-        echo "拒绝操作：请使用 --project 指定独立项目名，或在原目录执行；需要跳过保护时显式使用 --force-project。" >&2
-        return 1
+    if [[ "$found" == true ]]; then
+        if [[ "$FORCE_PROJECT" != true ]]; then
+            echo "拒绝操作：请使用 --project 指定独立项目名，或在原目录执行；需要跳过保护时显式使用 --force-project。" >&2
+            return 1
+        fi
+        local answer
+        read -r -p "确认操作项目 $project_name 并可能影响其他目录容器？请输入 yes：" answer
+        [[ "$answer" == yes ]] || { echo "未确认，停止操作。" >&2; return 1; }
     fi
-    local answer
-    read -r -p "确认操作项目 $project_name 并可能影响其他目录容器？请输入 yes：" answer
-    [[ "$answer" == yes ]] || { echo "未确认，停止操作。" >&2; return 1; }
+    compose config --quiet
 }
 
 compose() {
+    # Compose loads COMPOSE_FILE from this env file for every command.
     docker compose --project-directory "$root_dir" --env-file "$env_file" -p "$project_name" "$@"
 }
 
 init_env() {
     if [[ -e "$env_file" ]]; then
+        if [[ "$INIT_CADDY" == true ]]; then
+            echo "已有 .env：--caddy 仅在新建 .env 时启用反代，未修改现有部署模式。" >&2
+        fi
         local existing_project
         existing_project="$(sed -n 's/^PMAIL_PROJECT_NAME=//p' "$env_file" | tail -n 1)"
         if [[ -n "$existing_project" && "$project_name" != "$existing_project" ]]; then
@@ -170,7 +181,7 @@ init_env() {
         echo "已补齐 .env 中的空密码/密钥。"
         return 0
     fi
-    local domain domains web_domain ssl_type web_bind admin_account admin_password db_password secret_key
+    local domain domains web_domain ssl_type web_bind https_enabled=2 admin_account admin_password db_password secret_key value
     domain="${INIT_DOMAIN:-${PMAIL_DOMAIN:-}}"
     domains="${INIT_DOMAINS:-${PMAIL_DOMAINS:-}}"
     web_domain="${INIT_WEB_DOMAIN:-${PMAIL_WEB_DOMAIN:-}}"
@@ -187,16 +198,35 @@ init_env() {
         web_domain="${value:-${web_domain:-$domain}}"
         read -r -p "证书模式 0=ACME HTTP-01, 1=自有证书, 2=ACME DNS-01, 3=反代仅 HTTP [$ssl_type]: " value
         ssl_type="${value:-$ssl_type}"
-        read -r -p "是否对公网开放 Web？[y/N]: " value
-        [[ "$value" =~ ^[Yy]$ ]] && web_bind="0.0.0.0"
+        if [[ "$INIT_CADDY" != true ]]; then
+            read -r -p "是否使用内置 Caddy 反代？[y/N] " value
+            if [[ "$value" =~ ^[Yy]$ ]]; then
+                INIT_CADDY=true
+            fi
+        fi
+        if [[ "$INIT_CADDY" != true && "$INIT_WEB_PUBLIC" != true ]]; then
+            read -r -p "是否对公网开放 Web？[y/N]: " value
+            if [[ "$value" =~ ^[Yy]$ ]]; then
+                INIT_WEB_PUBLIC=true
+            fi
+        fi
         read -r -p "管理员账号 [$admin_account]: " value
         admin_account="${value:-$admin_account}"
     else
         [[ -n "$domain" ]] || { echo "--domain 或 PMAIL_DOMAIN 必填。" >&2; exit 2; }
-        [[ "${INIT_WEB_PUBLIC:-false}" != true ]] || web_bind="0.0.0.0"
     fi
     [[ -n "$domain" ]] || { echo "主邮件域名不能为空。" >&2; exit 2; }
     [[ "$ssl_type" =~ ^[0-3]$ ]] || { echo "SSL 类型必须为 0、1、2 或 3。" >&2; exit 2; }
+    if [[ "$INIT_CADDY" == true ]]; then
+        web_bind="0.0.0.0"
+        ssl_type=0
+        web_domain="${web_domain:-$domain}"
+    elif [[ "$INIT_WEB_PUBLIC" == true ]]; then
+        web_bind="0.0.0.0"
+        if [[ "$ssl_type" != 3 ]]; then
+            https_enabled=0
+        fi
+    fi
     db_password="$(random_hex 24)"
     secret_key="$(random_hex 32)"
     [[ -n "$admin_password" ]] || admin_password="$(random_hex 24)"
@@ -209,6 +239,10 @@ init_env() {
     set_env_value PMAIL_WEB_DOMAIN "$web_domain"
     set_env_value PMAIL_SSL_TYPE "$ssl_type"
     set_env_value PMAIL_WEB_BIND "$web_bind"
+    set_env_value PMAIL_HTTPS_ENABLED "$https_enabled"
+    if [[ "$INIT_CADDY" == true ]]; then
+        set_env_value COMPOSE_FILE "docker-compose.yml:docker-compose.caddy.yml"
+    fi
     set_env_value PMAIL_ADMIN_ACCOUNT "$admin_account"
     set_env_value PMAIL_ADMIN_PASSWORD "$admin_password"
     set_env_value POSTGRES_PASSWORD "$db_password"
@@ -256,8 +290,8 @@ check() {
 wait_healthy() {
     local status
     for _ in $(seq 1 60); do
-        status="$(compose ps --format '{{.Service}} {{.State}} {{.Health}}' pmail 2>/dev/null || true)"
-        if [[ "$status" == *"healthy"* ]]; then
+        status="$(compose ps --format '{{.State}} {{.Health}}' pmail 2>/dev/null || true)"
+        if [[ "$status" == 'running healthy' ]]; then
             echo "PMail healthy。"
             return 0
         fi
@@ -306,14 +340,26 @@ verify_running() {
     fi
 }
 
+restore_database() {
+    local file="$1" restore_rc
+    # shellcheck disable=SC2016
+    if compose exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error --no-owner --no-privileges' < "$file"; then
+        return 0
+    else
+        restore_rc=$?
+        printf '数据库恢复失败，备份文件：%s，请人工恢复（退出码：%s）。\n' "$file" "$restore_rc" >&2
+        return "$restore_rc"
+    fi
+}
+
 rollback_upgrade() {
     local previous="$1" backup_file="$2"
     set_env_value PMAIL_IMAGE "$previous"
-    compose down >/dev/null 2>&1 || true
+    compose down
     compose up -d --wait postgres
-    # shellcheck disable=SC2016
-    compose exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error --no-owner --no-privileges' < "$backup_file" || true
-    if ! compose up -d --wait pmail; then
+    restore_database "$backup_file" || return $?
+    # Bring the entire configured stack back, including Caddy when enabled.
+    if ! compose up -d --wait; then
         echo "回滚后服务仍不健康，请人工处理。" >&2
         compose logs --tail=50 pmail || true
         return 1
@@ -344,10 +390,9 @@ backup() (
 restore() {
     local file="$1"
     compose up -d --wait postgres
-    compose stop pmail >/dev/null 2>&1 || true
-    # shellcheck disable=SC2016
-    compose exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error --no-owner --no-privileges' < "$file"
-    compose up -d pmail
+    compose stop pmail
+    restore_database "$file" || return $?
+    compose up -d
     wait_healthy
 }
 
@@ -398,7 +443,7 @@ upgrade() {
         set_env_value PMAIL_IMAGE "$image"
         if ! compose pull pmail || ! compose up -d --wait || ! verify_running; then
             echo "预构建镜像升级失败，恢复旧 tag 和数据库备份。" >&2
-            rollback_upgrade "$previous" "$backup_file" || true
+            rollback_upgrade "$previous" "$backup_file"
             return 1
         fi
         echo "预构建镜像升级完成：$image；升级前备份：$backup_file"
@@ -408,7 +453,7 @@ upgrade() {
     set_env_value PMAIL_IMAGE "$tag"
     if ! compose build --pull pmail || ! compose up -d --wait || ! verify_running; then
         echo "本地构建升级失败，开始回滚镜像和数据库。" >&2
-        rollback_upgrade "$previous" "$backup_file" || true
+        rollback_upgrade "$previous" "$backup_file"
         return 1
     fi
     local_image_cleanup
@@ -617,7 +662,7 @@ uninstall() {
     compose down
     if [[ "$PURGE" == true ]]; then
         if [[ "$YES" != true ]]; then
-            read -r -p "确认删除 pg_data 和 pmail_config，数据不可恢复？[y/N]: " value
+            read -r -p "确认删除项目数据卷（pg_data、pmail_config，以及启用时的 Caddy 卷），数据不可恢复？[y/N]: " value
             [[ "$value" =~ ^[Yy]$ ]] || exit 0
         fi
         compose down -v
