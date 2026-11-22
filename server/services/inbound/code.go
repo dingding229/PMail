@@ -12,10 +12,16 @@ import (
 
 const codeBodyLimit = 8 << 10
 
-var codeKeyword = regexp.MustCompile(`(?i)验证码|校验码|动态码|确认码|安全码|\b(?:verification(?:\s+code)?|one[- ]time(?:\s+(?:code|password))?|passcode|OTP|2FA|code)\b`)
+var codeKeyword = regexp.MustCompile(`(?i)短信验证码|验证码|校验码|动态密码|动态码|确认码|安全码|登录码|授权码|取件码|\b(?:verification(?:\s+code)?|one[- ]time(?:\s+(?:code|password))?|security[ \t]+code|login[ \t]+code|confirmation[ \t]+code|passcode|OTP|2FA|PIN|code)\b`)
+var invalidSuffix = regexp.MustCompile(`(?i)^[ \t]*(?:[：:，,.-][ \t]*)?(?:无效|作废|已失效|已过期|invalid\b|expired\b|do not use\b)`)
+var contextualNumber = regexp.MustCompile(`(?i)(?:房间(?:号)?|会议(?:室|号)?|room|invoice(?:[ \t]+(?:no|number|id))?|reference(?:[ \t]+code)?)\s*[:：#-]?\s*[A-Za-z0-9-]{4,}|\b[A-Za-z]{2,10}-(?:19|20)[0-9]{2}\b`)
+var separateLine = regexp.MustCompile(`^[ \t\r:：=【】]*(?:是|为|is)?[ \t\r:：=【】]*(?:\n[ \t\r]*){1,3}$`)
+var strongSubject = regexp.MustCompile(`(?i)(?:验证码|校验码|动态密码|动态码|确认码|安全码|登录码|授权码|取件码|\b(?:sign[- ]in[ \t]+code|log[- ]?in[ \t]+code|verification[ \t]+code|security[ \t]+code|confirmation[ \t]+code|one[- ]time[ \t]+(?:code|password)|passcode|OTP|2FA|PIN)\b)`)
+var subjectFallbackLine = regexp.MustCompile(`(?i)^\s*(?:(?:use|enter|type|输入|使用|请使用|请填写)[ \t]*)?([A-Za-z0-9]{4,8})(?:[.。!！ \t]*|[ \t]+(?:to sign in|to log in|to continue|完成登录|完成验证)[.。!！ \t]*)$`)
 var candidates = regexp.MustCompile(`[A-Za-z0-9]{4,}`)
 var yearToken = regexp.MustCompile(`^(?:19|20)[0-9]{2}$`)
 var droppedCodes = []*regexp.Regexp{
+	contextualNumber,
 	regexp.MustCompile(`(?i)\b(?:https?://|www\.)[^\s<>]+`),
 	regexp.MustCompile(`\b[0-9]{2,4}[./-][0-9]{1,2}[./-][0-9]{1,4}\b|\b[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\b`),
 	regexp.MustCompile(`(?i)(?:[¥￥$€£]|\b(?:usd|cny|rmb|eur)\s*)\s*[0-9][0-9,.]*|\b[0-9][0-9,.]*\s*(?:元|美元|人民币|usd\b|cny\b|rmb\b|eur\b)`),
@@ -77,8 +83,8 @@ func codeHTML(text []byte) string {
 }
 
 type codeHit struct {
-	value, source string
-	confidence    float64
+	value, source, kind string
+	confidence          float64
 }
 
 func findCodes(in, source string) []codeHit {
@@ -98,7 +104,7 @@ func findCodes(in, source string) []codeHit {
 	out := []codeHit{}
 	for _, at := range candidates.FindAllStringIndex(s, -1) {
 		value := s[at[0]:at[1]]
-		if len(value) > 8 || yearToken.MatchString(value) || codeExpiryTail.MatchString(s[at[1]:]) {
+		if len(value) > 8 || yearToken.MatchString(value) || codeExpiryTail.MatchString(s[at[1]:]) || invalidSuffix.MatchString(s[at[1]:]) {
 			continue
 		}
 		digits := 0
@@ -111,6 +117,7 @@ func findCodes(in, source string) []codeHit {
 			continue
 		}
 		best := 0.0
+		kind := ""
 		for _, key := range labels {
 			if falseCodeKey.MatchString(s[max(0, key[0]-28):key[0]]) {
 				continue
@@ -125,10 +132,10 @@ func findCodes(in, source string) []codeHit {
 			default:
 				continue
 			}
-			if len(middle) > 90 || strings.Contains(middle, "\n") || strings.ContainsAny(middle, ".。!?！？;") || unrelatedBetween.MatchString(middle) {
+			if len(middle) > 90 || (strings.Contains(middle, "\n") && (!after || !separateLine.MatchString(middle))) || strings.ContainsAny(middle, ".。!?！？;") || unrelatedBetween.MatchString(middle) {
 				continue
 			}
-			distance := utf8.RuneCountInString(middle)
+			distance := utf8.RuneCountInString(strings.Join(strings.Fields(middle), " "))
 			if distance > 30 || (!after && distance > 18) {
 				continue
 			}
@@ -145,13 +152,41 @@ func findCodes(in, source string) []codeHit {
 			if strings.ContainsAny(middle, ":：=【") {
 				strength += 0.04
 			}
-			best = max(best, strength)
+			if strength > best {
+				best = strength
+				kind = codeKind(s[key[0]:key[1]])
+			}
 		}
 		if best >= 0.56 {
-			out = append(out, codeHit{value, source, best})
+			out = append(out, codeHit{value, source, kind, best})
 		}
 	}
 	return out
+}
+
+func codeKind(label string) string {
+	if strings.Contains(label, "取件码") {
+		return "pickup"
+	}
+	return ""
+}
+
+func subjectOnlyCode(subject, body string) (codeHit, bool) {
+	if !strongSubject.MatchString(subject) || falseCodeKey.MatchString(subject) {
+		return codeHit{}, false
+	}
+	var matches []string
+	for line := range strings.SplitSeq(body, "\n") {
+		found := subjectFallbackLine.FindStringSubmatch(line)
+		if len(found) < 2 || yearToken.MatchString(found[1]) || strings.IndexAny(found[1], "0123456789") < 0 {
+			continue
+		}
+		matches = append(matches, found[1])
+	}
+	if len(matches) != 1 {
+		return codeHit{}, false
+	}
+	return codeHit{matches[0], "body", codeKind(subject), 0.69}, true
 }
 
 func recognizeCode(email *parsemail.Email) *VerificationCode {
@@ -159,7 +194,14 @@ func recognizeCode(email *parsemail.Email) *VerificationCode {
 	if email.TextFromHTML {
 		plain = codeHTML(email.HTML)
 	}
-	all := append(findCodes(string(clippedBytes([]byte(email.Subject), 1024)), "subject"), findCodes(unquoted(plain), "body")...)
+	subject := string(clippedBytes([]byte(email.Subject), 1024))
+	body := unquoted(plain)
+	all := append(findCodes(subject, "subject"), findCodes(body, "body")...)
+	if len(all) == 0 {
+		if value, ok := subjectOnlyCode(subject, body); ok {
+			all = append(all, value)
+		}
+	}
 	distinct := map[string]bool{}
 	var best codeHit
 	for _, c := range all {
@@ -177,5 +219,5 @@ func recognizeCode(email *parsemail.Email) *VerificationCode {
 	} else {
 		confidence -= 0.12
 	}
-	return &VerificationCode{best.value, max(0, min(1, confidence)), best.source}
+	return &VerificationCode{Code: best.value, Confidence: max(0, min(1, confidence)), Source: best.source, Kind: best.kind}
 }

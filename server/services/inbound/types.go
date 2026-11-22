@@ -38,6 +38,7 @@ type VerificationCode struct {
 	Code       string  `json:"code"`
 	Confidence float64 `json:"confidence"`
 	Source     string  `json:"source"`
+	Kind       string  `json:"kind,omitempty"`
 }
 
 type Analysis struct {
@@ -62,6 +63,7 @@ type RiskSummary struct {
 }
 type VerificationSummary struct {
 	Code string `json:"code"`
+	Kind string `json:"kind,omitempty"`
 }
 type ListView struct {
 	Spam             *SpamSummary         `json:"spam"`
@@ -107,7 +109,7 @@ func ReadList(shared, personal sql.NullString) ListView {
 		out.Risk = &RiskSummary{v.Risk.Level}
 	}
 	if v.VerificationCode != nil {
-		out.VerificationCode = &VerificationSummary{v.VerificationCode.Code}
+		out.VerificationCode = &VerificationSummary{Code: v.VerificationCode.Code, Kind: v.VerificationCode.Kind}
 	}
 	return out
 }

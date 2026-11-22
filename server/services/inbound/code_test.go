@@ -51,6 +51,21 @@ func TestVerificationCorpus(t *testing.T) {
 		{"预约身份验证", "验证码：048159，五分钟内有效。", "048159"},
 		{"Security code: 348791", "For your records, invoice ID 75201", "348791"},
 		{"付款确认", "确认码 003538", "003538"},
+		{"", "您的登录验证码是：\n\n  662801\n", "662801"},
+		{"", "Your verification code:\n\n482913\n\nThis code expires in 10 minutes.", "482913"},
+		{"Your sign-in code", "Use 7G4K2Q to sign in.", "7G4K2Q"},
+		{"", "动态密码：583920", "583920"},
+		{"", "验证码 0 0 1 2 3 4 无效。\n真正的验证码：521603", "521603"},
+		{"包裹通知", "取件码：\n\t85X31", "85X31"},
+		{"", "短信验证码为：\r\n\r\n238683", "238683"},
+		{"账号", "登录码：\n 398112", "398112"},
+		{"", "授权码 391422", "391422"},
+		{"", "Security code:\n 481728", "481728"},
+		{"Login code", "Enter 61BF21 to continue.", "61BF21"},
+		{"Confirmation code", "  748426 ", "748426"},
+		{"", "PIN:\n\n791043", "791043"},
+		{"登录验证码", "  003521\n", "003521"},
+		{"", "验证码 110892 无效\n动态密码：416127", "416127"},
 	}
 	negative := []struct{ subject, body string }{
 		{"Verification code expires", "Valid for 1200 seconds."},
@@ -74,6 +89,9 @@ func TestVerificationCorpus(t *testing.T) {
 		{"Product code: 451122", ""},
 		{"验证码说明", "验证码有效期还剩 9000 秒钟"},
 		{"Tracking code: RF58ZT", ""},
+		{"订单详情", "订单号 883917，金额 ¥1228，客服电话 400-123-4567"},
+		{"会议邀请", "会议时间 14:35，房间号 5199"},
+		{"Invoice", "发票号 448812\nReference code: INV-2026"},
 	}
 	pass := 0
 	for _, tc := range positive {
@@ -94,6 +112,13 @@ func TestVerificationCorpus(t *testing.T) {
 		}
 	}
 	t.Logf("corpus: positives %d/%d, negatives %d/%d", pass, len(positive), rejected, len(negative))
+}
+
+func TestPickupKind(t *testing.T) {
+	code := recognizeCode(&parsemail.Email{Text: []byte("取件码：\n614930")})
+	if code == nil || code.Kind != "pickup" {
+		t.Fatalf("pickup: %+v", code)
+	}
 }
 
 func TestVerificationSourcesConfidenceAndQuotedHTML(t *testing.T) {
