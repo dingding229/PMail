@@ -70,10 +70,10 @@ docker compose up -d
 新版网页会自动进入首次注册页。已有用户的升级部署直接登录，不会重新注册。
 
 ```bash
-docker compose logs pmail | grep 注册密钥
+docker compose exec pmail cat /work/config/registration_key
 ```
 
-打开 `https://mail.example.com/`，在注册页输入日志中的注册密钥、自选账号和至少 8 个字符的密码。成功后密钥作废并自动登录。未注册时每次启动以及每 10 分钟会重新打印同一密钥。请限制访问 Docker、日志和备份，不要在公网 HTTP 上输入密钥或密码。如果显式设置了 `PMAIL_ADMIN_PASSWORD`，首次启动会直接创建管理员，使用 `PMAIL_ADMIN_ACCOUNT`（默认 `admin`）与已配置密码登录。
+打开 `https://mail.example.com/`，在注册页输入文件中的注册密钥、自选账号和至少 8 个字符的密码。成功后密钥作废并自动登录。未注册时每次启动以及每 10 分钟只提示文件路径，不输出密钥。请限制访问 Docker、日志和备份，不要在公网 HTTP 上输入密钥或密码。如果显式设置了 `PMAIL_ADMIN_PASSWORD`，首次启动会直接创建管理员，使用 `PMAIL_ADMIN_ACCOUNT`（默认 `admin`）与已配置密码登录。
 
 ```bash
 docker compose ps -a
@@ -293,8 +293,16 @@ docker compose down -v
 | `PMAIL_ADMIN_ACCOUNT` / `PMAIL_ADMIN_PASSWORD` | 仅当数据库没有用户且显式设置密码时直接创建管理员（账号默认 `admin`）；未设置密码则使用首次注册密钥，已有用户不受影响 |
 | `PMAIL_SECRET_KEY` | 外部邮箱凭据的加密密钥、SRS 密钥等；留空时生成 `pmail_config` 卷内的 `secret.key`，必须与数据一并保留 |
 | `PMAIL_WEB_MODE` | `proxy` 默认仅提供网页 HTTP；公网直连使用覆盖文件选择 `public`。两种模式都默认 HTTP-01 申请邮件证书 |
-| `PMAIL_WEB_ROOT` | 静态前端构建产物目录，默认 `/work/web`；本地可用相对路径（相对进程工作目录） |
-| `PMAIL_CORS_ORIGINS` | 可选开发联调白名单，逗号分隔的完整源，例如 `http://localhost:5173`；默认禁用，不改变 Cookie SameSite |
+| `PMAIL_WEB_ROOT` | 静态前端构建产物目录，默认 `/work/web`；本地可用相对路径（相对进程工作目录）。与配置、密钥或数据目录重叠时拒绝启动 |
+| `PMAIL_CORS_ORIGINS` | 可选开发联调白名单，逗号分隔的完整源，例如 `http://localhost:5173`；默认禁用；跨源白名单不能绕过 Cookie 写入的同源校验 |
+| `PMAIL_LEGACY_SETUP` | 设为 1 才允许旧初始化监听器。仅回环地址，令牌文件由日志指示，不要对外代理。 |
+| `PMAIL_TRUSTED_RELAYS` | 入站 SMTP 的可信中继 CIDR，逗号分隔；默认不信任私网。仅记录信任，不替代 SPF/DKIM/DMARC。 |
+| `PMAIL_POP3_ALLOW_PLAINTEXT_AUTH` | 默认关闭；110 在 STLS 前拒绝 USER/PASS。必要时仅在隔离网络临时开启。 |
+| `PMAIL_SMTP_OUTBOUND_ALLOW` | 逗号分隔的显式内网 SMTP 目标 CIDR 或精确 MX 主机名；默认拒绝私有/保留地址。 |
+| `PMAIL_SMTP_TLS_REQUIRED_DOMAINS` | 逗号分隔的精确收件域；必须验证 MX 的 STARTTLS 证书，否则不降级投递。其他域记录机会式降级。 |
+| `PMAIL_TRUSTED_PROXIES` | 逗号分隔的可信 Web 反代 CIDR，仅信任实际连接的代理。让代理覆盖 `X-Forwarded-Proto`、正确追加/清理 `X-Forwarded-For` 并保留 `Host`。 |
+| `PMAIL_ADMIN_MAIL_ACCESS` | 设为 1 才允许管理员读取、预览、下载或转发他人非草稿邮件，访问会审计。 |
+| `PMAIL_PRINT_REGISTRATION_KEY` | 仅设为 1 才兼容旧版把密钥打印到 stdout；默认只提示受保护文件路径。 |
 | `PMAIL_DEFAULT_LANG` | 引导接口提供的前端默认语言，默认 `zh-CN` |
 | `PMAIL_PUBLIC_IPV4` / `PMAIL_PUBLIC_IPV6` | 可选，DNS 向导使用的邮件服务器公网地址；未设置时分别从 IPv4/IPv6 出站接口探测并缓存一小时（默认 HTTPS 查询 ipify） |
 | `PMAIL_DNS_RESOLVER` | 可选，DNS 向导检测所用解析器的 `IP:端口`，IPv6 用方括号；省略时用系统解析器 |
@@ -358,3 +366,11 @@ Vite 在 `http://localhost:5173` 提供页面，将 `/api`（包括附件）代�
 - 升级前按上文备份数据库和配置卷。已有账号、邮件及域名继续使用，不需再次注册。全新实例不再生成 `initial_admin_password`，使用 [注册密钥](#3-获取注册密钥并创建管理员)；已有旧文件不会被删除，请继续妥善保护。
 - 插件设置、可执行插件、微信通知和外部垃圾邮件分类插件已移除。现有插件配置不再读取，不做破坏性数据库迁移；内置 catch-all SPF/DKIM 过滤仍保留。
 - 新客户端使用 `/api/attachments/{id}`、`/api/attachments/download/{id}` 和文本预览接口；旧 `/attachments/*` 仍兼容。详见 [更新日志](CHANGELOG.md#001)。
+
+### API 与协议的安全默认值
+
+- POP3 优先使用 995；110 必须先 STLS 才能认证，除非临时显式开启明文授权。SMTP 已认证连接在 MAIL 和 DATA 两步复核权限。
+- Cookie 为 `HttpOnly`、`SameSite=Lax`；直连 HTTPS 或可信代理声明 HTTPS 时使用 `Secure`。在反向代理保持原始 `Host`，配好 `PMAIL_TRUSTED_PROXIES`，以同源路径调用 API。Cookie 写请求校验浏览器 `Origin`/`Referer`；带 JSON 请求体须使用 `Content-Type: application/json`；注销是 `POST /api/logout`。无浏览器来源的自动化请使用 Bearer token，或在使用 Cookie 时提供正确的 Origin。
+- 新 API Token 默认 `read`、90 天过期，可选择 `send`（含读取及发信/草稿）、`admin`（仅管理员）或显式 `never_expires: true`。旧令牌保留权限并有 `legacy_scope` 弃用标识；请轮换。管理员默认不能读取其他人的邮件。
+- 入站详情和列表的 `auth_results` 给出 SPF、DKIM、DMARC 原始判定与理由。DMARC 策略作为证据记录，不自动替认证失败邮件新增拒收/隔离动作。已存旧邮件无详细证据时返回 `null`。
+- 外部邮箱的主机、端口、协议、用户和 TLS 信任设置变更时，所有者须重新输入密码；管理员不能更改其他用户的外部端点。旧凭据将在同步时重新加密。TLS/DKIM 私钥与注册密钥应为服务用户拥有的常规文件，Unix 上应为 `0600`；若用证书挂载，提供实际私钥文件而非最终路径为软链接的文件。

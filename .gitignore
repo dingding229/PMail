@@ -8,6 +8,7 @@ server/plugins
 server/config/*.db
 server/config/secret.key
 server/config/registration_key
+server/config/legacy_setup_token
 .code-review-graph/
 *_KEY
 AURORA_SECRET

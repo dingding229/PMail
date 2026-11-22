@@ -22,5 +22,6 @@ server/config/*.json
 server/config/*.db*
 server/config/secret.key
 server/config/registration_key
+server/config/legacy_setup_token
 server/config/dkim
 server/config/ssl

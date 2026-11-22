@@ -311,7 +311,7 @@ INFO
     if [[ -n "$admin_password" ]]; then
         printf '首次启动将使用你提供的密码创建管理员 %s。已有用户不会被修改。\n' "$admin_account"
     else
-        printf '启动后使用 `docker compose logs pmail | grep 注册密钥`，打开 https://%s/ 完成首次注册。\n' "$web_domain"
+        printf '启动后使用 `docker compose exec pmail cat /work/config/registration_key`，打开 https://%s/ 完成首次注册。\n' "$web_domain"
     fi
 }
 

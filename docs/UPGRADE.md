@@ -68,6 +68,17 @@ docker compose pull && docker compose up -d --wait postgres
 
 ## 账户、插件与附件兼容
 
-已有数据库用户不受引导机制变化影响。空库不再自动生成 `initial_admin_password`；在 HTTPS 网页输入 `docker compose logs pmail | grep 注册密钥` 查到的一次性密钥，或显式设置 `PMAIL_ADMIN_PASSWORD`。升级不会删除旧密码文件。
+已有数据库用户不受引导机制变化影响。空库不再自动生成 `initial_admin_password`；在 HTTPS 网页输入 `docker compose exec pmail cat /work/config/registration_key` 查到的一次性密钥，或显式设置 `PMAIL_ADMIN_PASSWORD`。升级不会删除旧密码文件。
 
 插件界面、加载框架、微信通知、外部垃圾邮件分类插件均不再可用，已有插件数据不会被迁移或删除。新附件路径为 `/api/attachments/{id}` 和 `/api/attachments/download/{id}`；旧 `/attachments/*` 仍兼容。各项配置与新前端开发入口见 [README](../README.md)，发布变化见 [CHANGELOG](../CHANGELOG.md)。
+
+## 安全边界调整
+
+- `PMAIL_LEGACY_SETUP` 默认关闭。确需遗留初始化时仅显式设 `1`，通过回环监听器提交 `X-PMail-Setup-Token`（令牌读取路径见日志）。不要把该监听器代理到公网；初始化完成会消费令牌。已有配置应优先使用环境变量迁移。
+- `PMAIL_PRINT_REGISTRATION_KEY` 默认 `0`；只有显式设 `1` 才把注册密钥打印到日志，迁移自动化应改为读受保护文件。TLS/DKIM/注册密钥必须为服务用户拥有的常规文件，过宽权限会被收紧，不能收紧则拒绝读取。
+- POP3 明文 USER/PASS 默认关闭；启用 995 或 110+STLS。`PMAIL_POP3_ALLOW_PLAINTEXT_AUTH=true` 为临时兼容选项。
+- Web Cookie 写入现在要求同源 `Origin`/`Referer`；反代需保留 `Host`，并按实际对端填写 `PMAIL_TRUSTED_PROXIES` 以启用可信 HTTPS 与来源识别。JSON 需设置 `Content-Type: application/json`；`/api/logout` 只接受 POST。浏览器开发可继续使用 Vite 同源代理。
+- API Token 新增权限范围和默认 90 天过期；显式 `never_expires` 才能签发无期限的新令牌。已有令牌继续工作，但标记 `legacy_scope`，应尽快轮换。`PMAIL_ADMIN_MAIL_ACCESS=1` 才能恢复管理员读取其他人非草稿邮件的能力，并产生额外审计记录。
+- `PMAIL_TRUSTED_RELAYS` 记录可信入站中继；私网不会自动判 SPF 通过。出站拒绝私网/保留地址，用 `PMAIL_SMTP_OUTBOUND_ALLOW` 仅放行实际需要的中继；`PMAIL_SMTP_TLS_REQUIRED_DOMAINS` 中的收件域拒绝 TLS 降级。
+- 外部邮箱密文为绑定端点的新格式，旧格式读取兼容并在同步时迁移。使用旧二进制回滚之前，备份原数据库；旧二进制不能解密已经迁移的凭据，必要时重新配置密码。
+- `PMAIL_WEB_ROOT` 不能包含配置、密钥或数据库文件；如以前指向工作目录，请改为专用前端构建目录。
