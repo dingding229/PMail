@@ -1,5 +1,5 @@
 import dayjs from 'dayjs'
-import type { EmailDetail, GroupOption, MailboxAddress, UserProfile } from '@/api'
+import type { EmailDetail, GroupOption, MailAuthStatus, MailboxAddress, UserProfile } from '@/api'
 
 export interface MockEmailRecord {
   id: number
@@ -9,6 +9,7 @@ export interface MockEmailRecord {
   is_read: boolean
   is_starred?: boolean
   dangerous: boolean
+  auth_status?: MailAuthStatus
   error: string
   subject: string
   from_name: string
@@ -293,6 +294,8 @@ index 0000000..4455667
 +	}
 +	return unwrapSoftBreaks(input, delSp)
 +}
+
+
 `,
       html: '',
       attachments: [],
@@ -614,6 +617,38 @@ def 汇总收件箱状态(total: int, unread: int) -> str:
       html: '',
       attachments: [],
     },
+    {
+      id: 115,
+      type: 0,
+      status: 4,
+      group_id: 0,
+      is_read: true,
+      dangerous: true, // Intentionally true in mock to verify draft suppresses spoof warning
+      auth_status: 'not_applicable',
+      error: '',
+      subject: 'UI 草稿代码（带 Python 附件验证）',
+      from_name: '林深',
+      from_address: 'admin@pmail.dev',
+      to: [{ Name: '林深', EmailAddress: 'admin@pmail.dev' }],
+      cc: [],
+      reply_to: [],
+      send_date: minutesAgo(3),
+      size: 1620,
+      msg_id: '<draft-115@pmail.dev>',
+      text_format: 'plain',
+      has_code: true,
+      text: '一封尚未发送的代码邮件草稿，确认列表与详情均不会误报伪造警告。',
+      html: '<p>一封尚未发送的代码邮件草稿，确认列表与详情均不会误报伪造警告。</p><pre><code class="language-python">def greet(name: str) -&gt; str:\n    return f"Hello, {name}!"\n</code></pre>',
+      attachments: [
+        {
+          Filename: 'sample.py',
+          ContentType: 'text/x-python',
+          Index: 0,
+          Size: 128,
+          previewContent: 'def greet(name: str) -> str:\n    return f"Hello, {name}!"\n\nprint(greet("PMail Pro"))\n',
+        },
+      ],
+    },
   ]
 }
 
@@ -677,7 +712,17 @@ export function buildSyntheticEmail(id: number): MockEmailRecord {
   }
 }
 
+export function resolveMockAuthStatus(rec: MockEmailRecord): MailAuthStatus {
+  if (rec.auth_status) return rec.auth_status
+  if (rec.status === 4 || rec.status === 1 || rec.type === 1) return 'not_applicable'
+  return rec.dangerous ? 'fail' : 'pass'
+}
+
 export function toEmailDetail(rec: MockEmailRecord): EmailDetail {
+  const iso = dayjs(rec.send_date).isValid()
+    ? dayjs(rec.send_date).toISOString()
+    : new Date().toISOString()
+  const isDraftOrSent = rec.status === 4 || rec.status === 1 || rec.type === 1
   return {
     id: rec.id,
     type: rec.type,
@@ -709,13 +754,18 @@ export function toEmailDetail(rec: MockEmailRecord): EmailDetail {
       inline: false,
       previewable: Boolean(att.previewContent),
     })),
-    spf_check: rec.dangerous ? 0 : 1,
-    dkim_check: rec.dangerous ? 0 : 1,
+    spf_check: rec.dangerous || isDraftOrSent ? 0 : 1,
+    dkim_check: rec.dangerous || isDraftOrSent ? 0 : 1,
+    auth_status: resolveMockAuthStatus(rec),
     status: rec.status,
     send_time: rec.send_date,
+    send_time_iso: iso,
     send_date: rec.send_date,
+    send_date_iso: iso,
     update_time: rec.send_date,
+    update_time_iso: iso,
     create_time: rec.send_date,
+    create_time_iso: iso,
     size: rec.size,
     error: rec.error,
     msg_id: rec.msg_id,

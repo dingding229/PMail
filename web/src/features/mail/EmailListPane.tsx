@@ -117,6 +117,8 @@ export function EmailListPane({
   const pullStartY = useRef<number | null>(null)
 
   const isDraftsFolder = folder.kind === 'system' && folder.key === 'drafts'
+  const isDraftOrSentFolder =
+    folder.kind === 'system' && (folder.key === 'drafts' || folder.key === 'sent')
   const isInTrash = folder.kind === 'system' && folder.key === 'trash'
   const selectionMode = checkedIds.size > 0
   const selectedIdsArray = Array.from(checkedIds)
@@ -538,6 +540,7 @@ export function EmailListPane({
                       selectionMode={selectionMode}
                       isMobile={isMobile}
                       density={density}
+                      suppressAuthWarning={isDraftOrSentFolder}
                       onSelect={onSelectEmail}
                       onToggleCheck={onToggleCheck}
                       onToggleStar={onToggleStar}

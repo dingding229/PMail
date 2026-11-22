@@ -31,6 +31,7 @@
 
   /* Brand & Semantic */
   --accent: #2563eb;
+  --accent-ink: #2563eb;
   --accent-hover: #1d4ed8;
   --accent-soft: rgba(37, 99, 235, 0.1);
   --accent-ring: rgba(37, 99, 235, 0.28);
@@ -87,22 +88,23 @@
   --surface-selected: rgba(59, 130, 246, 0.14);
 
   /* Borders */
-  --border-hairline: rgba(248, 250, 252, 0.075);
-  --border-subtle: rgba(248, 250, 252, 0.12);
-  --border-strong: rgba(248, 250, 252, 0.22);
+  --border-hairline: rgba(248, 250, 252, 0.09);
+  --border-subtle: rgba(248, 250, 252, 0.16);
+  --border-strong: rgba(248, 250, 252, 0.28);
 
-  /* Ink / Text */
+  /* Ink / Text (WCAG AA verified against #0c0f14..#1a2130 surfaces) */
   --ink-primary: #f1f5f9;
-  --ink-secondary: #a1b0c4;
-  --ink-muted: #8a9ab0;
-  --ink-subtle: #64748b;
+  --ink-secondary: #b4c2d4;
+  --ink-muted: #94a3b8;
+  --ink-subtle: #8294ac;
   --ink-inverse: #0f172a;
 
   /* Brand & Semantic */
   --accent: #3b82f6;
+  --accent-ink: #60a5fa;
   --accent-hover: #60a5fa;
-  --accent-soft: rgba(59, 130, 246, 0.16);
-  --accent-ring: rgba(96, 165, 250, 0.34);
+  --accent-soft: rgba(59, 130, 246, 0.18);
+  --accent-ring: rgba(96, 165, 250, 0.38);
 
   --unread-dot: #60a5fa;
   --star-active: #fbbf24;

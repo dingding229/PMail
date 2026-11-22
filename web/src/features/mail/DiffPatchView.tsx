@@ -54,16 +54,28 @@ function parseUnifiedPatch(rawText: string): { preamble: string; files: DiffFile
 
     let oldLine = 0
     let newLine = 0
+    let oldRemaining = 0
+    let newRemaining = 0
+    let inHunk = false
     let additions = 0
     let deletions = 0
     const parsedLines: DiffLine[] = []
 
-    for (const l of block) {
+    // Trim trailing empty lines & git format-patch trailer (e.g. "-- \n2.45.0") from raw file block
+    const trimmedBlock = [...block]
+    while (trimmedBlock.length > 0 && trimmedBlock[trimmedBlock.length - 1] === '') {
+      trimmedBlock.pop()
+    }
+
+    for (const l of trimmedBlock) {
       if (l.startsWith('@@')) {
-        const hunkMatch = l.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+        const hunkMatch = l.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/)
         if (hunkMatch) {
           oldLine = Number(hunkMatch[1])
-          newLine = Number(hunkMatch[2])
+          oldRemaining = hunkMatch[2] !== undefined ? Number(hunkMatch[2]) : 1
+          newLine = Number(hunkMatch[3])
+          newRemaining = hunkMatch[4] !== undefined ? Number(hunkMatch[4]) : 1
+          inHunk = true
         }
         parsedLines.push({ type: 'hunk', oldNum: null, newNum: null, text: l })
       } else if (
@@ -72,16 +84,28 @@ function parseUnifiedPatch(rawText: string): { preamble: string; files: DiffFile
         l.startsWith('--- ') ||
         l.startsWith('+++ ') ||
         l.startsWith('new file mode') ||
-        l.startsWith('deleted file mode')
+        l.startsWith('deleted file mode') ||
+        l.startsWith('\\ No newline at end of file')
       ) {
         parsedLines.push({ type: 'meta', oldNum: null, newNum: null, text: l })
-      } else if (l.startsWith('+')) {
+      } else if (inHunk && l.startsWith('+')) {
         additions++
+        if (newRemaining > 0) newRemaining--
         parsedLines.push({ type: 'add', oldNum: null, newNum: newLine++, text: l })
-      } else if (l.startsWith('-')) {
+      } else if (inHunk && l.startsWith('-')) {
         deletions++
+        if (oldRemaining > 0) oldRemaining--
         parsedLines.push({ type: 'del', oldNum: oldLine++, newNum: null, text: l })
-      } else {
+      } else if (inHunk) {
+        // Ignore trailing blank lines or email signature once the hunk has consumed its declared lines
+        if (oldRemaining <= 0 && newRemaining <= 0) {
+          if (l.trim() === '' || l === '-- ' || l === '--') {
+            inHunk = false
+          }
+          continue
+        }
+        if (oldRemaining > 0) oldRemaining--
+        if (newRemaining > 0) newRemaining--
         parsedLines.push({
           type: 'context',
           oldNum: oldLine > 0 ? oldLine++ : null,
@@ -91,11 +115,20 @@ function parseUnifiedPatch(rawText: string): { preamble: string; files: DiffFile
       }
     }
 
+    // Safety net: strip any trailing blank context lines produced by trailing newlines
+    while (
+      parsedLines.length > 0 &&
+      parsedLines[parsedLines.length - 1]?.type === 'context' &&
+      parsedLines[parsedLines.length - 1]?.text === ''
+    ) {
+      parsedLines.pop()
+    }
+
     return {
       filename,
       additions,
       deletions,
-      raw: block.join('\n'),
+      raw: trimmedBlock.join('\n'),
       lines: parsedLines,
     }
   })

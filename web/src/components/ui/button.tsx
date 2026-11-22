@@ -4,16 +4,16 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/cn'
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[var(--radius-sm)] text-[13px] font-medium transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)] disabled:pointer-events-none disabled:opacity-50 select-none shrink-0',
+  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[var(--radius-sm)] text-[13px] font-medium transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)] disabled:pointer-events-none disabled:opacity-60 select-none shrink-0',
   {
     variants: {
       variant: {
         primary:
           'bg-[var(--accent)] text-white shadow-[var(--shadow-xs)] hover:bg-[var(--accent-hover)]',
         secondary:
-          'bg-[var(--surface-subtle)] text-[var(--ink-primary)] border border-[var(--border-subtle)] hover:bg-[var(--surface-hover)]',
+          'bg-[var(--surface-subtle)] text-[var(--ink-primary)] border border-[var(--border-subtle)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)]',
         outline:
-          'border border-[var(--border-subtle)] bg-transparent text-[var(--ink-primary)] hover:bg-[var(--surface-hover)]',
+          'border border-[var(--border-subtle)] bg-[var(--surface-canvas)]/50 text-[var(--ink-primary)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)]',
         ghost:
           'bg-transparent text-[var(--ink-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--ink-primary)]',
         danger:

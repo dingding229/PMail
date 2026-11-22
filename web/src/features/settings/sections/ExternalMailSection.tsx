@@ -24,7 +24,7 @@ import {
   type ExternalProtocol,
   type ExternalTlsMode,
 } from '@/api'
-import { formatMailFullTime } from '@/lib/date'
+import { formatMailFullTime, pickDate } from '@/lib/date'
 import { queryKeys, useGroupOptionsQuery } from '@/hooks/useMailQueries'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -79,14 +79,14 @@ export function ExternalMailSection() {
         name: z.string().trim(),
         protocol: z.enum(['imap', 'pop3']),
         host: z.string().trim().min(1, t('settings.external.validation.hostRequired')),
-        port: z.coerce.number().int().min(1).max(65535),
+        port: z.coerce.number<number>().int().min(1).max(65535),
         tls_mode: z.enum(['tls', 'starttls', 'none']),
         username: z.string().trim().min(1, t('settings.external.validation.usernameRequired')),
         password: z.string(),
         folder: z.string().trim(),
-        interval_minutes: z.coerce.number().int().min(2).max(1440),
-        initial_days: z.coerce.number().int().min(0).max(3650),
-        target_group_id: z.coerce.number().int().min(0),
+        interval_minutes: z.coerce.number<number>().int().min(2).max(1440),
+        initial_days: z.coerce.number<number>().int().min(0).max(3650),
+        target_group_id: z.coerce.number<number>().int().min(0),
         enabled: z.boolean(),
         delete_remote: z.boolean(),
         insecure_skip_verify: z.boolean(),
@@ -298,14 +298,20 @@ export function ExternalMailSection() {
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-[var(--ink-muted)]">
                     <span>
                       {t('settings.external.lastSync')}：
-                      {acc.last_sync_at
-                        ? formatMailFullTime(acc.last_sync_at, i18n.language)
+                      {pickDate(acc.last_sync_at_iso, acc.last_sync_at)
+                        ? formatMailFullTime(
+                            pickDate(acc.last_sync_at_iso, acc.last_sync_at),
+                            i18n.language,
+                          )
                         : t('common.never')}
                     </span>
                     <span>
                       {t('settings.external.lastSuccess')}：
-                      {acc.last_success_at
-                        ? formatMailFullTime(acc.last_success_at, i18n.language)
+                      {pickDate(acc.last_success_at_iso, acc.last_success_at)
+                        ? formatMailFullTime(
+                            pickDate(acc.last_success_at_iso, acc.last_success_at),
+                            i18n.language,
+                          )
                         : t('common.never')}
                     </span>
                   </div>

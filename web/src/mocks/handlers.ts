@@ -18,6 +18,7 @@ import {
   createSeedEmails,
   INITIAL_CUSTOM_GROUPS,
   MOCK_USER,
+  resolveMockAuthStatus,
   toEmailDetail,
   VIRTUAL_TOTAL_INBOX,
   type MockEmailRecord,
@@ -324,8 +325,9 @@ const FULL_DKIM_VALUE = `${DKIM_CHUNK_1}${DKIM_CHUNK_2}`
 
 function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
   const mailHost = `mail.${dom.name}`
-  const webDomain = dom.id === 1 ? 'mail.pmail.dev' : `mail.${dom.name}`
+  const webDomain = dom.id === 1 ? 'mail.pmail.dev' : `web.${dom.name}`
   const dkimHost = `${dom.dkim_selector || 'default'}._domainkey`
+  const nowIso = new Date().toISOString()
 
   if (allGreen) {
     return {
@@ -335,11 +337,12 @@ function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
       server_ipv4: '203.0.113.42',
       server_ipv6: '2001:db8:42::1',
       all_required_ok: true,
-      checked_at: new Date().toISOString(),
+      checked_at: nowIso,
+      checked_at_iso: nowIso,
       records: [
         {
           key: 'mx',
-          purpose: '收信路由 (MX)',
+          purpose: 'receiving',
           type: 'MX',
           host: '@',
           fqdn: dom.name,
@@ -353,7 +356,7 @@ function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
         },
         {
           key: 'mail_a',
-          purpose: '邮件服务器 IPv4 (A)',
+          purpose: 'mail_host',
           type: 'A',
           host: 'mail',
           fqdn: mailHost,
@@ -366,7 +369,7 @@ function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
         },
         {
           key: 'spf',
-          purpose: '发信授权 (SPF)',
+          purpose: 'authentication',
           type: 'TXT',
           host: '@',
           fqdn: dom.name,
@@ -379,7 +382,7 @@ function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
         },
         {
           key: 'dkim',
-          purpose: '邮件数字签名 (DKIM)',
+          purpose: 'authentication',
           type: 'TXT',
           host: dkimHost,
           fqdn: `${dkimHost}.${dom.name}`,
@@ -393,7 +396,7 @@ function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
         },
         {
           key: 'dmarc',
-          purpose: '反垃圾策略 (DMARC)',
+          purpose: 'authentication',
           type: 'TXT',
           host: '_dmarc',
           fqdn: `_dmarc.${dom.name}`,
@@ -406,7 +409,7 @@ function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
         },
         {
           key: 'ptr',
-          purpose: 'IP 反向解析 (PTR / rDNS)',
+          purpose: 'reverse_dns',
           type: 'PTR',
           host: '42.113.0.203.in-addr.arpa',
           fqdn: '42.113.0.203.in-addr.arpa',
@@ -428,11 +431,12 @@ function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
     web_domain: webDomain,
     server_ipv4: '203.0.113.42',
     all_required_ok: false,
-    checked_at: new Date().toISOString(),
+    checked_at: nowIso,
+    checked_at_iso: nowIso,
     records: [
       {
         key: 'mx',
-        purpose: '收信路由 (MX)',
+        purpose: 'receiving',
         type: 'MX',
         host: '@',
         fqdn: dom.name,
@@ -446,7 +450,7 @@ function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
       },
       {
         key: 'mail_a',
-        purpose: '邮件服务器 IPv4 (A)',
+        purpose: 'mail_host',
         type: 'A',
         host: 'mail',
         fqdn: mailHost,
@@ -458,12 +462,27 @@ function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
         description: '在 DNS 服务商面板中：类型选 A，主机记录填 mail，记录值填 203.0.113.42。',
       },
       {
+        key: 'web_a',
+        purpose: 'web',
+        type: 'A',
+        host: 'web',
+        fqdn: webDomain,
+        value: '203.0.113.42',
+        ttl: 3600,
+        required: true,
+        status: 'missing',
+        actual: [],
+        description: `在 DNS 服务商面板中：类型选 A，主机记录填 web，记录值填 203.0.113.42。`,
+        fix_hint: `未查询到 ${webDomain} 的 A 记录，请核对 DNS 面板配置。`,
+      },
+      {
         key: 'spf',
-        purpose: '发信授权 (SPF)',
+        purpose: 'authentication',
         type: 'TXT',
         host: '@',
         fqdn: dom.name,
         value: 'v=spf1 mx a ~all',
+        suggested_value: 'v=spf1 include:_spf.old-provider.net mx a ~all',
         ttl: 3600,
         required: true,
         status: 'mismatch',
@@ -473,7 +492,7 @@ function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
       },
       {
         key: 'dkim',
-        purpose: '邮件数字签名 (DKIM)',
+        purpose: 'authentication',
         type: 'TXT',
         host: dkimHost,
         fqdn: `${dkimHost}.${dom.name}`,
@@ -488,7 +507,7 @@ function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
       },
       {
         key: 'dmarc',
-        purpose: '反垃圾策略 (DMARC)',
+        purpose: 'authentication',
         type: 'TXT',
         host: '_dmarc',
         fqdn: `_dmarc.${dom.name}`,
@@ -502,7 +521,7 @@ function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
       },
       {
         key: 'ptr',
-        purpose: 'IP 反向解析 (PTR / rDNS)',
+        purpose: 'reverse_dns',
         type: 'PTR',
         host: '42.113.0.203.in-addr.arpa',
         fqdn: '42.113.0.203.in-addr.arpa',
@@ -515,8 +534,21 @@ function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
         fix_hint: `建议前往 VPS 控制台将 203.0.113.42 的反向解析修改为 ${mailHost}。`,
       },
       {
+        key: 'imap_alias',
+        purpose: 'mail_host',
+        type: 'CNAME',
+        host: 'imap',
+        fqdn: `imap.${dom.name}`,
+        value: `${mailHost}.`,
+        ttl: 3600,
+        required: false,
+        status: 'missing',
+        actual: [],
+        description: '可选：允许邮件客户端使用 imap 域名连接收信服务器。',
+      },
+      {
         key: 'autoconfig',
-        purpose: '客户端自动发现 (Autoconfig)',
+        purpose: 'client_configuration',
         type: 'CNAME',
         host: 'autoconfig',
         fqdn: `autoconfig.${dom.name}`,
@@ -526,6 +558,20 @@ function buildMockDns(dom: MailDomain, allGreen: boolean): DomainDnsResponse {
         status: 'missing',
         actual: [],
         description: '可选：方便 Thunderbird / Apple Mail 等客户端自动识别 IMAP/SMTP 端口配置。',
+      },
+      {
+        key: 'imaps',
+        purpose: 'client_configuration',
+        type: 'SRV',
+        host: '_imaps._tcp',
+        fqdn: `_imaps._tcp.${dom.name}`,
+        value: `0 993 ${mailHost}.`,
+        priority: 10,
+        ttl: 3600,
+        required: false,
+        status: 'missing',
+        actual: [],
+        description: '可选：通过 SRV 记录向客户端宣告 IMAPS 加密收信端口。',
       },
     ],
   }
@@ -567,7 +613,7 @@ function matchesTag(
   if (typeof tag.status === 'number' && tag.status !== -1) {
     if (rec.status !== tag.status) return false
   } else {
-    if (rec.status === 3 || rec.status === 5) return false
+    if (rec.status === 3 || rec.status === 4 || rec.status === 5) return false
   }
   if (typeof tag.group_id === 'number' && tag.group_id !== -1 && rec.group_id !== tag.group_id) {
     return false
@@ -576,11 +622,19 @@ function matchesTag(
 }
 
 function toListItem(rec: MockEmailRecord) {
+  const iso = dayjs(rec.send_date).isValid()
+    ? dayjs(rec.send_date).toISOString()
+    : new Date().toISOString()
   return {
     id: rec.id,
     title: rec.subject,
     desc: rec.text,
     datetime: rec.send_date,
+    datetime_iso: iso,
+    send_date_iso: iso,
+    create_time_iso: iso,
+    update_time_iso: iso,
+    send_time_iso: iso,
     is_read: rec.is_read,
     is_starred: Boolean(rec.is_starred),
     sender: { Name: rec.from_name, EmailAddress: rec.from_address },
@@ -595,6 +649,9 @@ function toListItem(rec: MockEmailRecord) {
       previewable: Boolean(att.previewContent),
     })),
     dangerous: rec.dangerous,
+    auth_status: resolveMockAuthStatus(rec),
+    type: rec.type,
+    status: rec.status,
     error: rec.error,
     has_attachments: rec.attachments.length > 0,
     group_id: rec.group_id,

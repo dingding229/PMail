@@ -18,6 +18,7 @@ import type { DnsRecord, DnsRecordStatus } from '@/api'
 import { cn } from '@/lib/cn'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { getDnsPurposeLabel, getDnsRecordLabel } from './dnsLabels'
 
 interface DnsRecordCardProps {
   record: DnsRecord
@@ -114,6 +115,10 @@ export function DnsRecordCard({ record, checking = false }: DnsRecordCardProps) 
   const isLongValue = record.value.length > 140
   const hasChunks = Array.isArray(record.value_chunks) && record.value_chunks.length > 1
   const mergedSpfValue = computeMergedSpf(record)
+  const recordLabel = getDnsRecordLabel(record, t)
+  const purposeLabel = getDnsPurposeLabel(record.purpose, t)
+  const showPurposePill =
+    Boolean(purposeLabel) && !recordLabel.toLowerCase().includes(purposeLabel.toLowerCase())
 
   const [expanded, setExpanded] = useState(!isLongValue)
   const [showChunks, setShowChunks] = useState(false)
@@ -168,8 +173,13 @@ export function DnsRecordCard({ record, checking = false }: DnsRecordCardProps) 
             {record.type}
           </span>
           <span className="text-[13.5px] font-semibold text-[var(--ink-primary)]">
-            {record.purpose}
+            {recordLabel}
           </span>
+          {showPurposePill && (
+            <span className="rounded bg-[var(--surface-subtle)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--ink-secondary)]">
+              {purposeLabel}
+            </span>
+          )}
           <span className="break-all font-mono text-[11.5px] text-[var(--ink-muted)]">
             {record.fqdn}
           </span>
@@ -323,7 +333,7 @@ export function DnsRecordCard({ record, checking = false }: DnsRecordCardProps) 
           {mergedSpfValue && (
             <div className="rounded-[var(--radius-sm)] border border-[var(--accent)]/35 bg-[var(--accent-soft)]/55 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[11.5px] font-semibold text-[var(--accent)]">
+                <span className="text-[11.5px] font-semibold text-[var(--accent-ink)]">
                   {t('admin.dnsWizard.suggestedMergedSpf')}
                 </span>
                 <Button

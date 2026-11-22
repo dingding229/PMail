@@ -11,7 +11,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { queueApi, type QueueItem, type QueueStatus } from '@/api'
-import { formatMailFullTime } from '@/lib/date'
+import { formatMailFullTime, pickDate } from '@/lib/date'
 import { cn } from '@/lib/cn'
 import { queryKeys, useUserMeQuery } from '@/hooks/useMailQueries'
 import { Button } from '@/components/ui/button'
@@ -61,7 +61,9 @@ export function QueueSection({ scope }: QueueSectionProps) {
         }
         return true
       })
-      .sort((a, b) => (b.updated > a.updated ? 1 : -1))
+      .sort((a, b) =>
+        pickDate(b.updated_iso, b.updated) > pickDate(a.updated_iso, a.updated) ? 1 : -1,
+      )
   }, [allItems, scope, me, statusFilter, search])
 
   const retryMutation = useMutation({
@@ -205,13 +207,22 @@ export function QueueSection({ scope }: QueueSectionProps) {
                           max: item.max_attempts,
                         })}
                       </span>
-                      {item.status === 'pending' && item.next_retry_at && (
-                        <span>
-                          {t('settings.queue.nextRetry')}：
-                          {formatMailFullTime(item.next_retry_at, i18n.language)}
-                        </span>
-                      )}
-                      <span>{formatMailFullTime(item.created, i18n.language)}</span>
+                      {item.status === 'pending' &&
+                        pickDate(item.next_retry_at_iso, item.next_retry_at) && (
+                          <span>
+                            {t('settings.queue.nextRetry')}：
+                            {formatMailFullTime(
+                              pickDate(item.next_retry_at_iso, item.next_retry_at),
+                              i18n.language,
+                            )}
+                          </span>
+                        )}
+                      <span>
+                        {formatMailFullTime(
+                          pickDate(item.created_iso, item.created),
+                          i18n.language,
+                        )}
+                      </span>
                     </div>
                   </div>
 

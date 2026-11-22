@@ -22,7 +22,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { domainApi, type DnsRecord, type MailDomain } from '@/api'
-import { formatMailFullTime } from '@/lib/date'
+import { formatMailFullTime, pickDate } from '@/lib/date'
 import { cn } from '@/lib/cn'
 import { useViewportBreakpoint } from '@/hooks/useMediaQuery'
 import { queryKeys } from '@/hooks/useMailQueries'
@@ -31,6 +31,7 @@ import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DnsRecordCard } from './DnsRecordCard'
+import { getDnsRecordLabel } from './dnsLabels'
 
 interface DnsWizardModalProps {
   domain: MailDomain
@@ -270,7 +271,7 @@ export function DnsWizardModal({
                     className={cn(
                       'flex items-center gap-2 rounded-full px-2.5 py-1 text-[12.5px] font-medium transition-colors',
                       active
-                        ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                        ? 'bg-[var(--accent-soft)] text-[var(--accent-ink)]'
                         : completed
                           ? 'text-[var(--ink-primary)] hover:bg-[var(--surface-hover)]'
                           : 'text-[var(--ink-muted)] hover:bg-[var(--surface-hover)]',
@@ -545,7 +546,10 @@ export function DnsWizardModal({
                     </span>
                     <span className="text-[11.5px] text-[var(--ink-muted)]">
                       {t('admin.dnsWizard.verify.checkedAt', {
-                        time: formatMailFullTime(dns.checked_at, i18n.language),
+                        time: formatMailFullTime(
+                          pickDate(dns.checked_at_iso, dns.checked_at),
+                          i18n.language,
+                        ),
                       })}
                     </span>
                   </div>
@@ -605,7 +609,7 @@ export function DnsWizardModal({
                             {rec.type}
                           </span>
                           <span className="text-[13.5px] font-medium text-[var(--ink-primary)]">
-                            {rec.purpose}
+                            {getDnsRecordLabel(rec, t)}
                           </span>
                           <span className="break-all font-mono text-[11.5px] text-[var(--ink-muted)]">
                             {rec.host || '@'}

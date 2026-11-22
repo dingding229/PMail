@@ -46,6 +46,7 @@ export interface MailboxAddress {
   domain: string
   address: string
   created: string
+  created_iso?: string
 }
 
 export interface UserProfile {
@@ -60,7 +61,9 @@ export interface UserProfile {
   lang?: string
   addresses: MailboxAddress[] | null
   created: string
+  created_iso?: string
   last_login_at: string | null
+  last_login_at_iso?: string | null
 }
 
 export interface UserPageResponse {
@@ -105,11 +108,18 @@ export interface EmailListRequest {
   page_size: number
 }
 
+export type MailAuthStatus = 'pass' | 'fail' | 'none' | 'not_applicable'
+
 export interface EmailListItem {
   id: number
   title: string
   desc: string
   datetime: string
+  datetime_iso?: string
+  send_date_iso?: string
+  send_time_iso?: string
+  create_time_iso?: string
+  update_time_iso?: string
   is_read: boolean
   is_starred?: boolean
   sender: MailParticipant
@@ -117,6 +127,9 @@ export interface EmailListItem {
   to_list?: NormalizedAddress[]
   attachments_list?: NormalizedAttachment[]
   dangerous: boolean
+  auth_status?: MailAuthStatus
+  type?: number
+  status?: number
   error: string
   has_attachments?: boolean
   group_id?: number
@@ -158,12 +171,17 @@ export interface EmailDetail {
   attachments_list?: NormalizedAttachment[]
   spf_check: number
   dkim_check: number
+  auth_status?: MailAuthStatus
   status: number
   cron_send_time?: string
   send_time: string
+  send_time_iso?: string
   send_date: string
+  send_date_iso?: string
   update_time: string
+  update_time_iso?: string
   create_time: string
+  create_time_iso?: string
   send_user_id?: number
   size: number
   error: string
@@ -329,10 +347,14 @@ export interface ExternalAccount {
   enabled: boolean
   insecure_skip_verify: boolean
   last_sync_at: string | null
+  last_sync_at_iso?: string | null
   last_success_at: string | null
+  last_success_at_iso?: string | null
   last_error: string
   created: string
+  created_iso?: string
   updated: string
+  updated_iso?: string
 }
 
 export interface ExternalAccountPayload {
@@ -376,8 +398,11 @@ export interface ApiTokenItem {
   name: string
   prefix: string
   last_used_at: string | null
+  last_used_at_iso?: string | null
   expires_at: string | null
+  expires_at_iso?: string | null
   created: string
+  created_iso?: string
 }
 
 export interface TokenCreatedResponse {
@@ -398,10 +423,13 @@ export interface QueueItem {
   attempts: number
   max_attempts: number
   next_retry_at: string
+  next_retry_at_iso?: string
   status: QueueStatus
   last_error: string
   created: string
+  created_iso?: string
   updated: string
+  updated_iso?: string
 }
 
 export interface MailDomain {
@@ -410,7 +438,9 @@ export interface MailDomain {
   is_default: boolean
   dkim_selector: string
   created: string
+  created_iso?: string
   updated: string
+  updated_iso?: string
 }
 
 export type DnsRecordStatus = 'ok' | 'missing' | 'mismatch' | 'error' | 'advice'
@@ -441,6 +471,7 @@ export interface DomainDnsResponse {
   server_ipv6?: string
   all_required_ok: boolean
   checked_at: string
+  checked_at_iso?: string
   records: DnsRecord[]
 }
 

@@ -5,7 +5,7 @@ import dayjs from 'dayjs'
 import { toast } from 'sonner'
 import { AlertTriangle, Check, Copy, KeyRound, Loader2, Plus, Trash2 } from 'lucide-react'
 import { tokenApi, type ApiTokenItem } from '@/api'
-import { formatMailFullTime } from '@/lib/date'
+import { formatMailFullTime, pickDate } from '@/lib/date'
 import { queryKeys } from '@/hooks/useMailQueries'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -142,18 +142,25 @@ export function TokensSection() {
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11.5px] text-[var(--ink-muted)]">
                   <span>
-                    {t('settings.tokens.createdAt')}：{formatMailFullTime(tok.created, i18n.language)}
+                    {t('settings.tokens.createdAt')}：
+                    {formatMailFullTime(pickDate(tok.created_iso, tok.created), i18n.language)}
                   </span>
                   <span>
                     {t('settings.tokens.lastUsedAt')}：
-                    {tok.last_used_at
-                      ? formatMailFullTime(tok.last_used_at, i18n.language)
+                    {pickDate(tok.last_used_at_iso, tok.last_used_at)
+                      ? formatMailFullTime(
+                          pickDate(tok.last_used_at_iso, tok.last_used_at),
+                          i18n.language,
+                        )
                       : t('common.never')}
                   </span>
                   <span>
                     {t('settings.tokens.expiresAt')}：
-                    {tok.expires_at
-                      ? formatMailFullTime(tok.expires_at, i18n.language)
+                    {pickDate(tok.expires_at_iso, tok.expires_at)
+                      ? formatMailFullTime(
+                          pickDate(tok.expires_at_iso, tok.expires_at),
+                          i18n.language,
+                        )
                       : t('settings.tokens.expiresNever')}
                   </span>
                 </div>

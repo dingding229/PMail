@@ -144,14 +144,14 @@ export function SettingsPage() {
                   className={cn(
                     'flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] px-3 py-2 text-[13.5px] transition-colors',
                     active
-                      ? 'bg-[var(--surface-active)] font-medium text-[var(--accent)]'
+                      ? 'bg-[var(--surface-active)] font-medium text-[var(--accent-ink)]'
                       : 'text-[var(--ink-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--ink-primary)]',
                   )}
                 >
                   <Icon
                     className={cn(
                       'h-4 w-4 shrink-0',
-                      active ? 'text-[var(--accent)]' : 'text-[var(--ink-muted)]',
+                      active ? 'text-[var(--accent-ink)]' : 'text-[var(--ink-muted)]',
                     )}
                   />
                   <span className="truncate">{label}</span>

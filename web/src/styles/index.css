@@ -150,6 +150,13 @@
   }
 }
 
+/* Disable color transitions for one frame while toggling light/dark theme to avoid mixed-theme flashes */
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
+}
+
 /* Hide scrollbars cleanly while keeping horizontal swipe scroll */
 .no-scrollbar {
   scrollbar-width: none;

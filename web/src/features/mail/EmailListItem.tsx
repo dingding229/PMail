@@ -10,7 +10,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import type { EmailListItem as EmailListItemModel } from '@/api'
-import { formatMailListTime } from '@/lib/date'
+import { formatMailListTime, pickDate } from '@/lib/date'
 import { cn } from '@/lib/cn'
 import { Checkbox } from '@/components/ui/checkbox'
 import { SenderAvatar } from '@/components/common/SenderAvatar'
@@ -24,6 +24,7 @@ interface EmailListItemProps {
   selectionMode: boolean
   isMobile: boolean
   density?: ListDensity
+  suppressAuthWarning?: boolean
   onSelect: (email: EmailListItemModel) => void
   onToggleCheck: (id: number) => void
   onToggleStar: (id: number, nextStarred: boolean) => void
@@ -43,6 +44,7 @@ export const EmailListItem = memo(function EmailListItem({
   selectionMode,
   isMobile,
   density = 'comfortable',
+  suppressAuthWarning = false,
   onSelect,
   onToggleCheck,
   onToggleStar,
@@ -100,6 +102,21 @@ export const EmailListItem = memo(function EmailListItem({
   const hasAttachments =
     Boolean(email.has_attachments) ||
     Boolean(email.attachments_list && email.attachments_list.some((a) => !a.inline))
+  const displayDate = pickDate(
+    email.send_date_iso,
+    email.datetime_iso,
+    email.send_time_iso,
+    email.create_time_iso,
+    email.update_time_iso,
+    email.datetime,
+  )
+  const isDraftOrSentMessage =
+    suppressAuthWarning || email.status === 4 || email.status === 1 || email.type === 1
+  const showAuthWarning = isDraftOrSentMessage
+    ? false
+    : email.auth_status !== undefined
+      ? email.auth_status === 'fail'
+      : Boolean(email.dangerous)
   const paddingClass =
     density === 'compact' ? 'py-2' : density === 'spacious' ? 'py-4' : 'py-3'
 
@@ -230,21 +247,21 @@ export const EmailListItem = memo(function EmailListItem({
               {senderName}
             </span>
             <time
-              dateTime={email.datetime}
+              dateTime={displayDate}
               className={cn(
                 'shrink-0 text-[11.5px] tabular-nums',
                 isUnread
-                  ? 'font-medium text-[var(--accent)]'
+                  ? 'font-medium text-[var(--accent-ink)]'
                   : 'text-[var(--ink-muted)]',
               )}
             >
-              {formatMailListTime(email.datetime, i18n.language)}
+              {formatMailListTime(displayDate, i18n.language)}
             </time>
           </div>
 
           {/* Row 2: Subject + Badges */}
           <div className="mt-0.5 flex items-center gap-1.5">
-            {email.dangerous && (
+            {showAuthWarning && (
               <ShieldAlert
                 className="h-3.5 w-3.5 shrink-0 text-[var(--danger)]"
                 aria-label={t('mail.security.dangerousTitle')}

@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import { SYSTEM_GROUP_IDS, type EmailDetail, type GroupOption } from '@/api'
 import { useEmailDetailQuery } from '@/hooks/useMailQueries'
-import { formatMailFullTime, formatRelativeTime } from '@/lib/date'
+import { formatMailFullTime, formatRelativeTime, pickDate } from '@/lib/date'
 import { formatBytes, resolveAddressList, resolveAttachmentsList } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
@@ -122,7 +122,19 @@ export function ReadingPane({
   )
 
   const isInTrash = folder.kind === 'system' && folder.key === 'trash'
-  const isDangerous = email ? email.spf_check === 0 && email.dkim_check === 0 : false
+  const isDraftOrSentFolder =
+    folder.kind === 'system' && (folder.key === 'drafts' || folder.key === 'sent')
+  const isDangerous = (() => {
+    if (!email) return false
+    // Drafts (status=4) and outbound/sent messages (status=1 or type=1) never show inbound spoof warnings
+    if (isDraftOrSentFolder || email.status === 4 || email.status === 1 || email.type === 1) {
+      return false
+    }
+    if (email.auth_status !== undefined) {
+      return email.auth_status === 'fail'
+    }
+    return email.spf_check === 0 && email.dkim_check === 0
+  })()
 
   // Empty state (no message selected)
   if (!emailId) {
@@ -213,7 +225,16 @@ export function ReadingPane({
   const isCurrentlyRead = email.is_read !== undefined ? email.is_read === 1 : isReadFallback
   const effectiveStarred = email.is_starred !== undefined ? email.is_starred : isStarred
   const isServerDraft = email.status === 4
-  const displayDate = email.send_date || email.create_time
+  const displayDate = pickDate(
+    email.send_date_iso,
+    email.send_time_iso,
+    email.create_time_iso,
+    email.update_time_iso,
+    email.send_date,
+    email.send_time,
+    email.create_time,
+    email.update_time,
+  )
   const hasHtml = Boolean(email.html && email.html.trim().length > 0)
 
   const handleMoveMenu = (groupId: number, label: string) => {
@@ -447,7 +468,8 @@ export function ReadingPane({
                   title={formatMailFullTime(displayDate, i18n.language)}
                   className="shrink-0 text-[12px] tabular-nums text-[var(--ink-muted)]"
                 >
-                  {formatMailFullTime(displayDate, i18n.language)} · {formatRelativeTime(displayDate)}
+                  {formatMailFullTime(displayDate, i18n.language)} ·{' '}
+                  {formatRelativeTime(displayDate, i18n.language)}
                 </time>
               </div>
 

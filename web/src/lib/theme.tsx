@@ -37,7 +37,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement
-    root.classList.toggle('dark', resolved === 'dark')
+    const nextDark = resolved === 'dark'
+    const prevDark = root.classList.contains('dark')
+    if (prevDark !== nextDark) {
+      root.classList.add('theme-switching')
+      root.classList.toggle('dark', nextDark)
+      // Force synchronous style recalculation so all surfaces, buttons, and nav items switch atomically
+      void window.getComputedStyle(root).opacity
+      const raf = window.requestAnimationFrame(() => {
+        root.classList.remove('theme-switching')
+      })
+      return () => {
+        window.cancelAnimationFrame(raf)
+        root.classList.remove('theme-switching')
+      }
+    }
+    root.classList.toggle('dark', nextDark)
   }, [resolved])
 
   const setMode = (next: ThemeMode) => {

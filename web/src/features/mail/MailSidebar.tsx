@@ -252,7 +252,7 @@ export function MailSidebar({
                   'flex w-full items-center rounded-[var(--radius-sm)] text-[13.5px] transition-colors duration-[var(--duration-fast)]',
                   collapsed ? 'justify-center px-0 py-2' : 'justify-between gap-2 px-2.5 py-1.5',
                   active
-                    ? 'bg-[var(--surface-active)] font-medium text-[var(--accent)]'
+                    ? 'bg-[var(--surface-active)] font-medium text-[var(--accent-ink)]'
                     : 'text-[var(--ink-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--ink-primary)]',
                 )}
               >
@@ -260,7 +260,7 @@ export function MailSidebar({
                   <Icon
                     className={cn(
                       'h-4 w-4 shrink-0',
-                      active ? 'text-[var(--accent)]' : 'text-[var(--ink-muted)]',
+                      active ? 'text-[var(--accent-ink)]' : 'text-[var(--ink-muted)]',
                     )}
                   />
                   {!collapsed && <span className="truncate">{label}</span>}

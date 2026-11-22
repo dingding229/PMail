@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import Underline from '@tiptap/extension-underline'
-import Link from '@tiptap/extension-link'
-import Placeholder from '@tiptap/extension-placeholder'
+import { Placeholder } from '@tiptap/extensions'
 import dayjs from 'dayjs'
 import { toast } from 'sonner'
 import {
@@ -47,7 +45,7 @@ import {
   stripHtmlToText,
 } from '@/lib/format'
 import { COMPOSE_CODE_LANGUAGES } from '@/lib/code-languages'
-import { formatMailFullTime } from '@/lib/date'
+import { formatMailFullTime, pickDate } from '@/lib/date'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -201,7 +199,16 @@ export function ComposeModal({
 
     const senderAddr = src.from_address
     const senderLabel = src.from_name ? `${src.from_name} <${senderAddr}>` : senderAddr
-    const dateLabel = formatMailFullTime(src.send_date || src.create_time, i18n.language)
+    const dateLabel = formatMailFullTime(
+      pickDate(
+        src.send_date_iso,
+        src.send_time_iso,
+        src.create_time_iso,
+        src.send_date,
+        src.create_time,
+      ),
+      i18n.language,
+    )
     const ownSet = new Set(sendableAddresses.map((a) => a.address.toLowerCase()))
 
     if (context.mode === 'reply' || context.mode === 'replyAll') {
@@ -282,12 +289,11 @@ export function ComposeModal({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
-      }),
-      Underline,
-      Link.configure({
-        openOnClick: false,
-        autolink: true,
-        HTMLAttributes: { target: '_blank', rel: 'noopener noreferrer' },
+        link: {
+          openOnClick: false,
+          autolink: true,
+          HTMLAttributes: { target: '_blank', rel: 'noopener noreferrer' },
+        },
       }),
       Placeholder.configure({
         placeholder: t('compose.bodyPlaceholder'),

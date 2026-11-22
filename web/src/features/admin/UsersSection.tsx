@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import { userApi, type UserProfile } from '@/api'
 import { formatBytes } from '@/lib/format'
-import { formatMailFullTime } from '@/lib/date'
+import { formatMailFullTime, pickDate } from '@/lib/date'
 import { queryKeys } from '@/hooks/useMailQueries'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -73,7 +73,7 @@ export function UsersSection() {
           .min(1, t('admin.users.validation.displayNameRequired'))
           .max(50),
         password: z.string().min(8, t('admin.users.validation.passwordMin')),
-        quota_mb: z.coerce.number().int().min(0),
+        quota_mb: z.coerce.number<number>().int().min(0),
       }),
     [t],
   )
@@ -86,7 +86,7 @@ export function UsersSection() {
           .trim()
           .min(1, t('admin.users.validation.displayNameRequired'))
           .max(50),
-        quota_mb: z.coerce.number().int().min(0),
+        quota_mb: z.coerce.number<number>().int().min(0),
       }),
     [t],
   )
@@ -298,8 +298,11 @@ export function UsersSection() {
                     </td>
                     <td className="px-4 py-3">{renderQuotaBar(u)}</td>
                     <td className="px-4 py-3 text-[12px] tabular-nums text-[var(--ink-muted)]">
-                      {u.last_login_at
-                        ? formatMailFullTime(u.last_login_at, i18n.language)
+                      {pickDate(u.last_login_at_iso, u.last_login_at)
+                        ? formatMailFullTime(
+                            pickDate(u.last_login_at_iso, u.last_login_at),
+                            i18n.language,
+                          )
                         : t('common.never')}
                     </td>
                     <td className="px-4 py-3">

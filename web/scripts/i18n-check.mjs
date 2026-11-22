@@ -74,10 +74,10 @@ function listSourceFiles(dir) {
 }
 
 const ALLOWED_ENGLISH_TOKENS = new Set([
-  'PMail', 'Pro', 'PRO', 'IMAP', 'POP3', 'SMTP', 'DNS', 'DKIM', 'SPF', 'DMARC',
+  'PMail', 'Pro', 'PRO', 'IMAP', 'IMAPS', 'POP3', 'POP3S', 'SMTP', 'DNS', 'DKIM', 'SPF', 'DMARC',
   'PTR', 'MX', 'TTL', 'BIND', 'API', 'Token', 'Bearer', 'Authorization',
   'HTML', 'Markdown', 'URL', 'GitHub', 'Gmail', 'Outlook', 'iCloud', 'QQ',
-  'VPS', 'IPv4', 'IPv6', 'IP', 'rDNS', 'Autoconfig', 'SRV', 'MB', 'GB', 'KB',
+  'VPS', 'IPv4', 'IPv6', 'IP', 'rDNS', 'Autoconfig', 'Autodiscover', 'SRV', 'MB', 'GB', 'KB',
   'Ctrl', 'Enter', 'Esc', 'English', 'docker', 'compose', 'logs', 'pmail',
   'grep', 'Mail', 'Host', 'Web', 'Domain', 'Message-ID', 'SSL', 'TLS', 'STARTTLS',
   'CI', 'CD', 'UI', 'TypeScript', 'JavaScript', 'TSX', 'JSX', 'Python', 'Go',
@@ -86,6 +86,40 @@ const ALLOWED_ENGLISH_TOKENS = new Set([
   'com', 'https', 'imap', 'gmail', 'XXXX', 'and', 'or', 'v', 's', 'a', 'c', 'e',
   'f', 'j', 'k', 'o', 'r', 'mx', 'spf', 'TXT',
 ])
+
+const REQUIRED_ENUM_KEYS = [
+  // DNS purpose enums (must never leak raw English values like receiving / client_configuration)
+  ...[
+    'receiving',
+    'mail_host',
+    'web',
+    'authentication',
+    'reverse_dns',
+    'client_configuration',
+    'other',
+  ].map((k) => `admin.dnsWizard.purposes.${k}`),
+  // DNS record key enums
+  ...[
+    'mx',
+    'mail_a',
+    'mail_aaaa',
+    'web_a',
+    'web_aaaa',
+    'spf',
+    'dkim',
+    'dmarc',
+    'ptr',
+    'imap_alias',
+    'pop_alias',
+    'autoconfig',
+    'autodiscover',
+    'imaps',
+    'submission',
+    'pop3s',
+  ].map((k) => `admin.dnsWizard.recordKeys.${k}`),
+  // DNS status enums
+  ...['ok', 'missing', 'mismatch', 'error', 'advice'].map((k) => `admin.dnsWizard.status.${k}`),
+]
 
 const errors = []
 
@@ -108,6 +142,20 @@ for (const [key, val] of zhMap.entries()) {
   const nonWhitelisted = words.filter((w) => !ALLOWED_ENGLISH_TOKENS.has(w))
   if (nonWhitelisted.length >= 3 && !/[\u4e00-\u9fff]/.test(stripped)) {
     errors.push(`[untranslated-zh] Key "${key}" looks like untranslated English: "${val}"`)
+  }
+}
+
+// 2.5 Check required backend enum translations exist and are localized in zh-CN
+for (const enumKey of REQUIRED_ENUM_KEYS) {
+  const zhVal = zhMap.get(enumKey)
+  const enVal = enMap.get(enumKey)
+  if (!zhVal) {
+    errors.push(`[missing-enum-zh] Required enum i18n key "${enumKey}" is missing in zh-CN.ts`)
+  } else if (!/[\u4e00-\u9fff]/.test(zhVal)) {
+    errors.push(`[unlocalized-enum-zh] Enum key "${enumKey}" in zh-CN.ts must contain Chinese: "${zhVal}"`)
+  }
+  if (!enVal) {
+    errors.push(`[missing-enum-en] Required enum i18n key "${enumKey}" is missing in en.ts`)
   }
 }
 
@@ -135,6 +183,16 @@ for (const file of files) {
           errors.push(`[missing-key] ${rel}: t('${key}') not found in zh-CN.ts`)
         }
       }
+    }
+
+    // Guard against rendering raw backend DNS enum fields directly in JSX (e.g. {record.purpose})
+    if (
+      ts.isJsxExpression(node) &&
+      node.expression &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === 'purpose'
+    ) {
+      errors.push(`[raw-enum-jsx] ${rel}: raw ".purpose" rendered directly in JSX — use getDnsRecordLabel/getDnsPurposeLabel`)
     }
 
     // Check JSX text for hardcoded English sentences (2+ non-whitelisted English words)
@@ -177,5 +235,5 @@ if (errors.length > 0) {
 }
 
 console.log(
-  `✅ i18n check passed: ${zhMap.size} zh-CN keys, ${enMap.size} en keys (100% parity), ${referencedKeys.size} static t() keys verified, 0 hardcoded English strings across ${files.length} source files.`,
+  `✅ i18n check passed: ${zhMap.size} zh-CN keys, ${enMap.size} en keys (100% parity), ${referencedKeys.size} static t() keys + ${REQUIRED_ENUM_KEYS.length} enum keys verified, 0 hardcoded English strings across ${files.length} source files.`,
 )

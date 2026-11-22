@@ -13,18 +13,38 @@ export function setDayjsLocale(lang: string): void {
   dayjs.locale(lang.toLowerCase().startsWith('zh') ? 'zh-cn' : 'en')
 }
 
-export function formatMailListTime(dateStr: string, lang: string): string {
-  if (!dateStr) return ''
-  const d = dayjs(dateStr)
-  if (!d.isValid()) return dateStr
+/**
+ * Picks the first non-empty timestamp string from candidates.
+ * Always pass RFC3339 `*_iso` fields before legacy timezone-less strings.
+ */
+export function pickDate(...candidates: Array<string | null | undefined>): string {
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim().length > 0) {
+      return c.trim()
+    }
+  }
+  return ''
+}
+
+export function formatMailListTime(
+  dateStr: string | null | undefined,
+  lang: string,
+  fallback?: string | null,
+): string {
+  const raw = pickDate(dateStr, fallback)
+  if (!raw) return ''
+  const d = dayjs(raw)
+  if (!d.isValid()) return raw
   const isZh = lang.toLowerCase().startsWith('zh')
   const now = dayjs()
-  const diffMins = now.diff(d, 'minute')
+  const diffMs = now.valueOf() - d.valueOf()
 
-  if (diffMins >= 0 && diffMins < 1) {
+  // Clamp future timestamps (e.g. slight clock skew or legacy timezone offset) to "Just now"
+  if (diffMs < 60_000) {
     return isZh ? '刚刚' : 'Just now'
   }
-  if (diffMins >= 1 && diffMins < 60) {
+  const diffMins = Math.floor(diffMs / 60_000)
+  if (diffMins < 60) {
     return d.fromNow()
   }
   if (d.isToday()) {
@@ -39,17 +59,33 @@ export function formatMailListTime(dateStr: string, lang: string): string {
   return isZh ? d.format('YYYY/M/D') : d.format('YYYY-MM-DD')
 }
 
-export function formatMailFullTime(dateStr: string, lang: string): string {
-  if (!dateStr) return ''
-  const d = dayjs(dateStr)
-  if (!d.isValid()) return dateStr
+export function formatMailFullTime(
+  dateStr: string | null | undefined,
+  lang: string,
+  fallback?: string | null,
+): string {
+  const raw = pickDate(dateStr, fallback)
+  if (!raw) return ''
+  const d = dayjs(raw)
+  if (!d.isValid()) return raw
   const isZh = lang.toLowerCase().startsWith('zh')
   return isZh ? d.format('YYYY年M月D日 HH:mm') : d.format('MMM D, YYYY, HH:mm')
 }
 
-export function formatRelativeTime(dateStr: string): string {
-  if (!dateStr) return ''
-  const d = dayjs(dateStr)
+export function formatRelativeTime(
+  dateStr: string | null | undefined,
+  lang?: string,
+  fallback?: string | null,
+): string {
+  const raw = pickDate(dateStr, fallback)
+  if (!raw) return ''
+  const d = dayjs(raw)
   if (!d.isValid()) return ''
+  const now = dayjs()
+  const isZh = lang ? lang.toLowerCase().startsWith('zh') : dayjs.locale().startsWith('zh')
+  // Never display future relative time (e.g. "8 小时内" / "in 8 hours")
+  if (now.valueOf() - d.valueOf() < 60_000) {
+    return isZh ? '刚刚' : 'Just now'
+  }
   return d.fromNow()
 }
