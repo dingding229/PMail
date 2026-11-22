@@ -17,6 +17,7 @@ import (
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
+	svccompose "github.com/Jinnrry/pmail/services/compose"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/services/quota"
@@ -27,15 +28,16 @@ import (
 )
 
 type draftRequest struct {
-	ID          int          `json:"id"`
-	FromAddress string       `json:"from_address"`
-	To          []user       `json:"to"`
-	Cc          []user       `json:"cc"`
-	Bcc         []user       `json:"bcc"`
-	Subject     string       `json:"subject"`
-	HTML        string       `json:"html"`
-	Text        string       `json:"text"`
-	Attachments []attachment `json:"attrs"`
+	ID           int              `json:"id"`
+	FromAddress  string           `json:"from_address"`
+	To           []user           `json:"to"`
+	Cc           []user           `json:"cc"`
+	Bcc          []user           `json:"bcc"`
+	Subject      string           `json:"subject"`
+	HTML         string           `json:"html"`
+	Text         string           `json:"text"`
+	Attachments  []attachment     `json:"attrs"`
+	InlineImages []svccompose.Ref `json:"inline_images"`
 }
 
 var (
@@ -107,9 +109,14 @@ func SaveDraft(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		Attachments: json2string(atts),
 	}
 	draft.Sender = json2string(parsemail.User{Name: draft.FromName, EmailAddress: from})
+	if draft.Text.String == "" && draft.Html.String != "" {
+		draft.Text.String = parsemail.HTMLText(draft.Html.String)
+	}
 	draft.TextFormat, _ = parsemail.CodeMetadata(draft.Text.String, draft.Html.String, "")
-	if err := persistDraft(&draft, body.Attachments == nil); err != nil {
-		draftError(ctx, w, err)
+	if err := persistDraft(&draft, body.Attachments == nil, body.InlineImages); err != nil {
+		if !inlineError(ctx, w, err) {
+			draftError(ctx, w, err)
+		}
 		return
 	}
 	response.NewSuccessResponse(struct {
@@ -118,7 +125,11 @@ func SaveDraft(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	}{draft.Id, draft.ISOTimes()}).FPrint(w)
 }
 
-func persistDraft(draft *models.Email, keepAttachments bool) error {
+func persistDraft(draft *models.Email, keepAttachments bool, inline ...[]svccompose.Ref) error {
+	var refs []svccompose.Ref
+	if len(inline) > 0 {
+		refs = inline[0]
+	}
 	creating := draft.Id == 0
 	return db.Transaction(db.Instance, func(tx *xorm.Session) error {
 		if _, err := quota.Lock(tx, draft.SendUserID); err != nil {
@@ -136,6 +147,9 @@ func persistDraft(draft *models.Email, keepAttachments bool) error {
 			}
 			mailstore.Prepare(draft)
 			if _, err := tx.Insert(draft); err != nil {
+				return err
+			}
+			if err := svccompose.SyncDraft(tx, draft.SendUserID, draft.Id, draft.Html.String, refs); err != nil {
 				return err
 			}
 			if err := mailstore.WriteParts(tx, draft, false); err != nil {
@@ -166,6 +180,9 @@ func persistDraft(draft *models.Email, keepAttachments bool) error {
 		mailstore.Prepare(draft)
 		updates := map[string]any{"projection_ready": true, "list_snippet": draft.ListSnippet, "from_address": draft.FromAddress, "from_name": draft.FromName, "sender": draft.Sender, "subject": draft.Subject, "to": draft.To, "cc": draft.Cc, "bcc": draft.Bcc, "text": draft.Text.String, "html": draft.Html.String, "text_format": draft.TextFormat, "attachments": draft.Attachments, "size": draft.Size, "send_date": now}
 		if _, err := tx.Table(&models.Email{}).ID(draft.Id).Where("send_user_id=? AND status=?", draft.SendUserID, consts.EmailStatusDrafts).Update(updates); err != nil {
+			return err
+		}
+		if err := svccompose.SyncDraft(tx, draft.SendUserID, draft.Id, draft.Html.String, refs); err != nil {
 			return err
 		}
 		if !keepAttachments || !stored.ProjectionReady {
@@ -251,6 +268,9 @@ func removeDrafts(owner int, ids []int) error {
 				return err
 			}
 			if deleted > 0 {
+				if err := svccompose.DeleteDraft(tx, id); err != nil {
+					return err
+				}
 				if err := mailstore.DeleteParts(tx, id); err != nil {
 					return err
 				}

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/Jinnrry/pmail/i18n"
+	svccompose "github.com/Jinnrry/pmail/services/compose"
 	"github.com/Jinnrry/pmail/utils/mailbudget"
 	"io"
 	"net/http"
@@ -47,4 +49,12 @@ func mailTooLarge(ctx *context.Context, w http.ResponseWriter) {
 func readComposeJSON(ctx *context.Context, w http.ResponseWriter, r *http.Request, dst any) bool {
 	// Select the compose limit even in direct controller use and tests.
 	return readMailJSONLimit(ctx, w, r, dst, false, mailbudget.JSON())
+}
+
+func inlineError(ctx *context.Context, w http.ResponseWriter, err error) bool {
+	if !errors.Is(err, svccompose.ErrRef) {
+		return false
+	}
+	response.NewErrorResponse(response.ParamsError, i18n.T(ctx, "inline_image_invalid_reference"), map[string]string{"code": "inline_image_invalid_reference"}).FPrintStatus(w, 400)
+	return true
 }

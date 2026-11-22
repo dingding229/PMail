@@ -11,6 +11,7 @@ import (
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
+	svccompose "github.com/Jinnrry/pmail/services/compose"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -23,19 +24,20 @@ import (
 )
 
 type sendRequest struct {
-	DraftID     int          `json:"draft_id"`
-	ReplyTo     []user       `json:"reply_to"`
-	From        user         `json:"from"`
-	FromAddress string       `json:"from_address"`
-	To          []user       `json:"to"`
-	Bcc         []user       `json:"bcc"`
-	Cc          []user       `json:"cc"`
-	Subject     string       `json:"subject"`
-	Text        string       `json:"text"`   // Plaintext message (optional)
-	HTML        string       `json:"html"`   // Html message (optional)
-	Sender      user         `json:"sender"` // override From as SMTP envelope sender (optional)
-	ReadReceipt []string     `json:"read_receipt"`
-	Attachments []attachment `json:"attrs"`
+	DraftID      int              `json:"draft_id"`
+	ReplyTo      []user           `json:"reply_to"`
+	From         user             `json:"from"`
+	FromAddress  string           `json:"from_address"`
+	To           []user           `json:"to"`
+	Bcc          []user           `json:"bcc"`
+	Cc           []user           `json:"cc"`
+	Subject      string           `json:"subject"`
+	Text         string           `json:"text"`   // Plaintext message (optional)
+	HTML         string           `json:"html"`   // Html message (optional)
+	Sender       user             `json:"sender"` // override From as SMTP envelope sender (optional)
+	ReadReceipt  []string         `json:"read_receipt"`
+	Attachments  []attachment     `json:"attrs"`
+	InlineImages []svccompose.Ref `json:"inline_images"`
 }
 
 type user struct {
@@ -153,7 +155,7 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	}
 
 	e.Text = []byte(reqData.Text)
-	e.HTML = []byte(reqData.HTML)
+	e.HTML = []byte(parsemail.SanitizeHTML(reqData.HTML))
 	e.Subject = reqData.Subject
 	if reqData.DraftID != 0 && reqData.Attachments == nil {
 		if savedDraft.Attachments != "" {
@@ -169,6 +171,17 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		e.Attachments = atts
+	}
+
+	if err := svccompose.Apply(req.Context(), ctx.UserID, e, reqData.InlineImages, nil); err != nil {
+		if !inlineError(ctx, w, err) {
+			if stderrors.Is(err, mailbudget.ErrLimit) {
+				mailTooLarge(ctx, w)
+			} else {
+				response.Localized(ctx, response.ServerError, "internal_error").FPrintStatus(w, 500)
+			}
+		}
+		return
 	}
 
 	// Assign the message ID before measuring the final signed bytes so the

@@ -56,6 +56,7 @@ type Attachment struct {
 	Content     []byte
 	ContentID   string
 	Charset     string `json:",omitempty"`
+	Inline      bool   `json:",omitempty"`
 }
 
 // EmailAuthentication 表示收信时的发件人身份认证结果。
@@ -445,7 +446,8 @@ func formatContent(entity *message.Entity, ret *Email, walkErr error, decoded, a
 		return nil
 	}
 	kind, _, _ := mime.ParseMediaType(entity.Header.Get("Content-Disposition"))
-	isAttachment := kind == "attachment"
+	isInline := kind == "inline" && entity.Header.Get("Content-ID") != "" && strings.HasPrefix(contentType, "image/")
+	isAttachment := kind == "attachment" || isInline
 	body, err := mailbudget.Read(entity.Body, int64(min(mailbudget.Part, mailbudget.Message-*decoded)))
 	if errors.Is(err, mailbudget.ErrLimit) {
 		return err
@@ -466,7 +468,7 @@ func formatContent(entity *message.Entity, ret *Email, walkErr error, decoded, a
 			filename = "inline.patch"
 		}
 		ret.Attachments = append(ret.Attachments, &Attachment{Filename: sanitizeText(filename), ContentType: contentType, Content: body, Charset: label,
-			ContentID: strings.Trim(strings.TrimSpace(entity.Header.Get("Content-Id")), "<>")})
+			Inline: isInline, ContentID: strings.Trim(strings.TrimSpace(entity.Header.Get("Content-Id")), "<>")})
 		return nil
 	}
 	if isAttachment {
@@ -819,6 +821,25 @@ func (e *Email) BuildBytes(ctx *context.Context, shouldSign bool) ([]byte, error
 			h.Add(name, value)
 		}
 	}
+	for _, a := range e.Attachments {
+		if a != nil && a.Inline && len(e.HTML) > 0 {
+			raw, err := relatedBytes(e, h)
+			if err != nil {
+				return nil, err
+			}
+			if len(raw) > mailbudget.Message {
+				return nil, mailbudget.ErrLimit
+			}
+			if shouldSign {
+				raw, err = SignBytes(raw, e.From.EmailAddress)
+				if len(raw) > mailbudget.Message {
+					return nil, mailbudget.ErrLimit
+				}
+			}
+			return raw, err
+		}
+	}
+
 	var b bytes.Buffer
 	mw, err := mail.CreateWriter(&b, h)
 	if err != nil {

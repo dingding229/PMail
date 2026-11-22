@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	stderrors "errors"
 	"fmt"
+	htmlstd "html"
 	"net/http"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
+	svccompose "github.com/Jinnrry/pmail/services/compose"
 	"github.com/Jinnrry/pmail/services/detail"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -24,13 +26,14 @@ import (
 )
 
 type forwardRequest struct {
-	EmailID            int      `json:"email_id"`
-	To                 []string `json:"to"`
-	Cc                 []string `json:"cc"`
-	Text               string   `json:"text"`
-	HTML               string   `json:"html"`
-	FromAddress        string   `json:"from_address"`
-	IncludeAttachments *bool    `json:"include_attachments"`
+	EmailID            int              `json:"email_id"`
+	To                 []string         `json:"to"`
+	Cc                 []string         `json:"cc"`
+	Text               string           `json:"text"`
+	HTML               string           `json:"html"`
+	FromAddress        string           `json:"from_address"`
+	IncludeAttachments *bool            `json:"include_attachments"`
+	InlineImages       []svccompose.Ref `json:"inline_images"`
 }
 
 func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
@@ -78,6 +81,16 @@ func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request
 	}
 	orig := parsemail.NewEmailFromModel(original.Email)
 	e := buildForwardEmail(orig, ctx.UserName, fromAddress, to, cc, body.Text, body.HTML, body.IncludeAttachments)
+	if err := svccompose.Apply(req.Context(), ctx.UserID, e, body.InlineImages, orig.Attachments); err != nil {
+		if !inlineError(ctx, w, err) {
+			if stderrors.Is(err, mailbudget.ErrLimit) {
+				mailTooLarge(ctx, w)
+			} else {
+				response.Localized(ctx, response.ServerError, "internal_error").FPrintStatus(w, 500)
+			}
+		}
+		return
+	}
 	e.MsgID = parsemail.GenerateMsgID(fromDomain(fromAddress))
 	raw, buildErr := e.BuildBytes(ctx, true)
 	if buildErr != nil {
@@ -163,6 +176,9 @@ func buildForwardEmail(original *parsemail.Email, name, from string, to, cc []*p
 	includeAttachments := include == nil || *include
 	summary := fmt.Sprintf("---------- Forwarded message ----------\nFrom: %s\nDate: %s\nSubject: %s\nTo: %s\n\n", original.From.Build(), original.Date, original.Subject, original.BuildTo2String())
 	text := extraText
+	if text == "" && extraHTML != "" {
+		text = parsemail.HTMLText(parsemail.SanitizeHTML(extraHTML))
+	}
 	if text != "" {
 		text += "\n\n"
 	}
@@ -171,7 +187,7 @@ func buildForwardEmail(original *parsemail.Email, name, from string, to, cc []*p
 	if html != "" {
 		html += "<br><br>"
 	}
-	html += fmt.Sprintf("<p>---------- Forwarded message ----------<br>From: %s<br>Date: %s<br>Subject: %s<br>To: %s</p>", original.From.Build(), original.Date, original.Subject, original.BuildTo2String())
+	html += fmt.Sprintf("<p>---------- Forwarded message ----------<br>From: %s<br>Date: %s<br>Subject: %s<br>To: %s</p>", htmlstd.EscapeString(original.From.Build()), htmlstd.EscapeString(original.Date), htmlstd.EscapeString(original.Subject), htmlstd.EscapeString(original.BuildTo2String()))
 	html += parsemail.SanitizeHTML(string(original.HTML))
 	ret := &parsemail.Email{From: &parsemail.User{Name: name, EmailAddress: from}, To: to, Cc: cc, Subject: "Fwd: " + original.Subject, Text: []byte(text), HTML: []byte(html)}
 	if includeAttachments {
