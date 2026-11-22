@@ -8,7 +8,7 @@ import (
 )
 
 func GetDomainSettings() (string, string, []string, error) {
-	configData, err := config.ReadConfig()
+	configData, err := config.ReadEffectiveConfig()
 	if err != nil {
 		return "", "", []string{}, errors.Wrap(err)
 	}

@@ -5,7 +5,7 @@
 ## 不兼容变更
 
 1. **默认数据库改为 PostgreSQL 17。** SQLite/MySQL 单文件部署需要导入数据库，不能把旧文件直接挂载成 PostgreSQL 数据卷。
-2. **配置改为环境变量优先。** 根据 [安装说明](../README.md#安装docker-compose) 准备 `.env`。旧 `config.json` 可作配置参考，不要把密码或 `PMAIL_SECRET_KEY` 提交到仓库。
+2. **配置改为环境变量优先。** 根据 [安装说明](../README.md#安装docker-compose) 准备 `.env`。旧 `config.json` 可作配置参考，不要把密码或 `PMAIL_SECRET_KEY` 提交到仓库。现有 v3 Compose 实例迁到 `beta.4` 时，保留显式 `POSTGRES_PASSWORD` 和 `PMAIL_SECRET_KEY`；保留并备份 `secrets`、`pmail_config` 卷。回到不支持密码文件的镜像时也需恢复对应的 Compose 文件。
 3. **旧 Token 格式废弃。** 使用 `/api/token/create` 创建 API Token，通过 `Authorization: Bearer <token>` 使用。兼容的 `Token` 请求头仅接受新生成的 Token，不再支持旧的 MD5 派生凭据。
 4. **密码哈希改为 bcrypt。** 旧 MD5 密码在首次成功认证后自动升级；明文密码不写入日志或前端存储。
 5. **外发改用持久化队列。** 网页、587/465 提交的对外邮件先入队，由队列负责重试；本地收件人仍同步入库。可通过 `/api/queue/list` 核对状态。

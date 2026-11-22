@@ -32,84 +32,57 @@ sudo apt-get update && sudo apt-get install -y ca-certificates curl openssl dnsu
 
 邮件端口默认绑定 `0.0.0.0`；请在云安全组和主机防火墙上限制未使用的端口，不要对公网发布 PostgreSQL `5432`。云服务商如封锁出站 `25`，需向服务商申请解封，改本机防火墙不能代替解封。
 
-### 2. 下载部署文件
+### 2. 下载、填写域名并启动
 
-不需要克隆仓库，不需要 Go、Node.js 或源码。新建目录，只下载这两个文件：
+无需克隆源码或生成密码。将 `example.com` 换成你的**主邮件域名**；网页域名自动为 `mail.example.com`。默认镜像是 `dingding229/pmail-pro:3.0.0-beta.4`，请在这个标签发布后使用。以下命令只用于**全新目录**，不要覆盖已有 `.env`。
 
 ```bash
 mkdir pmail-pro && cd pmail-pro
 ```
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/dingding229/PMail/master/docker-compose.yml &&
-curl -fsSLO https://raw.githubusercontent.com/dingding229/PMail/master/.env.example &&
-(umask 077; cp .env.example .env)
-```
-
-### 3. 写入 `.env` 并选择网页访问方式
-
-镜像默认是 `dingding229/pmail-pro:3.0.0-beta.3`。首次部署需要设置 `PMAIL_DOMAIN`、`PMAIL_WEB_DOMAIN`、`POSTGRES_PASSWORD`、`PMAIL_ADMIN_PASSWORD` 和 `PMAIL_SECRET_KEY`。管理员账号默认是 `admin`，可按需修改。以下命令使用三个不同的随机值，一次写入 `.env`。先替换两处示例域名；**不要在已部署的实例上重新生成这些值**。
-
-```bash
-(
-  set -eu
-  chmod 600 .env
-  pg_password=$(openssl rand -hex 24)
-  admin_password=$(openssl rand -hex 24)
-  secret_key=$(openssl rand -hex 32)
-  sed -i \
-    -e 's/^PMAIL_DOMAIN=.*/PMAIL_DOMAIN=example.com/' \
-    -e 's/^PMAIL_WEB_DOMAIN=.*/PMAIL_WEB_DOMAIN=mail.example.com/' \
-    -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$pg_password/" \
-    -e "s/^PMAIL_ADMIN_PASSWORD=.*/PMAIL_ADMIN_PASSWORD=$admin_password/" \
-    -e "s/^PMAIL_SECRET_KEY=.*/PMAIL_SECRET_KEY=$secret_key/" \
-    .env
-)
-```
-
-把 `.env` 作为机密保管并另存备份。已有数据库卷不会随 `.env` 改密码；更换 `PMAIL_SECRET_KEY` 会影响外部邮箱凭据解密和 SRS。多实例使用不同的 `PMAIL_PROJECT_NAME` 和宿主机端口。**接管已有部署时，先核对其原 Compose 项目名**，设置为同名才能继续使用已有命名卷，不要误用新项目名。
-
-**A：PMail 直接提供公网 HTTPS。** 公网 `80` 必须到达 PMail，以完成 HTTP-01；公网 `443` 用于浏览器访问。宿主机这两个端口不能已被反向代理占用。
-
-```bash
-sed -i \
-  -e 's/^PMAIL_SSL_TYPE=.*/PMAIL_SSL_TYPE=0/' \
-  -e 's/^PMAIL_HTTPS_ENABLED=.*/PMAIL_HTTPS_ENABLED=0/' \
-  -e 's/^PMAIL_WEB_BIND=.*/PMAIL_WEB_BIND=0.0.0.0/' \
-  -e 's/^PMAIL_HOST_HTTP_PORT=.*/PMAIL_HOST_HTTP_PORT=80/' \
-  -e 's/^PMAIL_HOST_HTTPS_PORT=.*/PMAIL_HOST_HTTPS_PORT=443/' \
-  .env
-```
-
-**B：推荐使用外部 NPM。** 两条路线只选其一。公网 `80/443` 由代理使用，PMail 则通过宿主机 `172.17.0.1:8080` 提供反代上游。若 NPM 直接运行在宿主机，把下方的绑定改为 `127.0.0.1`；若 Docker 网桥不是默认地址，先查看 `ip -4 addr show docker0`，填写 NPM 容器可访问的宿主机地址。
-
-```bash
-sed -i \
-  -e 's/^PMAIL_SSL_TYPE=.*/PMAIL_SSL_TYPE=0/' \
-  -e 's/^PMAIL_HTTPS_ENABLED=.*/PMAIL_HTTPS_ENABLED=2/' \
-  -e 's/^PMAIL_WEB_BIND=.*/PMAIL_WEB_BIND=172.17.0.1/' \
-  -e 's/^PMAIL_HOST_HTTP_PORT=.*/PMAIL_HOST_HTTP_PORT=8080/' \
-  -e 's/^PMAIL_HOST_HTTPS_PORT=.*/PMAIL_HOST_HTTPS_PORT=8443/' \
-  .env
-```
-
-B 路线的 `8443` 仅保留端口映射，**容器内并不监听网页 HTTPS**。不要将 `8443` 配为代理上游，不要向公网开放上游端口。配置代理主机的方法见下一节。
-
-### 4. 拉取、启动并登录
-
-```bash
-docker compose pull && docker compose up -d
+curl -fsSLO https://raw.githubusercontent.com/dingding229/PMail/master/docker-compose.yml
 ```
 
 ```bash
-docker compose ps
+(umask 077; printf '%s\n' 'PMAIL_DOMAIN=example.com' > .env)
+```
+
+**B：使用外部反代（默认，推荐）。** PMail 网页只提供 HTTP，上游默认是 `172.17.0.1:8080`；公网 `80/443` 由 NPM 或其他反代负责。NPM 运行在宿主机而非 Docker 时，在 `.env` 增加 `PMAIL_WEB_BIND=127.0.0.1`；网桥不是默认地址时，用 `ip -4 addr show docker0` 查看并填写 NPM 能访问的宿主机地址。不要把内部 `8080` 或预留的 `8443` 暴露到公网，也不要把 `8443` 配作上游。
+
+**A：PMail 直接提供公网 HTTPS（可选）。** 不使用 NPM 时，在启动前只需将下面的覆盖文件另存为 `docker-compose.override.yml`。需要 Docker Compose **2.24.4 或更新版本**。Compose 自动加载它，将网页模式改为 `public` 并绑定 `0.0.0.0:80/443`；不用改 `.env` 里的端口。单独设置 `PMAIL_WEB_MODE=public` 不会切换 Compose 的宿主机端口。确认公网 80、443 可用，且没有被其他服务占用。已经用 `COMPOSE_FILE` 或 `-f` 自定义文件列表时，需要把覆盖文件加进该列表。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dingding229/PMail/master/docker-compose.public.yml -o docker-compose.override.yml
+```
+
+两种方式均用同一条命令启动。Compose 会按需拉取镜像，先完成数据库密码初始化，再启动数据库和 PMail。
+
+```bash
+docker compose up -d
+```
+
+### 3. 查看初始密码并登录
+
+```bash
+docker compose logs pmail | grep '首次管理员账号'
+```
+
+初次创建管理员时会打印 `首次管理员账号：admin，密码：…（请登录后修改）`。如果这行日志已轮转或容器已重建，请读取配置卷里的初始密码文件（显式设置 `PMAIL_ADMIN_PASSWORD` 的部署不生成此文件）：
+
+```bash
+docker compose exec pmail cat /work/config/initial_admin_password
 ```
 
 ```bash
-docker compose logs -f pmail
+docker compose ps -a
 ```
 
-等待 `postgres` 和 `pmail` 都显示 `healthy`。这个状态不代表公网 DNS、邮件端口或证书已就绪；首次证书签发时先查看日志，待证书就绪后再用浏览器打开 `https://mail.example.com/`，不要在公网 HTTP 上输入密码。使用 `.env` 的 `PMAIL_ADMIN_ACCOUNT`、`PMAIL_ADMIN_PASSWORD` 登录，在「管理 → 域名管理」核对主邮件域名，并在「设置 → 地址与别名」确认实际邮箱地址。网页域名不会自动成为收信域名。按 `Ctrl+C` 退出日志跟踪不会停止服务。
+`init-secrets` 应显示正常退出（退出码 `0`），`postgres` 和 `pmail` 应为 `healthy`。这不代表公网 DNS、邮件端口或证书已就绪。可用 `docker compose logs -f pmail` 查看启动和证书签发日志，`Ctrl+C` 仅退出日志跟踪。反代路线先完成下一节，再访问 `https://mail.example.com/`；直连路线等 PMail 签发网页证书后再访问。不要在公网 HTTP 上输入密码。
+
+用管理员账号登录后立即修改初始密码；日志中的旧密码不会更新。可用 `docker compose exec pmail rm -f /work/config/initial_admin_password` 移除已失效的明文文件。限制访问 Docker、日志和备份。在「管理 → 域名管理」核对主邮件域名，在「设置 → 地址与别名」确认实际邮箱地址。网页域名不会自动成为收信域名。
+
+多实例需各用不同的 `PMAIL_PROJECT_NAME` 和宿主机端口。接管已有部署时须保留原项目名、`.env` 和数据卷，不要重新初始化。
 
 ## 反向代理
 
@@ -215,7 +188,7 @@ dig +short -x 203.0.113.10
 
 ### 备份
 
-在改镜像标签或更新部署配置**之前**执行。数据库转储和同一时刻的 `.env` 保存在 `backups/`。另外备份 `pmail_config` 卷中的配置和证书；外部反代及其证书需单独备份。把机密备份加密后保存到另一台机器。
+在改镜像标签或更新部署配置**之前**执行。数据库转储和同一时刻的 `.env` 保存在 `backups/`。同时保存当时使用的 Compose 文件，并备份两个命名卷：`pmail_config`（配置、`secret.key`、DKIM/TLS 密钥等）和 `secrets`（`db_password`）。恢复已有 PostgreSQL 数据卷时必须有匹配的数据库密码，不能删除 `secrets` 让它重新生成。外部反代及其证书需单独备份。把机密备份加密后保存到另一台机器。
 
 ```bash
 (
@@ -226,12 +199,14 @@ dig +short -x 203.0.113.10
   tmp=$(mktemp backups/.pmail-dump.XXXXXXXX)
   trap 'rm -f -- "$tmp"' EXIT
   docker compose exec -T postgres sh -ec \
-    'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_dump -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$tmp"
+    'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "${POSTGRES_PASSWORD_FILE:?}")}" exec pg_dump -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$tmp"
   cp .env "$dump.env"
   mv -- "$tmp" "$dump"
   printf '备份文件：%s\n' "$dump"
 )
 ```
+
+已有使用旧 Compose 的实例可在确认目标镜像支持新配置后更新 Compose 文件，但必须保留旧 `.env` 的 `POSTGRES_PASSWORD` 和 `PMAIL_SECRET_KEY`。首次运行 `init-secrets` 会使用旧密码创建文件，不会修改 PostgreSQL 账号密码；已有文件与显式密码不一致时会报错停止。对只使用新配置的部署，自动生成的密码和密钥不需要再写回 `.env`。
 
 ### 升级与回滚
 
@@ -242,7 +217,11 @@ dig +short -x 203.0.113.10
   set -eu
   read -r -p '已发布的目标镜像标签：' tag
   [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo '镜像标签无效。' >&2; exit 2; }
-  sed -i "s|^PMAIL_IMAGE=.*|PMAIL_IMAGE=dingding229/pmail-pro:$tag|" .env
+  if grep -q '^PMAIL_IMAGE=' .env; then
+    sed -i "s|^PMAIL_IMAGE=.*|PMAIL_IMAGE=dingding229/pmail-pro:$tag|" .env
+  else
+    printf '\nPMAIL_IMAGE=dingding229/pmail-pro:%s\n' "$tag" >> .env
+  fi
   docker compose pull && docker compose up -d
 )
 ```
@@ -255,16 +234,22 @@ dig +short -x 203.0.113.10
   read -r -p '升级前的镜像标签：' tag
   [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo '镜像标签无效。' >&2; exit 2; }
   docker compose stop pmail
-  sed -i "s|^PMAIL_IMAGE=.*|PMAIL_IMAGE=dingding229/pmail-pro:$tag|" .env
-  docker compose pull pmail
+  if grep -q '^PMAIL_IMAGE=' .env; then
+    sed -i "s|^PMAIL_IMAGE=.*|PMAIL_IMAGE=dingding229/pmail-pro:$tag|" .env
+  else
+    printf '\nPMAIL_IMAGE=dingding229/pmail-pro:%s\n' "$tag" >> .env
+  fi
+  docker compose pull pmail init-secrets
 )
 ```
+
+上述回滚命令适用于兼容新 Compose（支持 `init-secrets` 和密码文件）的镜像。若回到 `3.0.0-beta.4` 之前的版本，先恢复该版本的 Compose 文件、配套 `.env` 和凭据；旧版本不能直接使用新 Compose。若旧 `.env` 没有显式数据库密码，取回与数据卷匹配的密码再填入旧配置，不要生成新密码。
 
 如果数据库没有不兼容变更，可执行 `docker compose up -d` 启动旧镜像；否则保持 PMail 停止，先保存当前数据，再按下一节恢复**升级前**的备份并启动。恢复会丢失备份之后的写入。
 
 ### 恢复数据库
 
-准备与目标镜像匹配的转储文件。此操作会停止 PMail、将备份中的对象恢复到目标数据库。SQL 恢复失败时，下面的命令不会继续启动 PMail。
+准备与目标镜像匹配的转储文件。若还原到另一台机器，先用原项目名、`.env`、Compose 文件和备份的 `pmail_config`、`secrets` 恢复环境，再执行下面的数据库恢复。此操作会停止 PMail、将备份中的对象恢复到目标数据库。SQL 恢复失败时，下面的命令不会继续启动 PMail。
 
 ```bash
 (
@@ -274,7 +259,7 @@ dig +short -x 203.0.113.10
   docker compose up -d --wait postgres
   docker compose stop pmail
   docker compose exec -T postgres sh -ec \
-    'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error --no-owner --no-privileges' < "$dump"
+    'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "${POSTGRES_PASSWORD_FILE:?}")}" exec pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error --no-owner --no-privileges' < "$dump"
   docker compose up -d
 )
 ```
@@ -287,7 +272,7 @@ dig +short -x 203.0.113.10
 docker compose down
 ```
 
-只有确认已备份并且要**永久删除本项目数据库和配置卷**时，才执行卸载：
+只有确认已备份并且要**永久删除本项目数据库、配置和凭据卷**时，才执行卸载：
 
 ```bash
 docker compose down -v
@@ -295,22 +280,23 @@ docker compose down -v
 
 ## 配置项
 
-完整模板见 [`.env.example`](.env.example)。已使用的数据库卷不会因为改了初始化选项而重建。
+精简模板见 [`.env.example`](.env.example)。已使用的数据库卷不会因为改了初始化选项而重建。
 
 | 配置项 | 说明 |
 | --- | --- |
-| `PMAIL_IMAGE` | PMail 镜像标签，默认 `dingding229/pmail-pro:3.0.0-beta.3` |
+| `PMAIL_IMAGE` | PMail 镜像标签，默认 `dingding229/pmail-pro:3.0.0-beta.4` |
 | `PMAIL_PROJECT_NAME` | Compose 项目名，默认 `pmail`；决定命名卷所属项目 |
-| `PMAIL_DOMAIN` / `PMAIL_DOMAINS` / `PMAIL_WEB_DOMAIN` | 主邮件域名、逗号分隔的附加收信域名、网页域名 |
-| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | PostgreSQL 初始化数据库、账号、密码 |
-| `PMAIL_DB_TYPE` / `PMAIL_DB_DSN` | 基础 Compose 固定使用 PostgreSQL；可提供自定义连接串，默认连接项目内的 `postgres` |
-| `PMAIL_ADMIN_ACCOUNT` / `PMAIL_ADMIN_PASSWORD` | 首次启动的管理员引导凭据；不会重置已有账号的密码 |
-| `PMAIL_SECRET_KEY` | 外部邮箱凭据的加密密钥、SRS 密钥等；必须长期保存 |
-| `PMAIL_WEB_BIND` / `PMAIL_MAIL_BIND` | 宿主机网页和邮件绑定地址，分别默认 `127.0.0.1` 与 `0.0.0.0` |
+| `PMAIL_DOMAIN` / `PMAIL_DOMAINS` / `PMAIL_WEB_DOMAIN` | 主邮件域名（必填）、逗号分隔的附加收信域名、网页域名（默认 `mail.<主域名>`） |
+| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | 数据库、账号默认 `pmail`；密码默认随机生成到 `secrets` 卷，已有部署可保留显式值 |
+| `PMAIL_DB_TYPE` / `PMAIL_DB_DSN` | 基础 Compose 固定使用 PostgreSQL；显式连接串优先，默认使用 `PMAIL_DB_PASSWORD_FILE` 指向的凭据文件连接项目内的 `postgres:5432` |
+| `PMAIL_ADMIN_ACCOUNT` / `PMAIL_ADMIN_PASSWORD` | 首次启动的管理员账号（默认 `admin`）与密码（默认随机生成）；不会重置已有账号的密码 |
+| `PMAIL_SECRET_KEY` | 外部邮箱凭据的加密密钥、SRS 密钥等；留空时生成 `pmail_config` 卷内的 `secret.key`，必须与数据一并保留 |
+| `PMAIL_WEB_MODE` | `proxy` 默认仅提供网页 HTTP；公网直连使用覆盖文件选择 `public`。两种模式都默认 HTTP-01 申请邮件证书 |
+| `PMAIL_WEB_BIND` / `PMAIL_MAIL_BIND` | 宿主机网页和邮件绑定地址，网页默认 `172.17.0.1`（直连 `0.0.0.0`），邮件默认 `0.0.0.0` |
 | `PMAIL_HTTP_PORT` / `PMAIL_HTTPS_PORT` | 容器内网页监听端口，默认 `80/443` |
-| `PMAIL_HOST_*_PORT` | 宿主机端口映射，接入反代时网页通常改用 `8080/8443` |
-| `PMAIL_SSL_TYPE` | `0` ACME HTTP-01、`1` 自有证书、`2` ACME DNS-01、`3` 禁用 PMail TLS（包括加密邮件端口） |
-| `PMAIL_HTTPS_ENABLED` | `0/1` 启用 PMail 网页 HTTPS，`2` 仅网页 HTTP；模式 `3` 强制仅网页 HTTP |
+| `PMAIL_HOST_*_PORT` | 宿主机端口映射，网页默认 `8080/8443`，直连覆盖为 `80/443` |
+| `PMAIL_SSL_TYPE` | 显式设置优先于网页模式：`0` ACME HTTP-01、`1` 自有证书、`2` ACME DNS-01、`3` 禁用 PMail TLS（包括加密邮件端口） |
+| `PMAIL_HTTPS_ENABLED` | 显式设置优先于网页模式：`0/1` 启用 PMail 网页 HTTPS，`2` 仅网页 HTTP；模式 `3` 强制仅网页 HTTP |
 | `PMAIL_LOG_LEVEL` | `debug`、`info`、`warn` 或 `error` |
 | `PMAIL_SPAM_FILTER_LEVEL` | `0` 至 `3`，分别表示关闭、SPF 与 DKIM 均失败、SPF 失败、DKIM 失败时过滤 |
 | `PMAIL_CATCH_ALL` / `PMAIL_ALLOW_USER_ALIAS` | 未知本地收件人是否交给管理员；是否允许普通用户自助创建别名 |
@@ -323,7 +309,7 @@ docker compose down -v
 - **证书签不出来：** 检查公网 DNS、是否有过时的 AAAA、是否把邮件域名放到了仅支持网页的代理后。A 路线使 PMail 可从公网 `80` 响应 HTTP-01；B 路线检查邮件验证主机及 PMail 日志，不要让 NPM 接管邮件域名的验证路径。
 - **网页无法访问：** 查看 `docker compose ps` 与日志。A 路线核对绑定、证书和 `443`；B 路线核对代理是否能访问 `PMAIL_WEB_BIND:PMAIL_HOST_HTTP_PORT`，不要连 `8443`。
 - **发信进垃圾箱：** 检查 SPF、DKIM、DMARC 对齐、PTR/rDNS 和公网 IP 声誉，参考收件方邮件头定位失败项。
-- **忘记管理员密码：** 如未修改过，可查 `.env` 中的引导密码；否则由另一位可以登录的管理员在「用户管理」重置。修改 `.env` 的引导密码再重启不能重置旧账号。当前没有免登录重置入口，不要通过清空数据库卷来重置。
+- **忘记管理员密码：** 如未修改过，可查初始密码文件（显式设过密码则查 `.env`）；否则由另一位可以登录的管理员在「用户管理」重置。修改 `.env` 的引导密码再重启不能重置旧账号。当前没有免登录重置入口，不要通过清空数据库卷来重置。
 - **外部邮箱收取异常：** 看账户的 `last_error`，检查服务商授权码、TLS 模式及私网访问限制。
 
 ## 从源码构建与开发
@@ -331,7 +317,9 @@ docker compose down -v
 仅开发和自定义镜像需要完整源码。在**源码根目录**准备一份按安装说明填写的 `.env`，不要提交该文件。基础 Compose 文件没有构建段；加载构建覆盖文件，并给本地镜像使用独立标签：
 
 ```bash
-PMAIL_IMAGE=pmail-dev:local docker compose -f docker-compose.yml -f docker-compose.build.yml build pmail
+# 确保 .env 尚未设置 PMAIL_IMAGE；已有该项时直接修改其值。
+printf '\nPMAIL_IMAGE=pmail-dev:local\n' >> .env
+docker compose -f docker-compose.yml -f docker-compose.build.yml build pmail
 ```
 
 CI 的[工作流](.github/workflows/ci.yml)分别检查前后端、执行 Go 的常规与集成测试。在 `server/` 目录使用 `go test -tags integration ./...` 运行集成测试；需要能绑定固定邮件端口的权限和独立、空白的 PostgreSQL 测试库（`PMAIL_TEST_PG_DSN`），该库账号还须能建 schema。可选的 MySQL 主程序集成测试用 `PMAIL_TEST_MYSQL_DSN` 与 `go test -tags integration . -args mysql`，不要使用生产库。

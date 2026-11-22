@@ -148,7 +148,7 @@ type DataItem struct {
 func (w *WeChatPushHook) sendUserMsg(ctx *context.Context, userId string, content string) {
 
 	url := w.mainConfig.WebDomain
-	if w.mainConfig.HttpsEnabled > 1 {
+	if w.mainConfig.HttpsEnabled > 1 && os.Getenv("PMAIL_WEB_MODE") != "proxy" {
 		url = "http://" + url
 	} else {
 		url = "https://" + url
@@ -176,23 +176,21 @@ type Config struct {
 }
 
 func NewWechatPushHook() *WeChatPushHook {
-
-	var cfgData []byte
-	var err error
-
-	cfgData, err = os.ReadFile("./config/config.json")
+	// The hook binary lives in plugins/, but its working directory is the
+	// PMail root, where it previously read ./config/config.json directly.
+	root, err := os.Getwd()
 	if err != nil {
 		panic(err)
 	}
-	var mainConfig *config.Config
-	err = json.Unmarshal(cfgData, &mainConfig)
+	config.ROOT_PATH = root
+	mainConfig, err := config.ReadEffectiveConfig()
 	if err != nil {
 		panic(err)
 	}
 
 	var pluginConfig *Config
 	if _, err := os.Stat("./plugins/wechat_push_config.json"); err == nil {
-		cfgData, err = os.ReadFile("./plugins/wechat_push_config.json")
+		cfgData, err := os.ReadFile("./plugins/wechat_push_config.json")
 		if err != nil {
 			panic(err)
 		}

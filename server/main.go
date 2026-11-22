@@ -20,6 +20,17 @@ var (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "init-secrets" {
+		if len(os.Args) != 3 || os.Args[2] == "" {
+			fmt.Fprintln(os.Stderr, "usage: pmail init-secrets <db-password-file>")
+			os.Exit(2)
+		}
+		if err := config.InitDatabasePassword(os.Args[2], os.Getenv("POSTGRES_PASSWORD")); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if len(os.Args) > 1 && os.Args[1] == "migrate" {
 		if err := migration.Run(os.Args[2:]); err != nil {

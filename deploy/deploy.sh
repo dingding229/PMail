@@ -48,7 +48,7 @@ usage() {
   --admin-account <name>       管理员账号
   --admin-password <password>  管理员密码
   --purge                      uninstall 时删除数据卷
-  --fill-missing               init 时只补齐 .env 中的空密钥/密码
+  --fill-missing               init 时补齐镜像选项，保留现有凭据配置
   --version <tag>              upgrade 使用的镜像 tag（预构建镜像模式）
                                也可设置 UPGRADE_VERSION，--version 优先；默认 latest
   --old-config <dir>           旧版 config/ 目录，用于迁移域名和 DKIM
@@ -132,8 +132,7 @@ load_project() {
     configured_image="$(sed -n 's/^PMAIL_IMAGE=//p' "$env_file" | tail -n 1)"
     env_image="${PMAIL_IMAGE:-}"
     if [[ -z "$configured_image" ]]; then
-        configured_image="${env_image:-pmail-${project_name}:local}"
-        set_env_value PMAIL_IMAGE "$configured_image"
+        configured_image="${env_image:-dingding229/pmail-pro:3.0.0-beta.4}"
     fi
     export PMAIL_IMAGE="$configured_image"
 }
@@ -173,8 +172,14 @@ compose() {
         # retaining any file list and path separator configured for this project.
         local compose_env files separator
         compose_env="$("${cmd[@]}" config --environment)" || return
-        files="$(compose_env_value COMPOSE_FILE docker-compose.yml <<< "$compose_env")"
+        files="$(compose_env_value COMPOSE_FILE '' <<< "$compose_env")"
         separator="$(compose_env_value COMPOSE_PATH_SEPARATOR : <<< "$compose_env")"
+        if [[ -z "$files" ]]; then
+            files=docker-compose.yml
+            if [[ -f "$root_dir/docker-compose.override.yml" ]]; then
+                files="${files}${separator}docker-compose.override.yml"
+            fi
+        fi
         COMPOSE_FILE="${files}${separator}docker-compose.build.yml" "${cmd[@]}" "$@"
     else
         "${cmd[@]}" "$@"
@@ -214,10 +219,7 @@ init_env() {
             return 0
         fi
         [[ -n "$(sed -n 's/^PMAIL_IMAGE=//p' "$env_file" | tail -n 1)" ]] || set_env_value PMAIL_IMAGE "${PMAIL_IMAGE:-pmail-${project_name}:local}"
-        [[ -n "$(sed -n 's/^POSTGRES_PASSWORD=//p' "$env_file")" ]] || set_env_value POSTGRES_PASSWORD "$(random_hex 24)"
-        [[ -n "$(sed -n 's/^PMAIL_SECRET_KEY=//p' "$env_file")" ]] || set_env_value PMAIL_SECRET_KEY "$(random_hex 32)"
-        [[ -n "$(sed -n 's/^PMAIL_ADMIN_PASSWORD=//p' "$env_file")" ]] || set_env_value PMAIL_ADMIN_PASSWORD "$(random_hex 24)"
-        echo "已补齐 .env 中的空密码/密钥。"
+        echo "保留现有密码和密钥配置；未显式设置的凭据继续由数据卷管理。"
         return 0
     fi
     local domain domains web_domain ssl_type web_bind https_enabled=2 admin_account admin_password db_password secret_key value
@@ -234,8 +236,8 @@ init_env() {
         domain="${value:-${domain:-example.com}}"
         read -r -p "附加域名（逗号分隔，可留空） [$domains]: " value
         domains="${value:-$domains}"
-        read -r -p "Web 域名 [${web_domain:-$domain}]: " value
-        web_domain="${value:-${web_domain:-$domain}}"
+        read -r -p "Web 域名 [${web_domain:-mail.$domain}]: " value
+        web_domain="${value:-${web_domain:-mail.$domain}}"
         read -r -p "证书模式 0=ACME HTTP-01, 1=自有证书, 2=ACME DNS-01, 3=反代仅 HTTP [$ssl_type]: " value
         ssl_type="${value:-$ssl_type}"
         if [[ "$INIT_REVERSE_PROXY" != true ]]; then
@@ -267,7 +269,7 @@ init_env() {
         web_http_port="${INIT_WEB_PORT:-8080}"
         web_https_port=8443
         ssl_type=0
-        web_domain="${web_domain:-$domain}"
+        web_domain="${web_domain:-mail.$domain}"
         valid_ipv4 "$web_bind" || { echo "--web-bind 必须是有效的 IPv4 地址。" >&2; return 2; }
         if ! valid_port "$web_http_port" || [[ "$web_http_port" == 80 || "$web_http_port" == 443 || "$web_http_port" == "$web_https_port" ]]; then
             echo "--web-port 必须是 1–65535 中的有效端口，且不能与 80、443 或 8443 冲突。" >&2
@@ -282,6 +284,7 @@ init_env() {
             https_enabled=0
         fi
     fi
+    web_domain="${web_domain:-mail.$domain}"
     db_password="$(random_hex 24)"
     secret_key="$(random_hex 32)"
     [[ -n "$admin_password" ]] || admin_password="$(random_hex 24)"
@@ -333,20 +336,17 @@ check() {
     command -v docker >/dev/null || { echo "缺少 docker。" >&2; exit 1; }
     docker version >/dev/null
     docker compose version >/dev/null
-    compose config --quiet
-    local compose_env web_bind setting port
-    compose_env="$(compose config --environment)"
-    web_bind="$(compose_env_value PMAIL_WEB_BIND 127.0.0.1 <<< "$compose_env")"
-    if [[ "$web_bind" == 172.17.0.1 ]]; then
+    local rendered port
+    rendered="$(compose config)" || return
+    if grep -Eq '^[[:space:]]+host_ip: "?172\.17\.0\.1"?$' <<< "$rendered"; then
         check_default_bridge_bind || return 1
     fi
     if command -v ss >/dev/null; then
-        for setting in SMTP:25 SMTPS:465 SUBMISSION:587 POP3:110 POP3S:995 IMAP:143 IMAPS:993 HTTP:80 HTTPS:443; do
-            port="$(compose_env_value "PMAIL_HOST_${setting%:*}_PORT" "${setting#*:}" <<< "$compose_env")"
+        while IFS= read -r port; do
             if valid_port "$port" && ss -H -ltn "sport = :$port" | grep . >/dev/null; then
                 echo "端口 $port 已被占用（可能是本项目容器）。"
             fi
-        done
+        done < <(sed -nE 's/^[[:space:]]+published: "?([0-9]+)"?$/\1/p' <<< "$rendered")
     else
         echo "提示：未安装 ss，无法检查宿主机端口占用；请安装 iproute2。"
     fi
@@ -360,9 +360,6 @@ check() {
     else
         echo "提示：未安装 nc，跳过 25 端口出站探测。"
     fi
-    grep -q '^PMAIL_DOMAIN=.' "$env_file" || { echo "PMAIL_DOMAIN 未配置。" >&2; exit 1; }
-    grep -q '^POSTGRES_PASSWORD=.' "$env_file" || { echo "POSTGRES_PASSWORD 未配置。" >&2; exit 1; }
-    grep -q '^PMAIL_SECRET_KEY=.' "$env_file" || { echo "PMAIL_SECRET_KEY 未配置。" >&2; exit 1; }
     echo "部署前检查通过。"
 }
 
@@ -419,10 +416,23 @@ verify_running() {
     fi
 }
 
+exec_postgres() {
+    # shellcheck disable=SC2016
+    compose exec -T postgres sh -ec '
+        if [ -n "${POSTGRES_PASSWORD_FILE:-}" ]; then
+            PGPASSWORD="$(cat "$POSTGRES_PASSWORD_FILE")"
+        else
+            PGPASSWORD="${POSTGRES_PASSWORD:?}"
+        fi
+        export PGPASSWORD
+        exec "$@"
+    ' sh "$@"
+}
+
 restore_database() {
     local file="$1" restore_rc
     # shellcheck disable=SC2016
-    if compose exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error --no-owner --no-privileges' < "$file"; then
+    if exec_postgres sh -ec 'exec pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error --no-owner --no-privileges' < "$file"; then
         return 0
     else
         restore_rc=$?
@@ -460,7 +470,7 @@ backup() (
     tmp="$(mktemp "$dir/.${project_name}-${stamp}.XXXXXXXX")"
     trap 'rm -f -- "$tmp"' EXIT
     # shellcheck disable=SC2016
-    compose exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_dump -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' > "$tmp"
+    exec_postgres sh -ec 'exec pg_dump -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' > "$tmp"
     mv -- "$tmp" "$file"
     trap - EXIT
     echo "备份完成：$file"
@@ -499,7 +509,7 @@ up() {
     local image
     image="${PMAIL_IMAGE:-pmail-${project_name}:local}"
     if is_registry_image "$image"; then
-        compose pull pmail
+        compose pull pmail init-secrets
     else
         compose build pmail
     fi
@@ -520,7 +530,7 @@ upgrade() {
         version="${UPGRADE_VERSION:-latest}"
         image="$repo:$version"
         set_env_value PMAIL_IMAGE "$image"
-        if ! compose pull pmail || ! compose up -d --wait || ! verify_running; then
+        if ! compose pull pmail init-secrets || ! compose up -d --wait || ! verify_running; then
             echo "预构建镜像升级失败，恢复旧 tag 和数据库备份。" >&2
             rollback_upgrade "$previous" "$backup_file"
             return 1
@@ -561,8 +571,14 @@ print("{}\t{}".format(value.get("errorNo", 0), value.get("errorMsg", "")))
 
 dns() {
     local base token domains domain_rows formatter id name dns_json response_file http_code error_no error_msg
-    load_project
-    base="${PMAIL_API_URL:-http://127.0.0.1:${PMAIL_HOST_HTTP_PORT:-80}}"
+    local compose_env port binding
+    base="${PMAIL_API_URL:-}"
+    if [[ -z "$base" ]]; then
+        compose_env="$(compose config --environment)" || return
+        port="$(compose_env_value PMAIL_HTTP_PORT 80 <<< "$compose_env")"
+        binding="$(compose port pmail "$port")" || return
+        base="http://${binding/#0.0.0.0:/127.0.0.1:}"
+    fi
     token="${PMAIL_API_TOKEN:-}"
     [[ -n "$token" ]] || { echo "请设置 PMAIL_API_TOKEN 后重试；Token 只在内存中使用。" >&2; exit 2; }
     command -v curl >/dev/null || { echo "缺少 curl。" >&2; exit 1; }
@@ -741,7 +757,7 @@ uninstall() {
     compose down
     if [[ "$PURGE" == true ]]; then
         if [[ "$YES" != true ]]; then
-            read -r -p "确认删除项目数据卷（pg_data、pmail_config），数据不可恢复？[y/N]: " value
+            read -r -p "确认删除项目数据卷（pg_data、pmail_config、secrets），数据不可恢复？[y/N]: " value
             [[ "$value" =~ ^[Yy]$ ]] || exit 0
         fi
         compose down -v

@@ -1,6 +1,9 @@
-# 仅供有源码的部署或开发环境显式加载。
+# 仅供有源码的部署或开发环境显式加载。两个服务共用 pmail 构建的镜像。
+x-pmail-image: &pmail-image ${PMAIL_IMAGE:-pmail-${PMAIL_PROJECT_NAME:-pmail}:local}
 services:
   pmail:
-    image: ${PMAIL_IMAGE:-pmail-${PMAIL_PROJECT_NAME:-pmail}:local}
+    image: *pmail-image
     build:
       context: .
+  init-secrets:
+    image: *pmail-image

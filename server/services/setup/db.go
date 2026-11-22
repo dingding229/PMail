@@ -1,6 +1,8 @@
 package setup
 
 import (
+	"fmt"
+
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
@@ -94,25 +96,8 @@ func SetDatabaseSettings(ctx *context.Context, dbType, dbDSN string) error {
 // AutoInitialize creates the configured admin if absent and marks this config as initialized.
 // The caller has already opened and initialized the database.
 func AutoInitialize(account, rawPassword string) error {
-	var existing models.User
-	found, err := db.Instance.Where("account = ?", account).Get(&existing)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-	if !found {
-		hash, err := password.Hash(rawPassword)
-		if err != nil {
-			return err
-		}
-		_, err = db.Instance.Insert(&models.User{
-			Account:  account,
-			Name:     "admin",
-			Password: hash,
-			IsAdmin:  1,
-		})
-		if err != nil {
-			return errors.Wrap(err)
-		}
+	if err := ensureBootstrapAdmin(account, rawPassword); err != nil {
+		return err
 	}
 	if _, err := auth.EnsureDKIM(config.Instance.DkimPrivateKeyPath); err != nil {
 		return errors.Wrap(err)
@@ -124,5 +109,40 @@ func AutoInitialize(account, rawPassword string) error {
 	}
 	config.Instance.IsInit = true
 	config.IsInit = true
+	return nil
+}
+
+func ensureBootstrapAdmin(account, rawPassword string) error {
+	var existing models.User
+	found, err := db.Instance.Where("account = ?", account).Get(&existing)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+	if found {
+		return nil
+	}
+	automatic := rawPassword == ""
+	if automatic {
+		rawPassword, err = config.InitialAdminPassword()
+		if err != nil {
+			return err
+		}
+	}
+	hash, err := password.Hash(rawPassword)
+	if err != nil {
+		return err
+	}
+	if _, err := db.Instance.Insert(&models.User{
+		Account:  account,
+		Name:     "admin",
+		Password: hash,
+		IsAdmin:  1,
+	}); err != nil {
+		return errors.Wrap(err)
+	}
+	if automatic {
+		// This one-time notice must also be visible at warn/error log levels.
+		fmt.Printf("首次管理员账号：%s，密码：%s（请登录后修改）\n", account, rawPassword)
+	}
 	return nil
 }

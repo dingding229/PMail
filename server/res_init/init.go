@@ -31,9 +31,6 @@ import (
 
 func Init(serverVersion string) {
 	account, password, bootstrap := config.BootstrapCredentials()
-	if !config.IsInit && bootstrap && password == "" {
-		log.Fatal("PMAIL_ADMIN_PASSWORD is required for first-time headless initialization; set it before starting PMail")
-	}
 	if !config.IsInit && !bootstrap {
 		go http_server.SetupStart()
 		<-signal.InitChan

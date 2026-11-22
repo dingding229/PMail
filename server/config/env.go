@@ -1,8 +1,6 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,9 +14,17 @@ func ReadEffectiveConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	mode := os.Getenv("PMAIL_WEB_MODE")
+	// Preserve settings from a legacy standalone config unless a mode was
+	// requested. Compose always supplies its selected mode.
+	if mode != "" || cfg.Domain == "" {
+		if err := applyWebMode(cfg, mode); err != nil {
+			return nil, err
+		}
+	}
 	for name, dst := range map[string]*string{
-		"PMAIL_DB_TYPE": &cfg.DbType, "PMAIL_DB_DSN": &cfg.DbDSN,
-		"PMAIL_DOMAIN": &cfg.Domain, "PMAIL_WEB_DOMAIN": &cfg.WebDomain,
+		"PMAIL_DB_TYPE": &cfg.DbType,
+		"PMAIL_DOMAIN":  &cfg.Domain, "PMAIL_WEB_DOMAIN": &cfg.WebDomain,
 		"PMAIL_SSL_TYPE": &cfg.SSLType, "PMAIL_LOG_LEVEL": &cfg.LogLevel,
 	} {
 		if value, ok := os.LookupEnv(name); ok && value != "" {
@@ -35,6 +41,14 @@ func ReadEffectiveConfig() (*Config, error) {
 	if !slices.Contains(DBTypes, cfg.DbType) {
 		return nil, fmt.Errorf("database type must be postgres, sqlite or mysql")
 	}
+	if dsn := os.Getenv("PMAIL_DB_DSN"); dsn != "" {
+		cfg.DbDSN = dsn
+	} else if path := os.Getenv("PMAIL_DB_PASSWORD_FILE"); path != "" && cfg.DbType == DBTypePostgres {
+		cfg.DbDSN, err = postgresDSN(path)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if domains, ok := os.LookupEnv("PMAIL_DOMAINS"); ok {
 		cfg.Domains = strings.Split(domains, ",")
 	}
@@ -48,7 +62,7 @@ func ReadEffectiveConfig() (*Config, error) {
 	}
 	cfg.Domains = domains
 	if cfg.WebDomain == "" && cfg.Domain != "" {
-		cfg.WebDomain = cfg.Domain
+		cfg.WebDomain = "mail." + cfg.Domain
 	}
 	for _, setting := range []struct {
 		name string
@@ -91,11 +105,26 @@ func ReadEffectiveConfig() (*Config, error) {
 	return cfg, nil
 }
 
+func applyWebMode(cfg *Config, mode string) error {
+	switch mode {
+	case "", "proxy":
+		cfg.HttpsEnabled = 2
+	case "public":
+		cfg.HttpsEnabled = 0
+	default:
+		return fmt.Errorf("PMAIL_WEB_MODE must be proxy or public")
+	}
+	cfg.SSLType = SSLTypeAutoHTTP
+	return nil
+}
+
 func BootstrapCredentials() (account, password string, ok bool) {
 	account = strings.TrimSpace(os.Getenv("PMAIL_ADMIN_ACCOUNT"))
+	if account == "" {
+		account = "admin"
+	}
 	password = os.Getenv("PMAIL_ADMIN_PASSWORD")
-	ok = account != "" && os.Getenv("PMAIL_DB_TYPE") != "" &&
-		os.Getenv("PMAIL_DB_DSN") != "" && strings.TrimSpace(os.Getenv("PMAIL_DOMAIN")) != ""
+	ok = Instance.DbDSN != "" && strings.TrimSpace(os.Getenv("PMAIL_DOMAIN")) != ""
 	return
 }
 
@@ -103,48 +132,13 @@ func loadSecretKey() (string, error) {
 	if key := os.Getenv("PMAIL_SECRET_KEY"); key != "" {
 		return key, nil
 	}
-	path := filepath.Join(ROOT_PATH, "config", "secret.key")
-	read := func() (string, error) {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return "", err
-		}
-		key := strings.TrimSpace(string(data))
-		if key == "" {
-			return "", fmt.Errorf("PMail secret.key is empty; restore it or configure PMAIL_SECRET_KEY")
-		}
-		return key, nil
-	}
-	key, err := read()
-	if !os.IsNotExist(err) {
-		return key, err
-	}
-	keyBytes := make([]byte, 32)
-	if _, err := rand.Read(keyBytes); err != nil {
-		return "", err
-	}
-	key = hex.EncodeToString(keyBytes)
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return "", err
-	}
-	// Link a fully written file into place without replacing a key created by another process.
-	file, err := os.CreateTemp(filepath.Dir(path), ".pmail-secret-*")
+	key, err := loadOrCreateSecret(filepath.Join(ROOT_PATH, "config", "secret.key"), "", 32)
 	if err != nil {
 		return "", err
 	}
-	defer os.Remove(file.Name())
-	_, writeErr := file.WriteString(key + "\n")
-	closeErr := file.Close()
-	if writeErr != nil {
-		return "", writeErr
-	}
-	if closeErr != nil {
-		return "", closeErr
-	}
-	if err := os.Link(file.Name(), path); os.IsExist(err) {
-		return read()
-	} else if err != nil {
-		return "", err
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", fmt.Errorf("PMail secret.key is empty; restore it or configure PMAIL_SECRET_KEY")
 	}
 	return key, nil
 }
