@@ -1,6 +1,6 @@
 # 可另存为 docker-compose.override.yml，由 Compose 自动加载。
 # !override 需要 Docker Compose 2.24.4 或更新版本。
-# 固定版本：在 .env 设置 PMAIL_IMAGE=dingding229/pmail-pro:v0.0.1。
+# 固定版本：在 .env 设置 PMAIL_IMAGE 和 PMAIL_UPDATER_IMAGE 的 v0.0.1 标签。
 services:
   init-secrets:
     image: ${PMAIL_IMAGE:-dingding229/pmail-pro:latest}
@@ -18,3 +18,9 @@ services:
       - "${PMAIL_MAIL_BIND:-0.0.0.0}:${PMAIL_HOST_IMAPS_PORT:-993}:993"
       - "${PMAIL_WEB_BIND:-0.0.0.0}:${PMAIL_HOST_HTTP_PORT:-80}:${PMAIL_HTTP_PORT:-80}"
       - "${PMAIL_WEB_BIND:-0.0.0.0}:${PMAIL_HOST_HTTPS_PORT:-443}:${PMAIL_HTTPS_PORT:-443}"
+  updater:
+    image: ${PMAIL_UPDATER_IMAGE:-dingding229/pmail-pro-updater:latest}
+    profiles: ["updater"]
+    environment:
+      PMAIL_UPDATER_PUBLIC: "1"
+    # 私有网络、Docker socket、./:/project:ro 和状态卷继承自 docker-compose.yml。

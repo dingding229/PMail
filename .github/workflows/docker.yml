@@ -1,6 +1,6 @@
 name: PMail Pro Docker image
 
-# Only release tags publish to Docker Hub. DOCKERHUB_TOKEN needs repository write access.
+# Only release tags publish to Docker Hub. DOCKERHUB_TOKEN needs write access to both repositories.
 # DOCKERHUB_USERNAME is optional (defaults to dingding229).
 on:
   push:
@@ -16,6 +16,7 @@ concurrency:
 
 env:
   IMAGE: dingding229/pmail-pro
+  UPDATER_IMAGE: dingding229/pmail-pro-updater
 
 jobs:
   frontend:
@@ -65,7 +66,8 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME || 'dingding229' }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - name: Publish PMail Pro
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -81,3 +83,19 @@ jobs:
             GITHASH=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Publish PMail Pro updater
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.updater
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.UPDATER_IMAGE }}:latest
+            ${{ env.UPDATER_IMAGE }}:v${{ needs.frontend.outputs.version }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.frontend.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=pmail-updater
+          cache-to: type=gha,mode=max,scope=pmail-updater

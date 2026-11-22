@@ -2,7 +2,7 @@
 
 ![版本 0.0.1](https://img.shields.io/badge/PMail%20Pro-0.0.1-2563eb)
 
-PMail Pro 是 [Jinnrry/PMail](https://github.com/Jinnrry/PMail) 的增强分支，是一套可自托管的邮件服务。发布镜像位于 Docker Hub：`dingding229/pmail-pro`。
+PMail Pro 是 [Jinnrry/PMail](https://github.com/Jinnrry/PMail) 的增强分支，是一套可自托管的邮件服务。发布镜像位于 Docker Hub：`dingding229/pmail-pro`，可选更新器为 `dingding229/pmail-pro-updater`。
 
 ## 功能
 
@@ -344,11 +344,13 @@ docker compose down -v
 # 确保 .env 尚未设置 PMAIL_IMAGE；已有该项时直接修改其值。
 printf '\nPMAIL_IMAGE=pmail-dev:local\n' >> .env
 docker compose -f docker-compose.yml -f docker-compose.build.yml build pmail
+# 可选：有源码时单独构建更新器。发布版用户无需执行。
+docker compose -f docker-compose.yml -f docker-compose.build.yml --profile updater build updater
 ```
 
 CI 的[工作流](.github/workflows/ci.yml)分别检查前后端、执行 Go 的常规与集成测试。在 `server/` 目录使用 `go test -tags integration ./...` 运行集成测试；需要能绑定固定邮件端口的权限和独立、空白的 PostgreSQL 测试库（`PMAIL_TEST_PG_DSN`），该库账号还须能建 schema。可选的 MySQL 主程序集成测试用 `PMAIL_TEST_MYSQL_DSN` 与 `go test -tags integration . -args mysql`，不要使用生产库。
 
-[镜像发布工作流](.github/workflows/docker.yml)构建 `linux/amd64` 和 `linux/arm64` 并推送到 Docker Hub：需配置有 `dingding229/pmail-pro` 写入权限的密钥 `DOCKERHUB_TOKEN`，若使用其他有写入权限的账号，再设置 `DOCKERHUB_USERNAME`（默认 `dingding229`）。仅与源码版本一致的 `v0.x.y` Git 标签触发发布，同时推送对应的 `v0.x.y` 和 `latest` 镜像标签。
+[镜像发布工作流](.github/workflows/docker.yml)构建 `linux/amd64` 和 `linux/arm64` 并推送到 Docker Hub：需配置有 `dingding229/pmail-pro` 与 `dingding229/pmail-pro-updater` 两个仓库写入权限的密钥 `DOCKERHUB_TOKEN`，若使用其他有写入权限的账号，再设置 `DOCKERHUB_USERNAME`（默认 `dingding229`）。仅与源码版本一致的 `v0.x.y` Git 标签触发发布，同时推送对应的 `v0.x.y` 和 `latest` 镜像标签。
 
 ### Web 前端与 API
 
@@ -391,20 +393,21 @@ Vite 在 `http://localhost:5173` 提供页面，将 `/api`（包括附件）代�
 | `PMAIL_PUBLIC_URL` | 可选，构建 “打开邮箱” 链接的公共 Web 地址。 |
 | `PMAIL_UPDATE_CHECK` | 设为 `0` 不对 GitHub 发起更新检查；默认每六小时检查。 |
 | `PMAIL_UPDATER_ENABLED` / `PMAIL_UPDATER_TOKEN` | 在线更新器开关与内部 HTTP 令牌，默认关闭。 |
+| `PMAIL_UPDATER_IMAGE` | 更新器镜像，默认 `dingding229/pmail-pro-updater:latest`。固定部署时可改为与主镜像一致的 `v0.0.1`。 |
 
 ### 可选在线更新器
 
-手动更新仍可用：`docker compose pull`，然后 `docker compose up -d`。如希望在管理后台更新，先备份数据库与配置；在含本仓库源码的标准 Compose 部署目录使用以下配置。需要包含 `Dockerfile.updater` 和 `server/cmd/pmail-updater/`，只下载主 Compose 文件不足以构建 sidecar。
+手动更新仍可用：`docker compose pull`，然后 `docker compose up -d`。在线更新器默认不启用。发布镜像可用后，标准部署目录只需要 `docker-compose.yml` 和 `.env`，**无需克隆源码或本地构建**。先备份数据库与配置，再用 `openssl rand -hex 32` 生成随机令牌，加入 `.env`（不要提交或公开）：
 
 ```dotenv
 PMAIL_UPDATER_ENABLED=1
-PMAIL_UPDATER_TOKEN=<至少 32 字符的随机私密令牌>
+PMAIL_UPDATER_TOKEN=<粘贴生成的随机令牌>
 ```
 
 ```bash
-# 生成令牌后填入 .env，不提交到仓库
-openssl rand -hex 32
-docker compose --profile updater up -d --build updater pmail
+docker compose --profile updater up -d
 ```
 
-sidecar 没有宿主机端口，只在私有网络接受受令牌保护的请求。它使用同一 Compose 项目和标准部署文件，只拉取、重建 `pmail` 服务；不会自动切换固定镜像标签。不支持依赖自定义 Compose 文件列表或相对宿主机绑定路径的部署，这些安装应继续手动更新。**挂载 Docker socket 等价于给 sidecar 宿主机级权限**，内部网络与令牌不能削弱这一点；仅在信任 sidecar、镜像和宿主机 Compose 文件时启用。PMail 主服务不挂 socket。设置 `PMAIL_UPDATER_ENABLED=0` 并停止 `updater` 可关闭该功能。
+公网直连 HTTPS 的安装仍需要主 Compose 文件。将 `docker-compose.public.yml` 保存为同一目录的 `docker-compose.override.yml`，然后执行上面的启动命令；如果保留原文件名，可以使用 `docker compose -f docker-compose.yml -f docker-compose.public.yml --profile updater up -d`。二者择一，避免同时保留内容不一致的两个公网覆盖文件。Sidecar 的 `./:/project:ro` 只需读取上述 Compose 文件和 `.env`；不会读取源码。只下载 `docker-compose.public.yml` 或依赖自定义文件列表、外部 env 文件、相对宿主机绑定路径的部署不受支持，请用标准文件布局或手动更新。
+
+Sidecar 没有宿主机端口，只在私有网络接受受令牌保护的请求。它只拉取、重建同一 Compose 项目的 `pmail` 服务，不自动切换固定镜像标签。**挂载 Docker socket 等价于给 sidecar 宿主机级权限**，内部网络与令牌不能削弱这一点；仅在信任 sidecar 镜像和宿主机 Compose 文件时启用。PMail 主服务不挂 socket。设置 `PMAIL_UPDATER_ENABLED=0` 并停止 `updater` 可关闭该功能。

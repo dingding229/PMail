@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -61,4 +63,45 @@ func TestOnlyFixedPMailCommandsAndDurableJob(t *testing.T) {
 	if j, _ := s.read(id); j.State != "failed" {
 		t.Fatalf("interrupted job=%+v", j)
 	}
+}
+
+func TestComposeConfigArgsPublicDeployment(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "docker-compose.yml")
+	envFile := filepath.Join(root, ".env")
+	alias := filepath.Join(root, "docker-compose.override.yml")
+	named := filepath.Join(root, "docker-compose.public.yml")
+	write := func(name, contents string) {
+		t.Helper()
+		if err := os.WriteFile(name, []byte(contents), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(base, "services: {}\n")
+	write(envFile, "PMAIL_DOMAIN=example.test\n")
+	want := []string{"compose", "--project-name", "fixture", "--project-directory", root, "-f", base, "--env-file", envFile}
+	check := func(public bool, expected []string) {
+		t.Helper()
+		got, err := composeConfigArgs(root, "fixture", public)
+		if err != nil || !reflect.DeepEqual(got, expected) {
+			t.Fatalf("public=%t args=%v want %v err=%v", public, got, expected, err)
+		}
+	}
+	check(false, want)
+	if _, err := composeConfigArgs(root, "fixture", true); err == nil {
+		t.Fatal("must not fall back to proxy ports")
+	}
+	write(named, "# public\n")
+	check(false, want)
+	check(true, append(append([]string(nil), want...), "-f", named))
+	write(alias, "# public\n")
+	check(true, append(append([]string(nil), want...), "-f", alias))
+	write(alias, "# different\n")
+	if _, err := composeConfigArgs(root, "fixture", true); err == nil {
+		t.Fatal("ambiguous explicit/default public override should fail closed")
+	}
+	if err := os.Remove(named); err != nil {
+		t.Fatal(err)
+	}
+	check(true, append(append([]string(nil), want...), "-f", alias))
 }

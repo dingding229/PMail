@@ -110,10 +110,8 @@ services:
       - "${PMAIL_WEB_BIND:-172.17.0.1}:${PMAIL_HOST_HTTPS_PORT:-8443}:${PMAIL_HTTPS_PORT:-443}"
   updater:
     profiles: ["updater"]
-    build:
-      context: .
-      dockerfile: Dockerfile.updater
-    image: pmail-updater:local
+    # 固定发行版：在 .env 设置 PMAIL_UPDATER_IMAGE=dingding229/pmail-pro-updater:v0.0.1。
+    image: ${PMAIL_UPDATER_IMAGE:-dingding229/pmail-pro-updater:latest}
     restart: unless-stopped
     environment:
       PMAIL_UPDATER_TOKEN:

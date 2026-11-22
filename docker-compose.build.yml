@@ -1,4 +1,4 @@
-# 仅供有源码的部署或开发环境显式加载。两个服务共用 pmail 构建的镜像。
+# 仅供有源码的部署或开发环境显式加载。init-secrets 共用 pmail 镜像，updater 单独构建。
 x-pmail-image: &pmail-image ${PMAIL_IMAGE:-pmail-${PMAIL_PROJECT_NAME:-pmail}:local}
 services:
   pmail:
@@ -7,3 +7,8 @@ services:
       context: .
   init-secrets:
     image: *pmail-image
+  updater:
+    image: ${PMAIL_UPDATER_IMAGE:-pmail-updater:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.updater

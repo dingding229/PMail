@@ -109,5 +109,7 @@ docker compose pull && docker compose up -d --wait postgres
 ## C9：Telegram、在线更新与富文本
 
 - Telegram 预设关闭。已启用的安装请备份数据库和原 `PMAIL_SECRET_KEY`：更换密钥后旧 Bot 凭据无法解密，需重新填写。更换/清除 Bot 会使旧私聊绑定过期。免打扰期间消息直接丢弃；队列遇断网会重试，在网络中断或进程退出时可能重复发送。
-- 更新检查可用 `PMAIL_UPDATE_CHECK=0` 关闭。在线更新器是独立可选 `updater` profile；启用方法和 socket 风险见 README。Sidecar 只从部署目录的 `docker-compose.yml`、可选 `docker-compose.override.yml` 与 `.env` 加载配置。自定义 `-f`、外部环境文件或路径映射请保持手动更新。状态卷保留结果；更新器中途重启或任务 ID 丢失时返回失败/结果未知，请核对运行版本后再试，不自动回滚数据库。
+- 更新检查可用 `PMAIL_UPDATE_CHECK=0` 关闭。在线更新器默认不启用，并使用发布镜像 `dingding229/pmail-pro-updater:latest`，不再要求源码或本地构建。刷新部署用的 Compose 文件后，在 `.env` 设置 `PMAIL_UPDATER_ENABLED=1` 与至少 32 字符的随机 `PMAIL_UPDATER_TOKEN`，执行 `docker compose --profile updater up -d`。可用 `PMAIL_UPDATER_IMAGE` 固定与主镜像一致的版本标签。
+- 只下载文件的公网部署需要同一目录的 `docker-compose.yml`、`.env` 和公网覆盖文件；可另存为 `docker-compose.override.yml` 自动加载，也可保留 `docker-compose.public.yml` 并按 README 显式指定两份文件。不要仅使用公网覆盖文件或同时保留内容不一致的覆盖。Sidecar 只读挂载此目录，执行时会保留公网配置；自定义 `-f`、外部环境文件或特殊路径映射仍建议手动更新。
+- 启用前核对 [README 的更新器说明](../README.md#可选在线更新器) 中的 Docker socket 权限风险。保留状态卷追踪任务；更新器中途重启或任务 ID 丢失时返回失败/结果未知，请核对运行版本后再试，不自动回滚数据库。
 - 写信内嵌图片只接受 PNG/JPEG/GIF/WebP 文件头，单个 10 MiB，每账户最多 50 MiB 临时图片。未被草稿引用、且 24 小时未使用的临时图片会清理；引用不能跨账号。旧邮件和旧草稿无须重写。签名保留允许的格式，将远程图片替换成文本占位，服务器不会自动重复追加已由编辑器插入的签名。

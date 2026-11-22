@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -169,15 +170,58 @@ func (s *service) handler() http.Handler {
 		m.ServeHTTP(w, r)
 	})
 }
-func composeRunner(project string) func(context.Context, ...string) error {
+
+// composeConfigArgs reconstructs the two supported public installations: the
+// default override filename and the explicit docker-compose.public.yml pair.
+// Fail closed rather than restarting a public deployment with proxy ports.
+func composeConfigArgs(root, project string, public bool) ([]string, error) {
+	base := []string{"compose", "--project-name", project, "--project-directory", root, "-f", filepath.Join(root, "docker-compose.yml")}
+	envFile := filepath.Join(root, ".env")
+	if _, err := os.Stat(envFile); err == nil {
+		base = append(base, "--env-file", envFile)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	override := filepath.Join(root, "docker-compose.override.yml")
+	if !public {
+		if _, err := os.Stat(override); err == nil {
+			base = append(base, "-f", override)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		return base, nil
+	}
+
+	publicFile := filepath.Join(root, "docker-compose.public.yml")
+	var selected string
+	var selectedContent []byte
+	for _, file := range []string{override, publicFile} {
+		content, err := os.ReadFile(file)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if selected == "" {
+			selected, selectedContent = file, content
+		} else if !bytes.Equal(selectedContent, content) {
+			return nil, errors.New("conflicting public Compose overrides; keep only the active file")
+		}
+	}
+	if selected == "" {
+		return nil, errors.New("public Compose override is missing")
+	}
+	return append(base, "-f", selected), nil
+}
+
+func composeRunner(project string, public bool) func(context.Context, ...string) error {
 	return func(ctx context.Context, args ...string) error {
 		const root = "/project"
-		base := []string{"compose", "--project-name", project, "--project-directory", root, "-f", root + "/docker-compose.yml"}
-		if _, err := os.Stat(root + "/.env"); err == nil {
-			base = append(base, "--env-file", root+"/.env")
-		}
-		if _, err := os.Stat(root + "/docker-compose.override.yml"); err == nil {
-			base = append(base, "-f", root+"/docker-compose.override.yml")
+		base, err := composeConfigArgs(root, project, public)
+		if err != nil {
+			log.Printf("updater Compose configuration unavailable: %v", err)
+			return err
 		}
 		cmd := exec.CommandContext(ctx, "docker", append(base, args...)...)
 		cmd.Dir = root
@@ -198,7 +242,7 @@ func main() {
 	if err := os.MkdirAll("/state", 0700); err != nil {
 		log.Fatal("updater state directory unavailable")
 	}
-	svc := &service{stateDir: "/state", project: project, token: key(secret), run: composeRunner(project)}
+	svc := &service{stateDir: "/state", project: project, token: key(secret), run: composeRunner(project, os.Getenv("PMAIL_UPDATER_PUBLIC") == "1")}
 	svc.recover()
 	server := &http.Server{Addr: ":8989", Handler: svc.handler(), ReadHeaderTimeout: 4 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 20 * time.Second, MaxHeaderBytes: 8192}
 	if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
