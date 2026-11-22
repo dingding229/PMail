@@ -402,6 +402,48 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/MailPageSuccess'}
                 - {$ref: '#/components/schemas/Error100402403500'}
+              examples:
+                c8AnalysisProjection:
+                  summary: Planned inbound analysis example.
+                  value:
+                    errorNo: 0
+                    errorMsg: ''
+                    data:
+                      list:
+                      - id: 42
+                        spam:
+                          verdict: spam
+                        risk:
+                          level: high
+                        verification_code:
+                          code: '123456'
+                        to_list: []
+                        cc_list: []
+                        bcc_list: []
+                        reply_to_list: []
+                        attachments_list: []
+                        send_date_iso: null
+                        create_time_iso: null
+                        update_time_iso: null
+                        send_time_iso: null
+                        cron_send_time_iso: null
+                        datetime_iso: null
+                        is_draft: false
+                        dangerous: true
+                        auth_status: fail
+                        auth_results: null
+                        is_starred: false
+                        title: Example message
+                        desc: ''
+                        datetime: '2026-11-23 00:00:00'
+                        is_read: false
+                        sender:
+                          Name: Example
+                          EmailAddress: sender@example.com
+                        to: []
+                        error: ''
+                      current_page: 1
+                      total_page: 1
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/email/detail:
     post:
@@ -429,6 +471,74 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/EmailDetailSuccess'}
                 - {$ref: '#/components/schemas/Error100402403500'}
+              examples:
+                c8AnalysisProjection:
+                  summary: Planned inbound analysis example.
+                  value:
+                    errorNo: 0
+                    errorMsg: ''
+                    data:
+                      id: 42
+                      to_list: []
+                      cc_list: []
+                      bcc_list: []
+                      reply_to_list: []
+                      attachments_list: []
+                      send_date_iso: null
+                      create_time_iso: null
+                      update_time_iso: null
+                      send_time_iso: null
+                      cron_send_time_iso: null
+                      is_draft: false
+                      dangerous: true
+                      auth_status: fail
+                      auth_results: null
+                      is_read: false
+                      is_starred: false
+                      mailbox_status: 0
+                      type: 0
+                      subject: Example message
+                      reply_to: ''
+                      from_name: ''
+                      from_address: ''
+                      to: ''
+                      bcc: ''
+                      cc: ''
+                      text: ''
+                      html: ''
+                      sender: ''
+                      attachments: []
+                      spf_check: 0
+                      dkim_check: 0
+                      status: 0
+                      cron_send_time: '2026-11-23T00:00:00Z'
+                      send_time: '2026-11-23 00:00:00'
+                      update_time: '2026-11-23 00:00:00'
+                      send_user_id: 0
+                      size: 0
+                      error: ''
+                      send_date: '2026-11-23 00:00:00'
+                      create_time: '2026-11-23 00:00:00'
+                      msg_id: ''
+                      text_format: plain
+                      has_code: false
+                      spam:
+                        score: 8.5
+                        verdict: spam
+                        reasons:
+                        - code: auth_dmarc_fail
+                          weight: 3.5
+                      risk:
+                        level: high
+                        findings:
+                        - code: attachment_dangerous_type
+                          severity: high
+                          location: attachment
+                          attachment_index: 0
+                      verification_code:
+                        code: '123456'
+                        confidence: 0.98
+                        source: subject
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/email/del:
     post:
@@ -760,9 +870,8 @@ paths:
       operationId: addRule
       tags: [Rules]
       summary: Create or update a rule owned by the caller
-      description: Regular expressions use Go syntax with a 1024-byte limit. At most 32 conditions per rule and 100 rules per account.
+      description: Regular expressions use Go syntax with a 1024-byte limit. At most 32 conditions per rule and 100 rules per account. Both paths use the same upsert; positive id updates, while omitted or zero id inserts.
       x-permission: owner
-      description: Both paths use the same upsert; positive id updates, while omitted or zero id inserts.
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
@@ -789,9 +898,8 @@ paths:
       operationId: updateRule
       tags: [Rules]
       summary: Create or update a rule owned by the caller
-      description: Regular expressions use Go syntax with a 1024-byte limit. At most 32 conditions per rule and 100 rules per account.
+      description: Regular expressions use Go syntax with a 1024-byte limit. At most 32 conditions per rule and 100 rules per account. Both paths use the same upsert; positive id updates, while omitted or zero id inserts.
       x-permission: owner
-      description: Both paths use the same upsert; positive id updates, while omitted or zero id inserts.
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
@@ -2055,7 +2163,9 @@ paths:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
+      - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
       x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
+      x-planned-i18n-error-codes: [risk_confirmation_required]
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -2083,6 +2193,9 @@ paths:
             image/x-icon:
               schema: {type: string, format: binary}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          $ref: '#/components/responses/C8RiskConfirmationRequired'
+          x-status: planned
     head:
       tags: [Attachments]
       x-permission: owner
@@ -2092,7 +2205,9 @@ paths:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
+      - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
       x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
+      x-planned-i18n-error-codes: [risk_confirmation_required]
       operationId: inlineAttachmentHead
       summary: Retrieve an attachment (only whitelisted image types are inline) (headers only)
       responses:
@@ -2105,6 +2220,7 @@ paths:
             Cache-Control:
               schema: {const: 'private, no-store'}
         '403': {description: Error (no body).}
+        '409': {description: 'Planned: high-risk attachment requires explicit acknowledgement (no body).', x-status: planned}
   /api/attachments/download/{id}:
     get:
       operationId: downloadAttachment
@@ -2117,7 +2233,9 @@ paths:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
+      - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
       x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
+      x-planned-i18n-error-codes: [risk_confirmation_required]
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -2133,6 +2251,9 @@ paths:
             application/octet-stream:
               schema: {type: string, format: binary}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          $ref: '#/components/responses/C8RiskConfirmationRequired'
+          x-status: planned
     head:
       tags: [Attachments]
       x-permission: owner
@@ -2142,7 +2263,9 @@ paths:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
+      - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
       x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
+      x-planned-i18n-error-codes: [risk_confirmation_required]
       operationId: downloadAttachmentHead
       summary: Download an attachment as application/octet-stream (headers only)
       responses:
@@ -2155,6 +2278,7 @@ paths:
             Cache-Control:
               schema: {const: 'private, no-store'}
         '403': {description: Error (no body).}
+        '409': {description: 'Planned: high-risk attachment requires explicit acknowledgement (no body).', x-status: planned}
   /attachments/{emailId}/{cid}:
     get:
       operationId: legacyInlineAttachmentGet
@@ -2168,7 +2292,9 @@ paths:
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentCid'}
+      - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
       x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
+      x-planned-i18n-error-codes: [risk_confirmation_required]
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -2196,7 +2322,6 @@ paths:
             image/x-icon:
               schema: {type: string, format: binary}
         '403': {$ref: '#/components/responses/Forbidden'}
-      deprecated: true
     post:
       operationId: legacyInlineAttachmentPost
       tags: [Attachments]
@@ -2209,7 +2334,9 @@ paths:
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentCid'}
+      - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
       x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
+      x-planned-i18n-error-codes: [risk_confirmation_required]
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -2237,6 +2364,9 @@ paths:
             image/x-icon:
               schema: {type: string, format: binary}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          $ref: '#/components/responses/C8RiskConfirmationRequired'
+          x-status: planned
       deprecated: true
     head:
       tags: [Attachments]
@@ -2248,7 +2378,9 @@ paths:
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentCid'}
+      - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
       x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
+      x-planned-i18n-error-codes: [risk_confirmation_required]
       operationId: legacyInlineAttachmentGetHead
       summary: Retrieve an attachment (only whitelisted image types are inline) (headers only)
       responses:
@@ -2261,6 +2393,7 @@ paths:
             Cache-Control:
               schema: {const: 'private, no-store'}
         '403': {description: Error (no body).}
+        '409': {description: 'Planned: high-risk attachment requires explicit acknowledgement (no body).', x-status: planned}
       deprecated: true
   /attachments/download/{emailId}/{index}:
     get:
@@ -2275,7 +2408,9 @@ paths:
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentIndex'}
+      - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
       x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
+      x-planned-i18n-error-codes: [risk_confirmation_required]
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -2291,6 +2426,9 @@ paths:
             application/octet-stream:
               schema: {type: string, format: binary}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          $ref: '#/components/responses/C8RiskConfirmationRequired'
+          x-status: planned
       deprecated: true
     head:
       tags: [Attachments]
@@ -2302,7 +2440,9 @@ paths:
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentIndex'}
+      - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
       x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
+      x-planned-i18n-error-codes: [risk_confirmation_required]
       operationId: legacyDownloadAttachmentHead
       summary: Download an attachment as application/octet-stream (headers only)
       responses:
@@ -2315,6 +2455,7 @@ paths:
             Cache-Control:
               schema: {const: 'private, no-store'}
         '403': {description: Error (no body).}
+        '409': {description: 'Planned: high-risk attachment requires explicit acknowledgement (no body).', x-status: planned}
       deprecated: true
   /api/attachments/preview/{id}:
     get:
@@ -2329,6 +2470,7 @@ paths:
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
       x-error-codes: {'200': [402, 403, 500], '403': [405], '404': [100], '415': [100]}
+      x-planned-i18n-error-codes: [risk_preview_forbidden]
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -2338,7 +2480,27 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/AttachmentPreviewSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
-        '403': {$ref: '#/components/responses/Forbidden'}
+        '403':
+          description: Authorization failure, or planned rejection of a high-risk attachment.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/Error405EmptyData'}
+                - {$ref: '#/components/schemas/RiskPreviewForbidden'}
+              examples:
+                risk_preview_forbidden_zh_CN:
+                  value:
+                    errorNo: 405
+                    errorMsg: 高危附件不可预览
+                    data:
+                      code: risk_preview_forbidden
+                risk_preview_forbidden_en:
+                  value:
+                    errorNo: 405
+                    errorMsg: High-risk attachments cannot be previewed
+                    data:
+                      code: risk_preview_forbidden
         '404': {$ref: '#/components/responses/NotFound'}
         '415': {$ref: '#/components/responses/UnsupportedMediaType'}
     head:
@@ -2351,6 +2513,7 @@ paths:
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
       x-error-codes: {'200': [402, 403, 500], '403': [405], '404': [100], '415': [100]}
+      x-planned-i18n-error-codes: [risk_preview_forbidden]
       operationId: previewAttachmentHead
       summary: Preview the decoded text of a text/code attachment (headers only)
       responses:
@@ -2389,6 +2552,512 @@ paths:
       responses:
         '200': {description: Current token key authorization as plain text.}
         '404': {description: No such route or challenge token.}
+  /api/email/spam:
+    post:
+      operationId: markMailSpam
+      summary: Mark or unmark spam
+      tags:
+      - Inbound analysis
+      x-status: planned
+      x-permission: owner
+      parameters:
+      - $ref: '#/components/parameters/PMailLang'
+      - $ref: '#/components/parameters/AcceptLanguage'
+      description: Train the caller’s Bayesian model when enabled and move messages to Junk, or back to Inbox when
+        cleared. A repeated identical classification must not double-train; resolve all IDs in the caller’s mailbox.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkMailSpamRequest'
+            examples:
+              sample:
+                value:
+                  ids:
+                  - 42
+                  is_spam: true
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - inbound_internal_error
+      - inbound_invalid_parameters
+      - inbound_payload_too_large
+      - json_media_type_required
+      - inbound_resource_not_found
+      x-error-codes:
+        '400':
+        - 100
+        '401':
+        - 403
+        '403':
+        - 405
+        '404':
+        - 100
+        '413':
+        - 100
+        '415':
+        - 100
+        '500':
+        - 500
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C8EmptySuccess'
+              examples:
+                sample:
+                  value:
+                    errorNo: 0
+                    errorMsg: ''
+                    data: ''
+        '400':
+          $ref: '#/components/responses/C8InboundInvalidParameters'
+        '401':
+          $ref: '#/components/responses/C8InboundLoginRequired'
+        '403':
+          $ref: '#/components/responses/C8InboundPermissionDenied'
+        '404':
+          $ref: '#/components/responses/C8InboundResourceNotFound'
+        '413':
+          $ref: '#/components/responses/C8InboundPayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/C8JsonMediaTypeRequired'
+        '500':
+          $ref: '#/components/responses/C8InboundInternalError'
+  /api/settings/spam:
+    get:
+      operationId: getSpamSettings
+      summary: Read effective user spam settings
+      tags:
+      - Inbound analysis
+      x-status: planned
+      x-permission: user
+      parameters:
+      - $ref: '#/components/parameters/PMailLang'
+      - $ref: '#/components/parameters/AcceptLanguage'
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - inbound_internal_error
+      x-error-codes:
+        '401':
+        - 403
+        '403':
+        - 405
+        '500':
+        - 500
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpamSettingsSuccess'
+              examples:
+                sample:
+                  value:
+                    errorNo: 0
+                    errorMsg: ''
+                    data:
+                      enabled: true
+                      threshold: 6
+                      bayes_enabled: true
+        '401':
+          $ref: '#/components/responses/C8InboundLoginRequired'
+        '403':
+          $ref: '#/components/responses/C8InboundPermissionDenied'
+        '500':
+          $ref: '#/components/responses/C8InboundInternalError'
+    put:
+      operationId: putSpamSettings
+      summary: Replace user spam settings
+      tags:
+      - Inbound analysis
+      x-status: planned
+      x-permission: user
+      parameters:
+      - $ref: '#/components/parameters/PMailLang'
+      - $ref: '#/components/parameters/AcceptLanguage'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpamSettings'
+            examples:
+              sample:
+                value:
+                  enabled: true
+                  threshold: 6
+                  bayes_enabled: true
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - inbound_internal_error
+      - inbound_invalid_parameters
+      - inbound_payload_too_large
+      - json_media_type_required
+      x-error-codes:
+        '400':
+        - 100
+        '401':
+        - 403
+        '403':
+        - 405
+        '413':
+        - 100
+        '415':
+        - 100
+        '500':
+        - 500
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpamSettingsSuccess'
+              examples:
+                sample:
+                  value:
+                    errorNo: 0
+                    errorMsg: ''
+                    data:
+                      enabled: true
+                      threshold: 6
+                      bayes_enabled: true
+        '400':
+          $ref: '#/components/responses/C8InboundInvalidParameters'
+        '401':
+          $ref: '#/components/responses/C8InboundLoginRequired'
+        '403':
+          $ref: '#/components/responses/C8InboundPermissionDenied'
+        '413':
+          $ref: '#/components/responses/C8InboundPayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/C8JsonMediaTypeRequired'
+        '500':
+          $ref: '#/components/responses/C8InboundInternalError'
+  /api/spam/rules:
+    get:
+      operationId: listSpamRules
+      summary: List the caller’s allow/block rules
+      tags:
+      - Inbound analysis
+      x-status: planned
+      x-permission: user
+      parameters:
+      - $ref: '#/components/parameters/PMailLang'
+      - $ref: '#/components/parameters/AcceptLanguage'
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - inbound_internal_error
+      x-error-codes:
+        '401':
+        - 403
+        '403':
+        - 405
+        '500':
+        - 500
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpamRulesSuccess'
+              examples:
+                sample:
+                  value:
+                    errorNo: 0
+                    errorMsg: ''
+                    data:
+                    - id: 51
+                      action: allow
+                      kind: domain
+                      value: example.com
+        '401':
+          $ref: '#/components/responses/C8InboundLoginRequired'
+        '403':
+          $ref: '#/components/responses/C8InboundPermissionDenied'
+        '500':
+          $ref: '#/components/responses/C8InboundInternalError'
+    post:
+      operationId: createSpamRule
+      summary: Create an allow/block rule
+      tags:
+      - Inbound analysis
+      x-status: planned
+      x-permission: user
+      parameters:
+      - $ref: '#/components/parameters/PMailLang'
+      - $ref: '#/components/parameters/AcceptLanguage'
+      description: At most 500 rules per user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpamRuleInput'
+            examples:
+              sample:
+                value:
+                  action: allow
+                  kind: domain
+                  value: example.com
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - inbound_internal_error
+      - inbound_invalid_parameters
+      - inbound_payload_too_large
+      - json_media_type_required
+      - spam_rule_conflict
+      - spam_rule_limit
+      x-error-codes:
+        '400':
+        - 100
+        '401':
+        - 403
+        '403':
+        - 405
+        '409':
+        - 100
+        '413':
+        - 100
+        '415':
+        - 100
+        '500':
+        - 500
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpamRuleSuccess'
+              examples:
+                sample:
+                  value:
+                    errorNo: 0
+                    errorMsg: ''
+                    data:
+                      id: 51
+                      action: allow
+                      kind: domain
+                      value: example.com
+        '400':
+          $ref: '#/components/responses/C8InboundInvalidParameters'
+        '401':
+          $ref: '#/components/responses/C8InboundLoginRequired'
+        '403':
+          $ref: '#/components/responses/C8InboundPermissionDenied'
+        '409':
+          $ref: '#/components/responses/C8SpamRuleConflictSpamRuleLimit'
+        '413':
+          $ref: '#/components/responses/C8InboundPayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/C8JsonMediaTypeRequired'
+        '500':
+          $ref: '#/components/responses/C8InboundInternalError'
+    delete:
+      operationId: deleteSpamRule
+      summary: Delete an allow/block rule
+      tags:
+      - Inbound analysis
+      x-status: planned
+      x-permission: owner
+      parameters:
+      - $ref: '#/components/parameters/PMailLang'
+      - $ref: '#/components/parameters/AcceptLanguage'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdRequest'
+            examples:
+              sample:
+                value:
+                  id: 51
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - inbound_internal_error
+      - inbound_invalid_parameters
+      - inbound_payload_too_large
+      - json_media_type_required
+      - inbound_resource_not_found
+      x-error-codes:
+        '400':
+        - 100
+        '401':
+        - 403
+        '403':
+        - 405
+        '404':
+        - 100
+        '413':
+        - 100
+        '415':
+        - 100
+        '500':
+        - 500
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C8EmptySuccess'
+              examples:
+                sample:
+                  value:
+                    errorNo: 0
+                    errorMsg: ''
+                    data: ''
+        '400':
+          $ref: '#/components/responses/C8InboundInvalidParameters'
+        '401':
+          $ref: '#/components/responses/C8InboundLoginRequired'
+        '403':
+          $ref: '#/components/responses/C8InboundPermissionDenied'
+        '404':
+          $ref: '#/components/responses/C8InboundResourceNotFound'
+        '413':
+          $ref: '#/components/responses/C8InboundPayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/C8JsonMediaTypeRequired'
+        '500':
+          $ref: '#/components/responses/C8InboundInternalError'
+  /api/admin/inbound:
+    get:
+      operationId: getInboundSettings
+      summary: Read global inbound analysis settings
+      tags:
+      - Inbound analysis
+      x-status: planned
+      x-permission: admin
+      parameters:
+      - $ref: '#/components/parameters/PMailLang'
+      - $ref: '#/components/parameters/AcceptLanguage'
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - inbound_internal_error
+      x-error-codes:
+        '401':
+        - 403
+        '403':
+        - 405
+        '500':
+        - 500
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboundSettingsSuccess'
+              examples:
+                sample:
+                  value:
+                    errorNo: 0
+                    errorMsg: ''
+                    data:
+                      dnsbl_enabled: false
+                      dnsbl_zones: []
+                      default_spam_threshold: 6
+                      clamd_enabled: false
+                      clamd_addr: ''
+                      risk_block_dangerous_attachments: true
+        '401':
+          $ref: '#/components/responses/C8InboundLoginRequired'
+        '403':
+          $ref: '#/components/responses/C8InboundPermissionDenied'
+        '500':
+          $ref: '#/components/responses/C8InboundInternalError'
+    put:
+      operationId: putInboundSettings
+      summary: Replace global inbound analysis settings
+      tags:
+      - Inbound analysis
+      x-status: planned
+      x-permission: admin
+      parameters:
+      - $ref: '#/components/parameters/PMailLang'
+      - $ref: '#/components/parameters/AcceptLanguage'
+      description: clamd_addr is an administrator-configured trusted scanner endpoint, not a per-user destination.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InboundSettings'
+            examples:
+              sample:
+                value:
+                  dnsbl_enabled: false
+                  dnsbl_zones: []
+                  default_spam_threshold: 6
+                  clamd_enabled: false
+                  clamd_addr: ''
+                  risk_block_dangerous_attachments: true
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - inbound_internal_error
+      - inbound_invalid_parameters
+      - inbound_payload_too_large
+      - json_media_type_required
+      x-error-codes:
+        '400':
+        - 100
+        '401':
+        - 403
+        '403':
+        - 405
+        '413':
+        - 100
+        '415':
+        - 100
+        '500':
+        - 500
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboundSettingsSuccess'
+              examples:
+                sample:
+                  value:
+                    errorNo: 0
+                    errorMsg: ''
+                    data:
+                      dnsbl_enabled: false
+                      dnsbl_zones: []
+                      default_spam_threshold: 6
+                      clamd_enabled: false
+                      clamd_addr: ''
+                      risk_block_dangerous_attachments: true
+        '400':
+          $ref: '#/components/responses/C8InboundInvalidParameters'
+        '401':
+          $ref: '#/components/responses/C8InboundLoginRequired'
+        '403':
+          $ref: '#/components/responses/C8InboundPermissionDenied'
+        '413':
+          $ref: '#/components/responses/C8InboundPayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/C8JsonMediaTypeRequired'
+        '500':
+          $ref: '#/components/responses/C8InboundInternalError'
 components:
   securitySchemes:
     SetupToken:
@@ -2399,6 +3068,13 @@ components:
     BearerToken: {type: http, scheme: bearer}
     LegacyToken: {type: apiKey, in: header, name: Token}
   parameters:
+    ConfirmAttachmentRisk:
+      name: confirm_risk
+      in: query
+      required: false
+      schema: {type: string, const: '1'}
+      x-status: planned
+      description: Required to download high-risk bytes. Does not grant access or enable inline rendering; use attachment disposition for acknowledged high-risk files.
     PMailLang:
       name: X-PMail-Lang
       in: header
@@ -2456,6 +3132,379 @@ components:
         type: integer
         description: Omit or use zero for the current account; only an administrator can select another user.
   responses:
+    C8InboundInvalidParameters:
+      description: Localized error with a machine-readable data.code.
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - errorNo
+            - errorMsg
+            - data
+            properties:
+              errorNo:
+                const: 100
+              errorMsg:
+                type: string
+                minLength: 1
+              data:
+                type: object
+                required:
+                - code
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - inbound_invalid_parameters
+                additionalProperties: false
+            additionalProperties: false
+          examples:
+            inbound_invalid_parameters_zh_CN:
+              value:
+                errorNo: 100
+                errorMsg: 参数无效
+                data:
+                  code: inbound_invalid_parameters
+            inbound_invalid_parameters_en:
+              value:
+                errorNo: 100
+                errorMsg: Invalid parameters
+                data:
+                  code: inbound_invalid_parameters
+    C8InboundLoginRequired:
+      description: Localized error with a machine-readable data.code.
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - errorNo
+            - errorMsg
+            - data
+            properties:
+              errorNo:
+                const: 403
+              errorMsg:
+                type: string
+                minLength: 1
+              data:
+                type: object
+                required:
+                - code
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - inbound_login_required
+                additionalProperties: false
+            additionalProperties: false
+          examples:
+            inbound_login_required_zh_CN:
+              value:
+                errorNo: 403
+                errorMsg: 请先登录
+                data:
+                  code: inbound_login_required
+            inbound_login_required_en:
+              value:
+                errorNo: 403
+                errorMsg: Sign in first
+                data:
+                  code: inbound_login_required
+    C8InboundPermissionDenied:
+      description: Localized error with a machine-readable data.code.
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - errorNo
+            - errorMsg
+            - data
+            properties:
+              errorNo:
+                const: 405
+              errorMsg:
+                type: string
+                minLength: 1
+              data:
+                type: object
+                required:
+                - code
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - inbound_permission_denied
+                additionalProperties: false
+            additionalProperties: false
+          examples:
+            inbound_permission_denied_zh_CN:
+              value:
+                errorNo: 405
+                errorMsg: 没有操作权限
+                data:
+                  code: inbound_permission_denied
+            inbound_permission_denied_en:
+              value:
+                errorNo: 405
+                errorMsg: Permission denied
+                data:
+                  code: inbound_permission_denied
+    C8InboundResourceNotFound:
+      description: Localized error with a machine-readable data.code.
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - errorNo
+            - errorMsg
+            - data
+            properties:
+              errorNo:
+                const: 100
+              errorMsg:
+                type: string
+                minLength: 1
+              data:
+                type: object
+                required:
+                - code
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - inbound_resource_not_found
+                additionalProperties: false
+            additionalProperties: false
+          examples:
+            inbound_resource_not_found_zh_CN:
+              value:
+                errorNo: 100
+                errorMsg: 找不到请求的资源
+                data:
+                  code: inbound_resource_not_found
+            inbound_resource_not_found_en:
+              value:
+                errorNo: 100
+                errorMsg: Resource not found
+                data:
+                  code: inbound_resource_not_found
+    C8InboundPayloadTooLarge:
+      description: Localized error with a machine-readable data.code.
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - errorNo
+            - errorMsg
+            - data
+            properties:
+              errorNo:
+                const: 100
+              errorMsg:
+                type: string
+                minLength: 1
+              data:
+                type: object
+                required:
+                - code
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - inbound_payload_too_large
+                additionalProperties: false
+            additionalProperties: false
+          examples:
+            inbound_payload_too_large_zh_CN:
+              value:
+                errorNo: 100
+                errorMsg: 请求体过大
+                data:
+                  code: inbound_payload_too_large
+            inbound_payload_too_large_en:
+              value:
+                errorNo: 100
+                errorMsg: Request body is too large
+                data:
+                  code: inbound_payload_too_large
+    C8JsonMediaTypeRequired:
+      description: Localized error with a machine-readable data.code.
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - errorNo
+            - errorMsg
+            - data
+            properties:
+              errorNo:
+                const: 100
+              errorMsg:
+                type: string
+                minLength: 1
+              data:
+                type: object
+                required:
+                - code
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - json_media_type_required
+                additionalProperties: false
+            additionalProperties: false
+          examples:
+            json_media_type_required_zh_CN:
+              value:
+                errorNo: 100
+                errorMsg: 请使用 application/json
+                data:
+                  code: json_media_type_required
+            json_media_type_required_en:
+              value:
+                errorNo: 100
+                errorMsg: Use application/json
+                data:
+                  code: json_media_type_required
+    C8InboundInternalError:
+      description: Localized error with a machine-readable data.code.
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - errorNo
+            - errorMsg
+            - data
+            properties:
+              errorNo:
+                const: 500
+              errorMsg:
+                type: string
+                minLength: 1
+              data:
+                type: object
+                required:
+                - code
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - inbound_internal_error
+                additionalProperties: false
+            additionalProperties: false
+          examples:
+            inbound_internal_error_zh_CN:
+              value:
+                errorNo: 500
+                errorMsg: 操作失败，请稍后重试
+                data:
+                  code: inbound_internal_error
+            inbound_internal_error_en:
+              value:
+                errorNo: 500
+                errorMsg: Operation failed; try again later
+                data:
+                  code: inbound_internal_error
+    C8SpamRuleConflictSpamRuleLimit:
+      description: Localized error with a machine-readable data.code.
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - errorNo
+            - errorMsg
+            - data
+            properties:
+              errorNo:
+                const: 100
+              errorMsg:
+                type: string
+                minLength: 1
+              data:
+                type: object
+                required:
+                - code
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - spam_rule_conflict
+                    - spam_rule_limit
+                additionalProperties: false
+            additionalProperties: false
+          examples:
+            spam_rule_conflict_zh_CN:
+              value:
+                errorNo: 100
+                errorMsg: 此规则已存在
+                data:
+                  code: spam_rule_conflict
+            spam_rule_conflict_en:
+              value:
+                errorNo: 100
+                errorMsg: Rule already exists
+                data:
+                  code: spam_rule_conflict
+            spam_rule_limit_zh_CN:
+              value:
+                errorNo: 100
+                errorMsg: 黑白名单最多可添加 500 条规则
+                data:
+                  code: spam_rule_limit
+            spam_rule_limit_en:
+              value:
+                errorNo: 100
+                errorMsg: You can add up to 500 allow/block rules
+                data:
+                  code: spam_rule_limit
+    C8RiskConfirmationRequired:
+      description: Localized error with a machine-readable data.code.
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - errorNo
+            - errorMsg
+            - data
+            properties:
+              errorNo:
+                const: 100
+              errorMsg:
+                type: string
+                minLength: 1
+              data:
+                type: object
+                required:
+                - code
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - risk_confirmation_required
+                additionalProperties: false
+            additionalProperties: false
+          examples:
+            risk_confirmation_required_zh_CN:
+              value:
+                errorNo: 100
+                errorMsg: 请确认高危附件的下载风险
+                data:
+                  code: risk_confirmation_required
+            risk_confirmation_required_en:
+              value:
+                errorNo: 100
+                errorMsg: Confirm the risk before downloading this attachment
+                data:
+                  code: risk_confirmation_required
     PayloadTooLarge:
       description: The JSON body, recipient count, MIME part, attachment, or message exceeds a resource limit.
       content:
@@ -2526,6 +3575,349 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error404EmptyData'}
   schemas:
+    MailSpamSummary:
+      type: object
+      required:
+      - verdict
+      properties:
+        verdict:
+          type: string
+          enum:
+          - ham
+          - spam
+          - unknown
+      additionalProperties: false
+    MailRiskSummary:
+      type: object
+      required:
+      - level
+      properties:
+        level:
+          type: string
+          enum:
+          - none
+          - low
+          - medium
+          - high
+      additionalProperties: false
+    MailVerificationCodeSummary:
+      type: object
+      required:
+      - code
+      properties:
+        code:
+          type: string
+          minLength: 1
+      additionalProperties: false
+    MailSpamAssessment:
+      type: object
+      required:
+      - score
+      - verdict
+      - reasons
+      properties:
+        score:
+          type: number
+        verdict:
+          type: string
+          enum:
+          - ham
+          - spam
+          - unknown
+        reasons:
+          type: array
+          items:
+            type: object
+            required:
+            - code
+            - weight
+            properties:
+              code:
+                type: string
+                minLength: 1
+              weight:
+                type: number
+              detail:
+                type: string
+            additionalProperties: false
+      additionalProperties: false
+    MailRiskAssessment:
+      type: object
+      required:
+      - level
+      - findings
+      properties:
+        level:
+          type: string
+          enum:
+          - none
+          - low
+          - medium
+          - high
+        findings:
+          type: array
+          items:
+            type: object
+            required:
+            - code
+            - severity
+            - location
+            properties:
+              code:
+                type: string
+                minLength: 1
+              severity:
+                type: string
+                enum:
+                - low
+                - medium
+                - high
+              location:
+                type: string
+                enum:
+                - body
+                - attachment
+              attachment_index:
+                type: integer
+                minimum: 0
+                description: Zero-based; present for attachment findings.
+              line:
+                type: integer
+                minimum: 1
+              excerpt:
+                type: string
+                maxLength: 200
+                description: Truncated, escaped diagnostic excerpt; render as text, never as markup.
+            additionalProperties: false
+      additionalProperties: false
+    MailVerificationCode:
+      type: object
+      required:
+      - code
+      - confidence
+      - source
+      properties:
+        code:
+          type: string
+          minLength: 1
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        source:
+          type: string
+          enum:
+          - subject
+          - body
+      additionalProperties: false
+    MarkMailSpamRequest:
+      type: object
+      required:
+      - ids
+      - is_spam
+      properties:
+        ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+          minItems: 1
+          uniqueItems: true
+        is_spam:
+          type: boolean
+      additionalProperties: false
+    SpamSettings:
+      type: object
+      required:
+      - enabled
+      - threshold
+      - bayes_enabled
+      properties:
+        enabled:
+          type: boolean
+        threshold:
+          type: number
+          minimum: 1
+          maximum: 20
+          default: 6
+        bayes_enabled:
+          type: boolean
+      additionalProperties: false
+    SpamRuleInput:
+      type: object
+      required:
+      - action
+      - kind
+      - value
+      properties:
+        action:
+          type: string
+          enum:
+          - allow
+          - block
+        kind:
+          type: string
+          enum:
+          - address
+          - domain
+          - keyword
+        value:
+          type: string
+          minLength: 1
+          maxLength: 254
+      additionalProperties: false
+    InboundSettings:
+      type: object
+      required:
+      - dnsbl_enabled
+      - dnsbl_zones
+      - default_spam_threshold
+      - clamd_enabled
+      - clamd_addr
+      - risk_block_dangerous_attachments
+      properties:
+        dnsbl_enabled:
+          type: boolean
+        dnsbl_zones:
+          type: array
+          items:
+            type: string
+        default_spam_threshold:
+          type: number
+          minimum: 1
+          maximum: 20
+          default: 6
+        clamd_enabled:
+          type: boolean
+        clamd_addr:
+          type: string
+        risk_block_dangerous_attachments:
+          type: boolean
+      additionalProperties: false
+    SpamRule:
+      type: object
+      required:
+      - id
+      - action
+      - kind
+      - value
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        action:
+          type: string
+          enum:
+          - allow
+          - block
+        kind:
+          type: string
+          enum:
+          - address
+          - domain
+          - keyword
+        value:
+          type: string
+          minLength: 1
+          maxLength: 254
+      additionalProperties: false
+    C8EmptySuccess:
+      type: object
+      required:
+      - errorNo
+      - errorMsg
+      - data
+      properties:
+        errorNo:
+          const: 0
+        errorMsg:
+          type: string
+        data:
+          const: ''
+      additionalProperties: false
+    SpamSettingsSuccess:
+      type: object
+      required:
+      - errorNo
+      - errorMsg
+      - data
+      properties:
+        errorNo:
+          const: 0
+        errorMsg:
+          type: string
+        data:
+          $ref: '#/components/schemas/SpamSettings'
+      additionalProperties: false
+    SpamRuleSuccess:
+      type: object
+      required:
+      - errorNo
+      - errorMsg
+      - data
+      properties:
+        errorNo:
+          const: 0
+        errorMsg:
+          type: string
+        data:
+          $ref: '#/components/schemas/SpamRule'
+      additionalProperties: false
+    SpamRulesSuccess:
+      type: object
+      required:
+      - errorNo
+      - errorMsg
+      - data
+      properties:
+        errorNo:
+          const: 0
+        errorMsg:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SpamRule'
+          maxItems: 500
+      additionalProperties: false
+    InboundSettingsSuccess:
+      type: object
+      required:
+      - errorNo
+      - errorMsg
+      - data
+      properties:
+        errorNo:
+          const: 0
+        errorMsg:
+          type: string
+        data:
+          $ref: '#/components/schemas/InboundSettings'
+      additionalProperties: false
+    RiskPreviewForbidden:
+      type: object
+      required:
+      - errorNo
+      - errorMsg
+      - data
+      properties:
+        errorNo:
+          const: 405
+        errorMsg:
+          type: string
+          minLength: 1
+        data:
+          type: object
+          required:
+          - code
+          properties:
+            code:
+              type: string
+              enum:
+              - risk_preview_forbidden
+          additionalProperties: false
+      additionalProperties: false
+      x-status: planned
     Envelope:
       type: object
       required: [errorNo, errorMsg, data]
@@ -2779,6 +4171,19 @@ components:
       - to
       - error
       properties:
+        spam:
+          oneOf:
+          - $ref: '#/components/schemas/MailSpamSummary'
+          - type: 'null'
+          x-status: planned
+        risk:
+          $ref: '#/components/schemas/MailRiskSummary'
+          x-status: planned
+        verification_code:
+          oneOf:
+          - $ref: '#/components/schemas/MailVerificationCodeSummary'
+          - type: 'null'
+          x-status: planned
         id: {type: integer}
         to_list:
           type: array
@@ -2843,6 +4248,19 @@ components:
     EmailDetail:
       type: object
       properties:
+        spam:
+          oneOf:
+          - $ref: '#/components/schemas/MailSpamAssessment'
+          - type: 'null'
+          x-status: planned
+        risk:
+          $ref: '#/components/schemas/MailRiskAssessment'
+          x-status: planned
+        verification_code:
+          oneOf:
+          - $ref: '#/components/schemas/MailVerificationCode'
+          - type: 'null'
+          x-status: planned
         id: {type: integer}
         to_list:
           type: array
