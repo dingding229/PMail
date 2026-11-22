@@ -135,30 +135,63 @@ export function SandboxedHtmlFrame({
     onDetectExternalImages?.(hasExternalImages)
   }, [hasExternalImages, onDetectExternalImages])
 
-  // Lazily load Shiki ONLY when this HTML email actually contains standalone <pre> code blocks
+  // Lazily load Shiki during browser idle time and yield between blocks so long HTML emails never block frame paint
   useEffect(() => {
     if (codeBlocks.length === 0) {
       setHighlightedMap(new Map())
       return
     }
     let cancelled = false
-    void import('@/lib/shiki').then(async ({ detectCodeLanguage, highlightCodeToHtml, normalizeCodeLanguage }) => {
-      const next = new Map<string, { html: string; langLabel: string; rawCode: string }>()
-      for (const block of codeBlocks) {
-        const lang =
-          normalizeCodeLanguage(block.declaredLang) ?? detectCodeLanguage(block.rawCode)
-        const shikiHtml = await highlightCodeToHtml(block.rawCode.replace(/\n$/, ''), lang, resolved)
-        if (cancelled) return
-        next.set(block.tokenId, {
-          html: shikiHtml,
-          langLabel: t(`mail.code.languages.${lang}` as const),
-          rawCode: block.rawCode,
-        })
-      }
-      if (!cancelled) setHighlightedMap(next)
-    })
+    let idleId: number | null = null
+    let timeoutId: number | null = null
+
+    const runHighlight = () => {
+      void import('@/lib/shiki').then(
+        async ({ detectCodeLanguage, highlightCodeToHtml, normalizeCodeLanguage }) => {
+          const next = new Map<string, { html: string; langLabel: string; rawCode: string }>()
+          for (let i = 0; i < codeBlocks.length; i++) {
+            const block = codeBlocks[i]!
+            if (cancelled) return
+            const lang =
+              normalizeCodeLanguage(block.declaredLang) ?? detectCodeLanguage(block.rawCode)
+            const shikiHtml = await highlightCodeToHtml(
+              block.rawCode.replace(/\n$/, ''),
+              lang,
+              resolved,
+            )
+            if (cancelled) return
+            next.set(block.tokenId, {
+              html: shikiHtml,
+              langLabel: t(`mail.code.languages.${lang}` as const),
+              rawCode: block.rawCode,
+            })
+            // Yield back to the event loop between blocks on multi-block emails
+            if (i < codeBlocks.length - 1) {
+              await new Promise((r) => window.setTimeout(r, 0))
+            }
+          }
+          if (!cancelled) setHighlightedMap(next)
+        },
+      )
+    }
+
+    const ric =
+      typeof window !== 'undefined' ? window.requestIdleCallback?.bind(window) : undefined
+    const cic =
+      typeof window !== 'undefined' ? window.cancelIdleCallback?.bind(window) : undefined
+
+    if (ric) {
+      idleId = ric(runHighlight, { timeout: 120 })
+    } else {
+      timeoutId = globalThis.setTimeout(runHighlight, 0) as unknown as number
+    }
+
     return () => {
       cancelled = true
+      if (idleId !== null && cic) {
+        cic(idleId)
+      }
+      if (timeoutId !== null) globalThis.clearTimeout(timeoutId)
     }
   }, [codeBlocks, resolved, t])
 
@@ -383,7 +416,14 @@ export function SandboxedHtmlFrame({
         })
 
         if (doc.body && typeof ResizeObserver !== 'undefined') {
-          ro = new ResizeObserver(() => measureHeight())
+          let rafId = 0
+          ro = new ResizeObserver(() => {
+            if (rafId) window.cancelAnimationFrame(rafId)
+            rafId = window.requestAnimationFrame(() => {
+              rafId = 0
+              measureHeight()
+            })
+          })
           ro.observe(doc.body)
         }
       } catch {
@@ -404,7 +444,7 @@ export function SandboxedHtmlFrame({
       title={t('mail.code.iframeTitle')}
       sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       srcDoc={srcDoc}
-      style={{ height: `${height}px` }}
+      style={{ height: `${height}px`, contain: 'layout style' }}
       className="block w-full border-0 bg-transparent transition-[height] duration-150"
     />
   )

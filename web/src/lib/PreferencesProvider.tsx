@@ -1,17 +1,10 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { getRawStorage, setRawStorage } from './storage'
-
-export type ListDensity = 'compact' | 'comfortable' | 'spacious'
-export type ReadingPanePosition = 'right' | 'bottom' | 'off'
-
-interface PreferencesContextValue {
-  listDensity: ListDensity
-  readingPanePosition: ReadingPanePosition
-  setListDensity: (density: ListDensity) => void
-  setReadingPanePosition: (pos: ReadingPanePosition) => void
-}
-
-const PreferencesContext = createContext<PreferencesContextValue | null>(null)
+import {
+  PreferencesContext,
+  type ListDensity,
+  type ReadingPanePosition,
+} from './preferences'
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [listDensity, setListDensityState] = useState<ListDensity>(() => {
@@ -48,10 +41,4 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       {children}
     </PreferencesContext.Provider>
   )
-}
-
-export function usePreferences(): PreferencesContextValue {
-  const ctx = useContext(PreferencesContext)
-  if (!ctx) throw new Error('usePreferences must be used inside PreferencesProvider')
-  return ctx
 }

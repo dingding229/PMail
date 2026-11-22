@@ -28,6 +28,7 @@ import {
 import type { GroupTreeItem, UserProfile } from '@/api'
 import { getAppLanguage, setAppLanguage, type SupportedLanguage } from '@/i18n'
 import { useTheme, type ThemeMode } from '@/lib/theme'
+import { prefetchAdminPage, prefetchComposeModal, prefetchSettingsPage } from '@/lib/prefetch'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -212,6 +213,8 @@ export function MailSidebar({
                 variant="primary"
                 size="icon"
                 className="mx-auto flex h-9 w-9 rounded-[var(--radius-md)]"
+                onMouseEnter={prefetchComposeModal}
+                onFocus={prefetchComposeModal}
                 onClick={onCompose}
                 aria-label={t('nav.compose')}
               >
@@ -225,6 +228,8 @@ export function MailSidebar({
             variant="primary"
             size="md"
             className="w-full justify-between rounded-[var(--radius-md)] px-3.5"
+            onMouseEnter={prefetchComposeModal}
+            onFocus={prefetchComposeModal}
             onClick={onCompose}
           >
             <span className="inline-flex items-center gap-2">
@@ -247,6 +252,7 @@ export function MailSidebar({
             const btn = (
               <button
                 type="button"
+                aria-current={active ? 'page' : undefined}
                 onClick={() => onSelectFolder({ kind: 'system', key })}
                 className={cn(
                   'flex w-full items-center rounded-[var(--radius-sm)] text-[13.5px] transition-colors duration-[var(--duration-fast)]',
@@ -349,7 +355,7 @@ export function MailSidebar({
                           className={cn(
                             'flex w-full items-center justify-between gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 pr-7 text-[13px] transition-colors duration-[var(--duration-fast)]',
                             active
-                              ? 'bg-[var(--surface-active)] font-medium text-[var(--accent)]'
+                              ? 'bg-[var(--surface-active)] font-medium text-[var(--accent-ink)]'
                               : 'text-[var(--ink-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--ink-primary)]',
                           )}
                         >
@@ -357,7 +363,7 @@ export function MailSidebar({
                             <Folder
                               className={cn(
                                 'h-3.5 w-3.5 shrink-0',
-                                active ? 'text-[var(--accent)]' : 'text-[var(--ink-muted)]',
+                                active ? 'text-[var(--accent-ink)]' : 'text-[var(--ink-muted)]',
                               )}
                             />
                             <span className="truncate">{group.label}</span>
@@ -390,6 +396,8 @@ export function MailSidebar({
       <div className="shrink-0 border-t border-[var(--border-hairline)] p-2 space-y-0.5">
         <button
           type="button"
+          onMouseEnter={prefetchSettingsPage}
+          onFocus={prefetchSettingsPage}
           onClick={() => navigate('/settings')}
           title={collapsed ? t('nav.settings') : undefined}
           className={cn(
@@ -404,6 +412,8 @@ export function MailSidebar({
         {user?.is_admin === 1 && (
           <button
             type="button"
+            onMouseEnter={prefetchAdminPage}
+            onFocus={prefetchAdminPage}
             onClick={() => navigate('/admin')}
             title={collapsed ? t('nav.admin') : undefined}
             className={cn(

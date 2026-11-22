@@ -55,6 +55,7 @@ import { MailSidebar } from './MailSidebar'
 import { EmailListPane } from './EmailListPane'
 import { ReadingPane } from './ReadingPane'
 import { ShortcutsDialog } from './ShortcutsDialog'
+import { ErrorBoundary } from '@/components/common/ErrorBoundary'
 import type { ContactSuggestion } from './RecipientChipInput'
 
 const ComposeModal = lazy(() =>
@@ -685,24 +686,44 @@ export function MailWorkspace() {
   )
 
   const readingPaneNode = (
-    <ReadingPane
-      emailId={activeEmailId}
-      folder={activeFolder}
-      unreadInboxCount={unreadCounts.inbox ?? 0}
-      isStarred={Boolean(activeListItem?.is_starred)}
-      isReadFallback={activeListItem ? activeListItem.is_read : true}
-      groupOptions={groupOptions}
-      isMobile={isMobile || (isDesktop && readingPanePosition === 'off')}
-      onBack={() => setActiveEmailId(null)}
-      onReply={(email: EmailDetail) => handleOpenCompose({ mode: 'reply', sourceEmail: email })}
-      onReplyAll={(email: EmailDetail) => handleOpenCompose({ mode: 'replyAll', sourceEmail: email })}
-      onForward={(email: EmailDetail) => handleOpenCompose({ mode: 'forward', sourceEmail: email })}
-      onEditDraft={(email: EmailDetail) => handleOpenCompose({ mode: 'serverDraft', sourceEmail: email })}
-      onToggleStar={(id, nextStarred) => handleToggleStar([id], nextStarred)}
-      onToggleRead={(id, nextRead) => handleToggleRead([id], nextRead)}
-      onDelete={(id, forced) => handleDeleteEmails([id], forced)}
-      onMove={(id, groupId, label) => handleMoveEmails([id], groupId, label)}
-    />
+    <ErrorBoundary inline resetKey={activeEmailId}>
+      <ReadingPane
+        emailId={activeEmailId}
+        folder={activeFolder}
+        unreadInboxCount={unreadCounts.inbox ?? 0}
+        isStarred={Boolean(activeListItem?.is_starred)}
+        isReadFallback={activeListItem ? activeListItem.is_read : true}
+        groupOptions={groupOptions}
+        isMobile={isMobile || (isDesktop && readingPanePosition === 'off')}
+        onBack={() => setActiveEmailId(null)}
+        onReply={(email: EmailDetail, allowExt?: boolean) =>
+          handleOpenCompose({
+            mode: 'reply',
+            sourceEmail: email,
+            allowExternalImages: Boolean(allowExt),
+          })
+        }
+        onReplyAll={(email: EmailDetail, allowExt?: boolean) =>
+          handleOpenCompose({
+            mode: 'replyAll',
+            sourceEmail: email,
+            allowExternalImages: Boolean(allowExt),
+          })
+        }
+        onForward={(email: EmailDetail, allowExt?: boolean) =>
+          handleOpenCompose({
+            mode: 'forward',
+            sourceEmail: email,
+            allowExternalImages: Boolean(allowExt),
+          })
+        }
+        onEditDraft={(email: EmailDetail) => handleOpenCompose({ mode: 'serverDraft', sourceEmail: email })}
+        onToggleStar={(id, nextStarred) => handleToggleStar([id], nextStarred)}
+        onToggleRead={(id, nextRead) => handleToggleRead([id], nextRead)}
+        onDelete={(id, forced) => handleDeleteEmails([id], forced)}
+        onMove={(id, groupId, label) => handleMoveEmails([id], groupId, label)}
+      />
+    </ErrorBoundary>
   )
 
   const effectiveSidebarW = sidebarCollapsed ? COLLAPSED_SIDEBAR_W : sidebarWidth
@@ -869,7 +890,7 @@ export function MailWorkspace() {
             onSaveDraft={upsertDraft}
             onDeleteDraft={removeDraft}
             onSentSuccess={() => {
-              void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+              void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
             }}
             onClose={() => setComposeContext(null)}
           />

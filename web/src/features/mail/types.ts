@@ -26,6 +26,8 @@ export interface ComposeContext {
   mode: 'new' | 'reply' | 'replyAll' | 'forward' | 'draft' | 'serverDraft'
   sourceEmail?: EmailDetail
   draft?: LocalDraft
+  /** True only if the user explicitly clicked "Load external images" in ReadingPane for this email */
+  allowExternalImages?: boolean
 }
 
 export const SYSTEM_FOLDER_TAGS: Record<Exclude<SystemFolderKey, 'starred'>, SearchTag> = {

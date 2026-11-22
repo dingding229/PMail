@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from 'react-router'
 import { Toaster } from 'sonner'
-import { ThemeProvider, useTheme } from '@/lib/theme'
-import { PreferencesProvider } from '@/lib/preferences'
+import { ThemeProvider } from '@/lib/ThemeProvider'
+import { useTheme } from '@/lib/theme'
+import { PreferencesProvider } from '@/lib/PreferencesProvider'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { OfflineBanner } from '@/components/common/OfflineBanner'
+import { ErrorBoundary } from '@/components/common/ErrorBoundary'
 import { router } from './router'
 
 const queryClient = new QueryClient({
@@ -12,6 +14,7 @@ const queryClient = new QueryClient({
     queries: {
       refetchOnWindowFocus: false,
       retry: 1,
+      gcTime: 10 * 60_000,
     },
   },
 })
@@ -37,7 +40,9 @@ export function App() {
       <ThemeProvider>
         <PreferencesProvider>
           <TooltipProvider delayDuration={350}>
-            <RouterProvider router={router} />
+            <ErrorBoundary>
+              <RouterProvider router={router} />
+            </ErrorBoundary>
             <OfflineBanner />
             <ThemedToaster />
           </TooltipProvider>

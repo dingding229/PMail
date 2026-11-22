@@ -170,6 +170,8 @@ export const EmailListItem = memo(function EmailListItem({
         }}
         onMouseEnter={() => onPrefetch(email.id)}
         onMouseLeave={onCancelPrefetch}
+        onFocus={() => onPrefetch(email.id)}
+        onBlur={onCancelPrefetch}
         className={cn(
           'group relative flex cursor-pointer items-start gap-3 px-3.5 transition-colors duration-[var(--duration-fast)] select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent-ring)]',
           paddingClass,

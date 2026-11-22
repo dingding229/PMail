@@ -54,9 +54,9 @@ interface ReadingPaneProps {
   groupOptions: GroupOption[]
   isMobile: boolean
   onBack?: () => void
-  onReply: (email: EmailDetail) => void
-  onReplyAll: (email: EmailDetail) => void
-  onForward: (email: EmailDetail) => void
+  onReply: (email: EmailDetail, allowExternalImages?: boolean) => void
+  onReplyAll: (email: EmailDetail, allowExternalImages?: boolean) => void
+  onForward: (email: EmailDetail, allowExternalImages?: boolean) => void
   onEditDraft?: (email: EmailDetail) => void
   onToggleStar: (id: number, nextStarred: boolean) => void
   onToggleRead: (id: number, nextRead: boolean) => void
@@ -260,7 +260,11 @@ export function ReadingPane({
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" onClick={() => onReply(email)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onReply(email, externalImagesAllowed)}
+              >
                 <Reply className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">{t('mail.actions.reply')}</span>
               </Button>
@@ -270,7 +274,11 @@ export function ReadingPane({
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" onClick={() => onReplyAll(email)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onReplyAll(email, externalImagesAllowed)}
+              >
                 <ReplyAll className="h-3.5 w-3.5" />
                 <span className="hidden xl:inline">{t('mail.actions.replyAll')}</span>
               </Button>
@@ -280,7 +288,11 @@ export function ReadingPane({
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" onClick={() => onForward(email)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onForward(email, externalImagesAllowed)}
+              >
                 <Forward className="h-3.5 w-3.5" />
                 <span className="hidden xl:inline">{t('mail.actions.forward')}</span>
               </Button>
@@ -619,15 +631,27 @@ export function ReadingPane({
               </Button>
             ) : (
               <>
-                <Button variant="secondary" size="sm" onClick={() => onReply(email)}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onReply(email, externalImagesAllowed)}
+                >
                   <Reply className="h-3.5 w-3.5" />
                   {t('mail.actions.reply')}
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => onReplyAll(email)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onReplyAll(email, externalImagesAllowed)}
+                >
                   <ReplyAll className="h-3.5 w-3.5" />
                   {t('mail.actions.replyAll')}
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => onForward(email)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onForward(email, externalImagesAllowed)}
+                >
                   <Forward className="h-3.5 w-3.5" />
                   {t('mail.actions.forward')}
                 </Button>

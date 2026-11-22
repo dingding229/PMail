@@ -27,8 +27,10 @@ export const queryKeys = {
   bootstrap: ['bootstrap'] as const,
   userMe: ['user', 'me'] as const,
   addresses: ['user', 'addresses'] as const,
+  signatures: ['settings', 'signatures'] as const,
   sidebarGroups: ['groups', 'sidebar'] as const,
   groupOptions: ['groups', 'list'] as const,
+  emailListsRoot: ['emails', 'list'] as const,
   emailList: (tag: string, keyword: string) => ['emails', 'list', tag, keyword] as const,
   emailDetail: (id: number) => ['emails', 'detail', id] as const,
   forward: ['settings', 'forward'] as const,
@@ -37,6 +39,7 @@ export const queryKeys = {
   externalPresets: ['settings', 'external', 'presets'] as const,
   tokens: ['settings', 'tokens'] as const,
   queue: ['queue', 'list'] as const,
+  usersRoot: ['admin', 'users'] as const,
   users: (page: number, pageSize: number) => ['admin', 'users', page, pageSize] as const,
   userAddresses: (userId: number) => ['admin', 'addresses', userId] as const,
   domains: ['admin', 'domains'] as const,
@@ -158,13 +161,14 @@ export function usePrefetchEmailDetail() {
 }
 
 type EmailListCache = InfiniteData<EmailListResponse, number>
+type DetailSnapshot = [readonly unknown[], EmailDetail | undefined]
 
 function updateEmailListsInCache(
   queryClient: ReturnType<typeof useQueryClient>,
   updater: (items: EmailListItem[], queryKey: readonly unknown[]) => EmailListItem[],
 ) {
   const snapshots = queryClient.getQueriesData<EmailListCache>({
-    queryKey: ['emails', 'list'],
+    queryKey: queryKeys.emailListsRoot,
   })
 
   for (const [key, old] of snapshots) {
@@ -181,12 +185,35 @@ function updateEmailListsInCache(
   return snapshots
 }
 
+function updateEmailDetailsInCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  ids: number[],
+  updater: (detail: EmailDetail) => EmailDetail,
+): DetailSnapshot[] {
+  const snapshots: DetailSnapshot[] = []
+  for (const id of ids) {
+    const key = queryKeys.emailDetail(id)
+    const prev = queryClient.getQueryData<EmailDetail>(key)
+    snapshots.push([key, prev])
+    if (prev) {
+      queryClient.setQueryData<EmailDetail>(key, updater(prev))
+    }
+  }
+  return snapshots
+}
+
 function restoreSnapshots(
   queryClient: ReturnType<typeof useQueryClient>,
   snapshots: [readonly unknown[], EmailListCache | undefined][],
+  detailSnapshots?: DetailSnapshot[],
 ) {
   for (const [key, data] of snapshots) {
     queryClient.setQueryData(key, data)
+  }
+  if (detailSnapshots) {
+    for (const [key, data] of detailSnapshots) {
+      queryClient.setQueryData(key, data)
+    }
   }
 }
 
@@ -199,7 +226,7 @@ export function useStarEmailsMutation() {
       return mailApi.star(ids, starred)
     },
     onMutate: async ({ ids, starred }) => {
-      await queryClient.cancelQueries({ queryKey: ['emails', 'list'] })
+      await queryClient.cancelQueries({ queryKey: queryKeys.emailListsRoot })
       const idSet = new Set(ids)
       const snapshots = updateEmailListsInCache(queryClient, (list, qKey) => {
         const tag = String(qKey[2] ?? '')
@@ -211,15 +238,14 @@ export function useStarEmailsMutation() {
           idSet.has(item.id) ? { ...item, is_starred: starred } : item,
         )
       })
-      for (const id of ids) {
-        queryClient.setQueryData<EmailDetail>(queryKeys.emailDetail(id), (old) =>
-          old ? { ...old, is_starred: starred } : old,
-        )
-      }
-      return { snapshots }
+      const detailSnapshots = updateEmailDetailsInCache(queryClient, ids, (old) => ({
+        ...old,
+        is_starred: starred,
+      }))
+      return { snapshots, detailSnapshots }
     },
     onError: (err, _vars, ctx) => {
-      if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots)
+      if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots, ctx.detailSnapshots)
       toast.error(err instanceof Error ? err.message : t('common.unknownError'))
     },
     onSuccess: (_res, vars, ctx) => {
@@ -228,9 +254,10 @@ export function useStarEmailsMutation() {
           action: {
             label: t('common.undo'),
             onClick: () => {
-              if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots)
+              if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots, ctx.detailSnapshots)
               void mailApi.star(vars.ids, !vars.starred).finally(() => {
-                void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+                void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
+                void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
               })
               toast.success(t('common.undone'))
             },
@@ -251,20 +278,19 @@ export function useMarkReadMutation() {
       return mailApi.markRead(ids, isRead)
     },
     onMutate: async ({ ids, isRead }) => {
-      await queryClient.cancelQueries({ queryKey: ['emails', 'list'] })
+      await queryClient.cancelQueries({ queryKey: queryKeys.emailListsRoot })
       const idSet = new Set(ids)
       const snapshots = updateEmailListsInCache(queryClient, (list) =>
         list.map((item) => (idSet.has(item.id) ? { ...item, is_read: isRead } : item)),
       )
-      for (const id of ids) {
-        queryClient.setQueryData<EmailDetail>(queryKeys.emailDetail(id), (old) =>
-          old ? { ...old, is_read: isRead ? 1 : 0 } : old,
-        )
-      }
-      return { snapshots }
+      const detailSnapshots = updateEmailDetailsInCache(queryClient, ids, (old) => ({
+        ...old,
+        is_read: isRead ? 1 : 0,
+      }))
+      return { snapshots, detailSnapshots }
     },
     onError: (err, _vars, ctx) => {
-      if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots)
+      if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots, ctx.detailSnapshots)
       toast.error(err instanceof Error ? err.message : t('common.unknownError'))
     },
     onSuccess: (_res, vars, ctx) => {
@@ -273,8 +299,11 @@ export function useMarkReadMutation() {
           action: {
             label: t('common.undo'),
             onClick: () => {
-              if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots)
-              void mailApi.markRead(vars.ids, !vars.isRead)
+              if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots, ctx.detailSnapshots)
+              void mailApi.markRead(vars.ids, !vars.isRead).finally(() => {
+                void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
+                void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+              })
               toast.success(t('common.undone'))
             },
           },
@@ -301,7 +330,7 @@ export function useDeleteEmailsMutation() {
       return mailApi.remove(ids, forcedDel)
     },
     onMutate: async ({ ids }) => {
-      await queryClient.cancelQueries({ queryKey: ['emails', 'list'] })
+      await queryClient.cancelQueries({ queryKey: queryKeys.emailListsRoot })
       const idSet = new Set(ids)
       const snapshots = updateEmailListsInCache(queryClient, (list) =>
         list.filter((item) => !idSet.has(item.id)),
@@ -328,14 +357,14 @@ export function useDeleteEmailsMutation() {
               } catch (e) {
                 toast.error(e instanceof Error ? e.message : t('common.unknownError'))
               } finally {
-                void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+                void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
                 void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
               }
             },
           },
         })
       }
-      void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
       void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
     },
   })
@@ -358,7 +387,7 @@ export function useMoveEmailsMutation() {
       return mailApi.move(ids, groupId)
     },
     onMutate: async ({ ids }) => {
-      await queryClient.cancelQueries({ queryKey: ['emails', 'list'] })
+      await queryClient.cancelQueries({ queryKey: queryKeys.emailListsRoot })
       const idSet = new Set(ids)
       const snapshots = updateEmailListsInCache(queryClient, (list) =>
         list.filter((item) => !idSet.has(item.id)),
@@ -382,13 +411,13 @@ export function useMoveEmailsMutation() {
             } catch (e) {
               toast.error(e instanceof Error ? e.message : t('common.unknownError'))
             } finally {
-              void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+              void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
               void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
             }
           },
         },
       })
-      void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
       void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
     },
   })
@@ -399,7 +428,7 @@ export function useSaveDraftMutation() {
   return useMutation({
     mutationFn: (payload: DraftSaveRequest) => mailApi.saveDraft(payload),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
       void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
     },
   })
@@ -410,7 +439,7 @@ export function useDeleteDraftMutation() {
   return useMutation({
     mutationFn: (id: number) => mailApi.deleteDraft(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
       void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
     },
   })
@@ -443,7 +472,7 @@ export function useDeleteGroupMutation() {
       toast.success(t('nav.groupDeleted', { name }))
       void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
       void queryClient.invalidateQueries({ queryKey: queryKeys.groupOptions })
-      void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : t('common.unknownError'))

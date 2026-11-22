@@ -5,6 +5,9 @@ const en = {
     loading: 'Loading…',
     bootError: 'Unable to reach the mail server. Please try again.',
     retry: 'Retry',
+    reloadPage: 'Reload Page',
+    errorBoundaryTitle: 'Something went wrong here',
+    errorBoundaryDesc: 'This view encountered an unexpected rendering error. Other sections remain unaffected.',
   },
   common: {
     confirm: 'Confirm',
@@ -328,8 +331,59 @@ const en = {
       codeLanguage: 'Code language',
       link: 'Insert link',
       linkPrompt: 'Enter URL (https://...)',
+      linkEditorTitle: 'Edit Link',
+      linkPlaceholder: 'Enter URL (e.g. https://example.com) or email',
+      linkApply: 'Apply',
+      linkOpen: 'Open in new tab',
+      linkRemove: 'Remove link',
+      ariaLabel: 'Message formatting toolbar',
+      fontSize: 'Font size',
+      fontSizeDefault: 'Default size',
+      textColor: 'Text color',
+      resetColor: 'Reset color',
+      highlight: 'Highlight',
+      clearHighlight: 'Clear highlight',
+      alignLeft: 'Align left',
+      alignCenter: 'Align center',
+      alignRight: 'Align right',
+      taskList: 'Task list',
+      quote: 'Blockquote',
+      horizontalRule: 'Horizontal rule',
+      clearFormat: 'Clear formatting',
+      codeLanguageAuto: 'Auto language',
+      table: 'Table',
+      insertTable: 'Insert 3×3 table',
+      addRowBefore: 'Add row above',
+      addRowAfter: 'Add row below',
+      deleteRow: 'Delete row',
+      addColBefore: 'Add column left',
+      addColAfter: 'Add column right',
+      deleteCol: 'Delete column',
+      deleteTable: 'Delete table',
+      insertImage: 'Insert inline image',
+      moreTools: 'More',
       undo: 'Undo',
       redo: 'Redo',
+    },
+
+    paste: {
+      codeDetected: 'Auto-formatted as {{lang}} code block',
+      undoToPlain: 'Undo to plain text',
+      cleanedHtml: 'Cleaned external markup and unsafe styles',
+    },
+
+    inlineImage: {
+      previewInserted: 'Inserted inline image preview ({{name}})',
+      reservedHint: 'Inline image preview attached; native CID delivery activates with C9 backend',
+      tooLarge: 'Image "{{name}}" exceeds the 10 MB limit',
+      pendingCount: '{{count}} inline image(s)',
+    },
+
+    signature: {
+      label: 'Signature',
+      none: 'No signature',
+      applied: 'Applied signature: {{name}}',
+      removed: 'Signature removed',
     },
 
     validation: {
@@ -342,6 +396,8 @@ const en = {
     quote: {
       wroteAt: 'On {{date}}, {{sender}} wrote:',
       forwardedHeader: '---------- Forwarded message ----------',
+      blockedImage: '[Image: {{label}}]',
+      imageFallback: 'External image',
     },
 
     result: {

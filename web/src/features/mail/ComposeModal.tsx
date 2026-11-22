@@ -1,52 +1,33 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useEditor, EditorContent } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
-import { Placeholder } from '@tiptap/extensions'
 import dayjs from 'dayjs'
 import { toast } from 'sonner'
 import {
   AlertCircle,
-  Bold,
   CheckCircle2,
   Clock,
-  Code,
-  Code2,
-  Heading2,
-  Italic,
-  Link2,
-  List,
-  ListOrdered,
+  Image as ImageIcon,
   Loader2,
   Maximize2,
   Minimize2,
   Minus,
   Paperclip,
-  Quote,
-  Redo2,
+  PenLine,
   Send,
-  Strikethrough,
   Trash2,
-  Underline as UnderlineIcon,
-  Undo2,
   Upload,
   X,
 } from 'lucide-react'
 import {
   mailApi,
+  type EmailDetail,
   type MailboxAddress,
   type SendEmailAttachment,
   type SendEmailResponse,
 } from '@/api'
-import {
-  formatBytes,
-  isValidEmail,
-  resolveAddressList,
-  stripHtmlToText,
-} from '@/lib/format'
-import { COMPOSE_CODE_LANGUAGES } from '@/lib/code-languages'
+import { formatBytes, isValidEmail, resolveAddressList } from '@/lib/format'
 import { formatMailFullTime, pickDate } from '@/lib/date'
-import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
@@ -58,6 +39,21 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { RecipientChipInput, type ContactSuggestion } from './RecipientChipInput'
+import { createComposeExtensions } from './editor/extensions'
+import { EditorToolbar } from './editor/EditorToolbar'
+import { LinkBubble } from './editor/LinkBubble'
+import {
+  detectPastedCode,
+  MAX_INLINE_IMAGE_BYTES,
+  sanitizePastedHtml,
+} from './editor/paste-sanitizer'
+import { htmlToMailPlainText } from './editor/html-to-text'
+import {
+  MOCK_SIGNATURES,
+  SIGNATURE_BLOCK_ATTR,
+  type InlineImageDraft,
+  type SignatureItem,
+} from './editor/types'
 import type { ComposeContext, LocalDraft } from './types'
 
 interface UploadedAttachment extends SendEmailAttachment {
@@ -71,6 +67,8 @@ interface ComposeModalProps {
   userDisplayName: string
   suggestions: ContactSuggestion[]
   isMobile: boolean
+  /** Reserved for C9 backend signature list; falls back to mock signatures in MSW mode */
+  signatures?: SignatureItem[]
   onSaveDraft: (draft: LocalDraft) => void
   onDeleteDraft: (draftId: string) => void
   onSentSuccess: () => void
@@ -79,10 +77,59 @@ interface ComposeModalProps {
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 
-function buildQuotedHtml(srcHtml?: string, srcText?: string): string {
-  // Preserve <pre><code> blocks when replying/forwarding!
-  if (srcHtml && /<pre[\s>]/i.test(srcHtml)) {
-    return srcHtml
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function buildCidResolver(sourceEmail?: EmailDetail): ((cid: string) => string | null) | undefined {
+  if (!sourceEmail) return undefined
+  const cidMap = new Map<string, number>()
+
+  for (const att of sourceEmail.attachments_list ?? []) {
+    if (att.content_id) {
+      const clean = att.content_id.replace(/^[<\s]+|[>\s]+$/g, '').toLowerCase()
+      if (clean) cidMap.set(clean, att.index)
+    }
+  }
+  for (const att of sourceEmail.attachments ?? []) {
+    if (att.ContentID) {
+      const clean = att.ContentID.replace(/^[<\s]+|[>\s]+$/g, '').toLowerCase()
+      if (clean && !cidMap.has(clean)) cidMap.set(clean, att.Index)
+    }
+  }
+
+  if (cidMap.size === 0) return undefined
+  return (cid: string) => {
+    const idx = cidMap.get(cid.trim().toLowerCase())
+    return idx !== undefined ? mailApi.attachmentInlineUrl(sourceEmail.id, idx) : null
+  }
+}
+
+interface BuildQuotedHtmlOptions {
+  allowExternalImages: boolean
+  sourceEmail?: EmailDetail
+  imagePlaceholder: (label: string) => string
+  fallbackImageLabel: string
+}
+
+function buildQuotedHtml(
+  srcHtml: string | undefined,
+  srcText: string | undefined,
+  opts: BuildQuotedHtmlOptions,
+): string {
+  // Preserve rich HTML (code blocks, tables, lists) while strictly blocking external tracking images unless explicitly allowed
+  if (srcHtml && srcHtml.trim().length > 0) {
+    return sanitizePastedHtml(srcHtml, {
+      blockExternalImages: !opts.allowExternalImages,
+      maxDataImageBytes: MAX_INLINE_IMAGE_BYTES,
+      resolveCidUrl: buildCidResolver(opts.sourceEmail),
+      imagePlaceholder: opts.imagePlaceholder,
+      fallbackImageLabel: opts.fallbackImageLabel,
+    })
   }
   const text = srcText || ''
   if (!text) return ''
@@ -93,36 +140,19 @@ function buildQuotedHtml(srcHtml?: string, srcText?: string): string {
   let m: RegExpExecArray | null
   while ((m = fenceRe.exec(text)) !== null) {
     if (m.index > last) {
-      parts.push(
-        text
-          .slice(last, m.index)
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/\n/g, '<br>'),
-      )
+      parts.push(`<p>${escapeHtml(text.slice(last, m.index)).replace(/\n/g, '<br>')}</p>`)
     }
     const lang = (m[1] ?? '').trim()
-    const code = (m[2] ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
+    const code = escapeHtml(m[2] ?? '')
     parts.push(
       lang
-        ? `<pre><code class="language-${lang}">${code}</code></pre>`
+        ? `<pre><code class="language-${escapeHtml(lang)}">${code}</code></pre>`
         : `<pre><code>${code}</code></pre>`,
     )
     last = m.index + m[0].length
   }
   if (last < text.length) {
-    parts.push(
-      text
-        .slice(last)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/\n/g, '<br>'),
-    )
+    parts.push(`<p>${escapeHtml(text.slice(last)).replace(/\n/g, '<br>')}</p>`)
   }
   return parts.join('')
 }
@@ -142,6 +172,7 @@ export function ComposeModal({
   userDisplayName,
   suggestions,
   isMobile,
+  signatures,
   onSaveDraft,
   onDeleteDraft,
   onSentSuccess,
@@ -180,7 +211,7 @@ export function ComposeModal({
         cc: resolveAddressList(src.cc_list, src.cc).map((x) => x.email),
         bcc: resolveAddressList(src.bcc_list, src.bcc).map((x) => x.email),
         subject: src.subject || '',
-        html: src.html || (src.text ? `<p>${src.text.replace(/\n/g, '<br>')}</p>` : ''),
+        html: src.html || (src.text ? `<p>${escapeHtml(src.text).replace(/\n/g, '<br>')}</p>` : ''),
       }
     }
 
@@ -211,9 +242,17 @@ export function ComposeModal({
     )
     const ownSet = new Set(sendableAddresses.map((a) => a.address.toLowerCase()))
 
+    const quoteOpts: BuildQuotedHtmlOptions = {
+      allowExternalImages: Boolean(context.allowExternalImages),
+      sourceEmail: src,
+      imagePlaceholder: (label) => t('compose.quote.blockedImage', { label }),
+      fallbackImageLabel: t('compose.quote.imageFallback'),
+    }
+
     if (context.mode === 'reply' || context.mode === 'replyAll') {
       const replyTargets = resolveAddressList(src.reply_to_list, src.reply_to)
-      const primaryTo = replyTargets.length > 0 ? replyTargets.map((x) => x.email) : senderAddr ? [senderAddr] : []
+      const primaryTo =
+        replyTargets.length > 0 ? replyTargets.map((x) => x.email) : senderAddr ? [senderAddr] : []
       let ccList: string[] = []
       if (context.mode === 'replyAll') {
         const allOthers = [
@@ -225,8 +264,10 @@ export function ComposeModal({
         ccList = Array.from(new Set(allOthers))
       }
       const subject = /^re:/i.test(src.subject) ? src.subject : `Re: ${src.subject}`
-      const quoteBody = buildQuotedHtml(src.html, src.text)
-      const html = `<p></p><p>${t('compose.quote.wroteAt', { date: dateLabel, sender: senderLabel })}</p><blockquote>${quoteBody}</blockquote>`
+      const quoteBody = buildQuotedHtml(src.html, src.text, quoteOpts)
+      const html = `<p></p><p>${escapeHtml(
+        t('compose.quote.wroteAt', { date: dateLabel, sender: senderLabel }),
+      )}</p><blockquote>${quoteBody}</blockquote>`
       return {
         draftId,
         serverDraftId: undefined as number | undefined,
@@ -239,10 +280,25 @@ export function ComposeModal({
       }
     }
 
-    // Forward
+    // Forward: include structured original headers (From / Date / Subject / To / Cc)
     const subject = /^fwd:/i.test(src.subject) ? src.subject : `Fwd: ${src.subject}`
-    const quoteBody = buildQuotedHtml(src.html, src.text)
-    const html = `<p></p><p>${t('compose.quote.forwardedHeader')}<br>${t('mail.header.from')}: ${senderLabel}<br>${t('mail.header.date')}: ${dateLabel}<br>${t('compose.subject')}: ${src.subject}</p><blockquote>${quoteBody}</blockquote>`
+    const origTo = resolveAddressList(src.to_list, src.to)
+      .map((x) => (x.name ? `${x.name} <${x.email}>` : x.email))
+      .join(', ')
+    const origCc = resolveAddressList(src.cc_list, src.cc)
+      .map((x) => (x.name ? `${x.name} <${x.email}>` : x.email))
+      .join(', ')
+    const headerLines = [
+      escapeHtml(t('compose.quote.forwardedHeader')),
+      `${escapeHtml(t('mail.header.from'))}: ${escapeHtml(senderLabel)}`,
+      `${escapeHtml(t('mail.header.date'))}: ${escapeHtml(dateLabel)}`,
+      `${escapeHtml(t('compose.subject'))}: ${escapeHtml(src.subject || '')}`,
+      origTo ? `${escapeHtml(t('mail.header.to'))}: ${escapeHtml(origTo)}` : '',
+      origCc ? `${escapeHtml(t('mail.header.cc'))}: ${escapeHtml(origCc)}` : '',
+    ].filter(Boolean)
+
+    const quoteBody = buildQuotedHtml(src.html, src.text, quoteOpts)
+    const html = `<p></p><p>${headerLines.join('<br>')}</p><blockquote>${quoteBody}</blockquote>`
     return {
       draftId,
       serverDraftId: undefined as number | undefined,
@@ -265,6 +321,7 @@ export function ComposeModal({
   const [showBcc, setShowBcc] = useState(initialFields.bcc.length > 0)
   const [subject, setSubject] = useState(initialFields.subject)
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([])
+  const [inlineImages, setInlineImages] = useState<InlineImageDraft[]>([])
   const [includeOrigAttachments, setIncludeOrigAttachments] = useState(
     context.mode === 'forward' && (context.sourceEmail?.attachments?.length ?? 0) > 0,
   )
@@ -272,11 +329,38 @@ export function ComposeModal({
   const [minimized, setMinimized] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [draggingFiles, setDraggingFiles] = useState(false)
+  const [linkBubbleOpen, setLinkBubbleOpen] = useState(false)
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [sendResult, setSendResult] = useState<SendEmailResponse | null>(null)
+  const [mobileViewportHeight, setMobileViewportHeight] = useState<number | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const imageInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Available signatures (C9 prop or MSW demo signatures)
+  const availableSignatures = useMemo(() => {
+    const source =
+      signatures ?? (import.meta.env.VITE_MOCK === '1' ? MOCK_SIGNATURES : [])
+    return source.filter(
+      (s) =>
+        s.enabled &&
+        (s.address === '*' ||
+          s.address.toLowerCase() === (fromAddress || defaultFrom).toLowerCase()),
+    )
+  }, [signatures, fromAddress, defaultFrom])
+
+  const [selectedSignatureId, setSelectedSignatureId] = useState<string>('none')
+
+  // Track visualViewport height on mobile so virtual keyboard never causes modal jump
+  useEffect(() => {
+    if (!isMobile || typeof window === 'undefined' || !window.visualViewport) return
+    const vv = window.visualViewport
+    const syncHeight = () => setMobileViewportHeight(Math.round(vv.height))
+    syncHeight()
+    vv.addEventListener('resize', syncHeight)
+    return () => vv.removeEventListener('resize', syncHeight)
+  }, [isMobile])
 
   // Ensure fromAddress syncs if addresses load asynchronously
   useEffect(() => {
@@ -285,47 +369,200 @@ export function ComposeModal({
     }
   }, [fromAddress, defaultFrom])
 
+  // Ref for inline image handler so ProseMirror handlePaste / handleDrop stays fresh
+  const insertInlineImageRef = useRef<(file: File) => Promise<void>>(async () => {})
+
+  const extensions = useMemo(
+    () => createComposeExtensions(t('compose.bodyPlaceholder')),
+    [t],
+  )
+
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
-        link: {
-          openOnClick: false,
-          autolink: true,
-          HTMLAttributes: { target: '_blank', rel: 'noopener noreferrer' },
-        },
-      }),
-      Placeholder.configure({
-        placeholder: t('compose.bodyPlaceholder'),
-      }),
-    ],
+    extensions,
     content: initialFields.html,
     immediatelyRender: false,
+    editorProps: {
+      transformPastedHTML(html) {
+        const cleaned = sanitizePastedHtml(html)
+        // Notify quietly when external scripts/styles/Word XML were stripped
+        if (/<(?:script|style|xml|o:|w:)|mso-|on[a-z]+\s*=/i.test(html)) {
+          toast.info(t('compose.paste.cleanedHtml'))
+        }
+        return cleaned
+      },
+      handlePaste(view, event) {
+        const clipboard = event.clipboardData
+        if (!clipboard) return false
+
+        // 1. Pasted image file -> reserved C9 inline image preview
+        const items = Array.from(clipboard.items || [])
+        const imageItem = items.find((item) => item.type.startsWith('image/'))
+        if (imageItem) {
+          const file = imageItem.getAsFile()
+          if (file) {
+            event.preventDefault()
+            void insertInlineImageRef.current(file)
+            return true
+          }
+        }
+
+        // 2. Smart plain-text code detection (when pasting plain text outside an existing codeBlock)
+        const htmlData = clipboard.getData('text/html')
+        const plainData = clipboard.getData('text/plain')
+        const inCodeBlock = view.state.selection.$from.parent.type.name === 'codeBlock'
+
+        if (!htmlData && plainData && !inCodeBlock) {
+          const detected = detectPastedCode(plainData)
+          if (detected.isCode) {
+            event.preventDefault()
+            const normalizedCode = plainData.replace(/\r\n/g, '\n')
+            const codeBlockType = view.state.schema.nodes.codeBlock
+            if (!codeBlockType) return false
+
+            const fromPos = view.state.selection.from
+            const node = codeBlockType.create(
+              { language: detected.language === 'text' ? null : detected.language },
+              view.state.schema.text(normalizedCode),
+            )
+            const tr = view.state.tr.replaceSelectionWith(node)
+            view.dispatch(tr)
+
+            const langLabel = t(`mail.code.languages.${detected.language}` as const)
+            toast(t('compose.paste.codeDetected', { lang: langLabel }), {
+              action: {
+                label: t('compose.paste.undoToPlain'),
+                onClick: () => {
+                  const paragraphs = normalizedCode
+                    .split('\n')
+                    .map((line) =>
+                      view.state.schema.nodes.paragraph!.create(
+                        null,
+                        line ? view.state.schema.text(line) : undefined,
+                      ),
+                    )
+                  const endPos = Math.min(
+                    fromPos + node.nodeSize,
+                    view.state.doc.content.size,
+                  )
+                  const replaceTr = view.state.tr.replaceWith(fromPos, endPos, paragraphs)
+                  view.dispatch(replaceTr)
+                },
+              },
+            })
+            return true
+          }
+        }
+        return false
+      },
+      handleDrop(_view, event) {
+        const files = Array.from(event.dataTransfer?.files || [])
+        const imageFiles = files.filter((f) => f.type.startsWith('image/'))
+        if (imageFiles.length > 0) {
+          event.preventDefault()
+          for (const img of imageFiles) {
+            void insertInlineImageRef.current(img)
+          }
+          return true
+        }
+        return false
+      },
+    },
   })
 
-  // Auto-save draft (debounced 2s)
-  const [editorTick, setEditorTick] = useState(0)
+  // Keep insertInlineImageRef synced with latest editor instance
+  const insertInlineImageFile = useCallback(
+    async (file: File) => {
+      if (!editor) return
+      if (file.size > MAX_INLINE_IMAGE_BYTES) {
+        toast.error(t('compose.inlineImage.tooLarge', { name: file.name }))
+        return
+      }
+      try {
+        const dataUrl = await readFileAsDataUrl(file)
+        const cid = `cid-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@pmail.local`
+        const draftImg: InlineImageDraft = {
+          cid,
+          filename: file.name || 'image.png',
+          contentType: file.type || 'image/png',
+          size: file.size,
+          dataUrl,
+        }
+        setInlineImages((prev) => [...prev, draftImg])
+        editor
+          .chain()
+          .focus()
+          .insertContent({
+            type: 'image',
+            attrs: {
+              src: dataUrl,
+              alt: draftImg.filename,
+              'data-cid': cid,
+              'data-filename': draftImg.filename,
+            },
+          })
+          .run()
+        toast.success(t('compose.inlineImage.previewInserted', { name: draftImg.filename }))
+      } catch {
+        toast.error(t('common.unknownError'))
+      }
+    },
+    [editor, t],
+  )
 
   useEffect(() => {
+    insertInlineImageRef.current = insertInlineImageFile
+  }, [insertInlineImageFile])
+
+  // Track editor updates & selection changes so toolbar active states stay live
+  const [editorTick, setEditorTick] = useState(0)
+  useEffect(() => {
     if (!editor) return
-    const onUpdate = () => setEditorTick((n) => n + 1)
-    editor.on('update', onUpdate)
+    const onTick = () => setEditorTick((n) => n + 1)
+    editor.on('update', onTick)
+    editor.on('selectionUpdate', onTick)
     return () => {
-      editor.off('update', onUpdate)
+      editor.off('update', onTick)
+      editor.off('selectionUpdate', onTick)
     }
   }, [editor])
 
+  // Compose final HTML including active rich-text signature block (C9 compatible)
+  const selectedSignature = useMemo(
+    () => availableSignatures.find((s) => s.id === selectedSignatureId) ?? null,
+    [availableSignatures, selectedSignatureId],
+  )
+
+  const sanitizedSignatureHtml = useMemo(() => {
+    if (!selectedSignature) return ''
+    return sanitizePastedHtml(selectedSignature.html, {
+      blockExternalImages: true,
+      maxDataImageBytes: MAX_INLINE_IMAGE_BYTES,
+      imagePlaceholder: (label) => t('compose.quote.blockedImage', { label }),
+      fallbackImageLabel: t('compose.quote.imageFallback'),
+    })
+  }, [selectedSignature, t])
+
+  const buildFinalHtml = useCallback(() => {
+    const bodyHtml = editor?.getHTML() ?? ''
+    if (!sanitizedSignatureHtml) return bodyHtml
+    return `${bodyHtml}<div ${SIGNATURE_BLOCK_ATTR}="true" style="margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f0;">${sanitizedSignatureHtml}</div>`
+  }, [editor, sanitizedSignatureHtml])
+
+  // Auto-save draft (debounced 2.5s)
   useEffect(() => {
     if (sendResult || !editor) return
     const timer = window.setTimeout(() => {
-      const html = editor.getHTML()
-      const text = editor.getText().trim()
+      const html = buildFinalHtml()
+      const text = htmlToMailPlainText(html)
       const hasContent =
-        to.length > 0 || cc.length > 0 || bcc.length > 0 || subject.trim().length > 0 || text.length > 0
+        to.length > 0 ||
+        cc.length > 0 ||
+        bcc.length > 0 ||
+        subject.trim().length > 0 ||
+        text.length > 0
       if (!hasContent) return
 
       const nowIso = new Date().toISOString()
-      // Save draft to server first (C3 /api/email/draft/save); fall back to localStorage only if offline/unavailable
       void mailApi
         .saveDraft({
           id: serverDraftIdRef.current,
@@ -374,6 +611,7 @@ export function ComposeModal({
     attachments,
     editor,
     editorTick,
+    buildFinalHtml,
     onSaveDraft,
     onDeleteDraft,
     onSentSuccess,
@@ -432,8 +670,8 @@ export function ComposeModal({
       return
     }
 
-    const html = editor?.getHTML() ?? ''
-    const text = editor?.getText() || stripHtmlToText(html)
+    const html = buildFinalHtml()
+    const text = htmlToMailPlainText(html)
 
     setSending(true)
     try {
@@ -465,52 +703,58 @@ export function ComposeModal({
           subject: subject.trim(),
           html,
           text,
-          attrs:
-            attachments.length > 0
-              ? attachments.map(({ name, data }) => ({ name, data }))
-              : undefined,
+          attrs: attachments.map(({ name, data }) => ({ name, data })),
+          ...(serverDraftIdRef.current ? { draft_id: serverDraftIdRef.current } : {}),
         })
       }
 
-      setSendResult(result)
       onDeleteDraft(draftId)
-      if (serverDraftIdRef.current) {
-        const sid = serverDraftIdRef.current
-        serverDraftIdRef.current = undefined
-        void mailApi.deleteDraft(sid).catch(() => {})
-      }
+      serverDraftIdRef.current = undefined
+      setSendResult(result)
       onSentSuccess()
+
+      const hasFailed = result.recipients.some((r) => r.status === 'failed')
+      if (!hasFailed && result.status !== 'failed') {
+        toast.success(
+          result.status === 'queued'
+            ? t('compose.result.titleQueued')
+            : t('compose.result.titleSent'),
+        )
+      }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t('common.unknownError')
-      toast.error(msg)
+      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
     } finally {
       setSending(false)
     }
   }, [
-    sending,
-    fromAddress,
-    to,
-    cc,
+    attachments,
     bcc,
-    subject,
-    editor,
+    buildFinalHtml,
+    cc,
     context.mode,
     context.sourceEmail,
-    includeOrigAttachments,
-    attachments,
-    userDisplayName,
     draftId,
+    fromAddress,
+    includeOrigAttachments,
     onDeleteDraft,
     onSentSuccess,
+    sending,
+    subject,
     t,
+    to,
+    userDisplayName,
   ])
 
-  // Cmd/Ctrl + Enter to send
+  // Keyboard shortcuts: Cmd/Ctrl + Enter to send, Cmd/Ctrl + K to toggle LinkBubble
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !minimized && !sendResult) {
+      if (minimized || sendResult) return
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault()
         void handleSend()
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setLinkBubbleOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -531,18 +775,6 @@ export function ComposeModal({
     onClose()
   }
 
-  const handleInsertLink = () => {
-    if (!editor) return
-    const previousUrl = editor.getAttributes('link').href as string | undefined
-    const url = window.prompt(t('compose.toolbar.linkPrompt'), previousUrl || 'https://')
-    if (url === null) return
-    if (url.trim() === '') {
-      editor.chain().focus().extendMarkRange('link').unsetLink().run()
-      return
-    }
-    editor.chain().focus().extendMarkRange('link').setLink({ href: url.trim() }).run()
-  }
-
   const titleMap: Record<ComposeContext['mode'], string> = {
     new: t('compose.titleNew'),
     reply: t('compose.titleReply'),
@@ -552,7 +784,9 @@ export function ComposeModal({
     serverDraft: t('compose.titleDraft'),
   }
 
-  const modalTitle = subject.trim() ? `${titleMap[context.mode]} · ${subject.trim()}` : titleMap[context.mode]
+  const modalTitle = subject.trim()
+    ? `${titleMap[context.mode]} · ${subject.trim()}`
+    : titleMap[context.mode]
 
   const resultTitle = useMemo(() => {
     if (!sendResult) return ''
@@ -597,10 +831,10 @@ export function ComposeModal({
   }
 
   const containerClass = isMobile
-    ? 'fixed inset-0 z-50 flex flex-col bg-[var(--surface-elevated)] pt-safe pb-safe'
+    ? 'fixed inset-x-0 top-0 z-50 flex h-[100dvh] flex-col bg-[var(--surface-elevated)] pt-safe pb-safe'
     : expanded
       ? 'fixed inset-6 z-50 mx-auto flex max-w-4xl flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] shadow-[var(--shadow-lg)]'
-      : 'fixed bottom-0 right-6 z-50 flex h-[min(640px,calc(100vh-3rem))] w-[min(620px,calc(100vw-3rem))] flex-col overflow-hidden rounded-t-[var(--radius-lg)] border border-b-0 border-[var(--border-subtle)] bg-[var(--surface-elevated)] shadow-[var(--shadow-lg)]'
+      : 'fixed bottom-0 right-6 z-50 flex h-[min(680px,calc(100vh-3rem))] w-[min(680px,calc(100vw-3rem))] flex-col overflow-hidden rounded-t-[var(--radius-lg)] border border-b-0 border-[var(--border-subtle)] bg-[var(--surface-elevated)] shadow-[var(--shadow-lg)]'
 
   return (
     <>
@@ -615,6 +849,7 @@ export function ComposeModal({
       <div
         role="dialog"
         aria-label={titleMap[context.mode]}
+        style={isMobile && mobileViewportHeight ? { height: `${mobileViewportHeight}px` } : undefined}
         onDragOver={(e) => {
           e.preventDefault()
           setDraggingFiles(true)
@@ -633,9 +868,9 @@ export function ComposeModal({
       >
         {/* Drag-and-drop overlay */}
         {draggingFiles && (
-          <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-[var(--accent)]/10 backdrop-blur-[2px] border-2 border-dashed border-[var(--accent)] rounded-[var(--radius-lg)]">
+          <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 rounded-[var(--radius-lg)] border-2 border-dashed border-[var(--accent)] bg-[var(--accent)]/10 backdrop-blur-[2px]">
             <Upload className="h-8 w-8 text-[var(--accent)]" />
-            <p className="text-[14px] font-medium text-[var(--accent)]">
+            <p className="text-[14px] font-medium text-[var(--accent-ink)]">
               {t('compose.dropFilesHint')}
             </p>
           </div>
@@ -773,7 +1008,10 @@ export function ComposeModal({
                 </label>
                 {sendableAddresses.length > 0 ? (
                   <Select value={fromAddress} onValueChange={setFromAddress}>
-                    <SelectTrigger id="compose_from" className="h-7 border-0 bg-transparent px-1 shadow-none hover:bg-[var(--surface-hover)]">
+                    <SelectTrigger
+                      id="compose_from"
+                      className="h-7 border-0 bg-transparent px-1 shadow-none hover:bg-[var(--surface-hover)]"
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -886,137 +1124,80 @@ export function ComposeModal({
               </div>
             </div>
 
-            {/* Formatting Toolbar */}
+            {/* Enhanced Rich-Text Formatting Toolbar + Inline Link Editor */}
+            <EditorToolbar
+              editor={editor}
+              isMobile={isMobile}
+              onToggleLinkBubble={() => setLinkBubbleOpen((v) => !v)}
+              onTriggerImageUpload={() => imageInputRef.current?.click()}
+            />
             {editor && (
-              <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-[var(--border-hairline)] bg-[var(--surface-subtle)]/50 px-3 py-1">
-                <ToolbarBtn
-                  active={editor.isActive('bold')}
-                  onClick={() => editor.chain().focus().toggleBold().run()}
-                  label={t('compose.toolbar.bold')}
-                  icon={Bold}
-                />
-                <ToolbarBtn
-                  active={editor.isActive('italic')}
-                  onClick={() => editor.chain().focus().toggleItalic().run()}
-                  label={t('compose.toolbar.italic')}
-                  icon={Italic}
-                />
-                <ToolbarBtn
-                  active={editor.isActive('underline')}
-                  onClick={() => editor.chain().focus().toggleUnderline().run()}
-                  label={t('compose.toolbar.underline')}
-                  icon={UnderlineIcon}
-                />
-                <ToolbarBtn
-                  active={editor.isActive('strike')}
-                  onClick={() => editor.chain().focus().toggleStrike().run()}
-                  label={t('compose.toolbar.strike')}
-                  icon={Strikethrough}
-                />
-                <span className="mx-1 h-4 w-px bg-[var(--border-subtle)]" />
-                <ToolbarBtn
-                  active={editor.isActive('heading', { level: 2 })}
-                  onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-                  label={t('compose.toolbar.heading')}
-                  icon={Heading2}
-                />
-                <ToolbarBtn
-                  active={editor.isActive('bulletList')}
-                  onClick={() => editor.chain().focus().toggleBulletList().run()}
-                  label={t('compose.toolbar.bulletList')}
-                  icon={List}
-                />
-                <ToolbarBtn
-                  active={editor.isActive('orderedList')}
-                  onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                  label={t('compose.toolbar.orderedList')}
-                  icon={ListOrdered}
-                />
-                <ToolbarBtn
-                  active={editor.isActive('blockquote')}
-                  onClick={() => editor.chain().focus().toggleBlockquote().run()}
-                  label={t('compose.toolbar.blockquote')}
-                  icon={Quote}
-                />
-                <ToolbarBtn
-                  active={editor.isActive('code')}
-                  onClick={() => editor.chain().focus().toggleCode().run()}
-                  label={t('compose.toolbar.code')}
-                  icon={Code}
-                />
-                <ToolbarBtn
-                  active={editor.isActive('codeBlock')}
-                  onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-                  label={t('compose.toolbar.codeBlock')}
-                  icon={Code2}
-                />
-                {editor.isActive('codeBlock') && (
-                  <select
-                    aria-label={t('compose.toolbar.codeLanguage')}
-                    value={(editor.getAttributes('codeBlock').language as string) || 'text'}
-                    onChange={(e) =>
-                      editor
-                        .chain()
-                        .focus()
-                        .updateAttributes('codeBlock', {
-                          language: e.target.value === 'text' ? null : e.target.value,
-                        })
-                        .run()
-                    }
-                    className="h-6 rounded-[4px] border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-1.5 text-[11.5px] text-[var(--ink-primary)] outline-none focus:border-[var(--accent)]"
-                  >
-                    {COMPOSE_CODE_LANGUAGES.map((lang) => (
-                      <option key={lang} value={lang}>
-                        {t(`mail.code.languages.${lang}` as const)}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <ToolbarBtn
-                  active={editor.isActive('link')}
-                  onClick={handleInsertLink}
-                  label={t('compose.toolbar.link')}
-                  icon={Link2}
-                />
-                <span className="mx-1 h-4 w-px bg-[var(--border-subtle)]" />
-                <ToolbarBtn
-                  active={false}
-                  disabled={!editor.can().undo()}
-                  onClick={() => editor.chain().focus().undo().run()}
-                  label={t('compose.toolbar.undo')}
-                  icon={Undo2}
-                />
-                <ToolbarBtn
-                  active={false}
-                  disabled={!editor.can().redo()}
-                  onClick={() => editor.chain().focus().redo().run()}
-                  label={t('compose.toolbar.redo')}
-                  icon={Redo2}
-                />
-              </div>
+              <LinkBubble
+                editor={editor}
+                open={linkBubbleOpen}
+                onClose={() => setLinkBubbleOpen(false)}
+              />
             )}
 
-            {/* TipTap Scrollable Editor */}
-            <div className="tiptap-editor mail-scroll flex-1 overflow-y-auto px-4 py-3">
+            {/* Hidden inline image file input (reserved C9 CID flow) */}
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files?.length) {
+                  for (const img of Array.from(e.target.files)) {
+                    void insertInlineImageFile(img)
+                  }
+                  e.target.value = ''
+                }
+              }}
+            />
+
+            {/* TipTap Scrollable Editor + Live Signature Preview */}
+            <div className="tiptap-editor mail-scroll min-h-0 flex-1 overflow-y-auto px-4 py-3">
               <EditorContent editor={editor} />
+
+              {sanitizedSignatureHtml && (
+                <div
+                  className="mt-4 border-t border-dashed border-[var(--border-subtle)] pt-3 text-[12.5px] text-[var(--ink-secondary)]"
+                  dangerouslySetInnerHTML={{
+                    __html: sanitizedSignatureHtml,
+                  }}
+                />
+              )}
             </div>
 
-            {/* Forward original attachments option + Uploaded attachments chips */}
+            {/* Attachments & Inline Image Indicator */}
             {((context.mode === 'forward' && (context.sourceEmail?.attachments?.length ?? 0) > 0) ||
-              attachments.length > 0) && (
-              <div className="shrink-0 space-y-2 border-t border-[var(--border-hairline)] bg-[var(--surface-subtle)]/40 px-4 py-2.5">
-                {context.mode === 'forward' && (context.sourceEmail?.attachments?.length ?? 0) > 0 && (
-                  <label className="flex items-center gap-2 text-[12.5px] text-[var(--ink-secondary)] cursor-pointer">
-                    <Checkbox
-                      checked={includeOrigAttachments}
-                      onCheckedChange={(v) => setIncludeOrigAttachments(v === true)}
-                    />
-                    <span>
-                      {t('compose.includeOriginalAttachments', {
-                        count: context.sourceEmail?.attachments?.length ?? 0,
-                      })}
-                    </span>
-                  </label>
+              attachments.length > 0 ||
+              inlineImages.length > 0) && (
+              <div className="shrink-0 space-y-2 border-t border-[var(--border-hairline)] bg-[var(--surface-subtle)]/40 px-4 py-2">
+                {context.mode === 'forward' &&
+                  (context.sourceEmail?.attachments?.length ?? 0) > 0 && (
+                    <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-[var(--ink-secondary)]">
+                      <Checkbox
+                        checked={includeOrigAttachments}
+                        onCheckedChange={(v) => setIncludeOrigAttachments(v === true)}
+                      />
+                      <span>
+                        {t('compose.includeOriginalAttachments', {
+                          count: context.sourceEmail?.attachments?.length ?? 0,
+                        })}
+                      </span>
+                    </label>
+                  )}
+
+                {inlineImages.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-[var(--ink-muted)]">
+                    <Badge variant="accent">
+                      <ImageIcon className="h-3 w-3" />
+                      {t('compose.inlineImage.pendingCount', { count: inlineImages.length })}
+                    </Badge>
+                    <span className="truncate">{t('compose.inlineImage.reservedHint')}</span>
+                  </div>
                 )}
 
                 {attachments.length > 0 && (
@@ -1050,7 +1231,7 @@ export function ComposeModal({
 
             {/* Footer Action Bar */}
             <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--border-hairline)] bg-[var(--surface-sidebar)] px-4 py-2.5">
-              <div className="flex items-center gap-1.5">
+              <div className="flex min-w-0 items-center gap-1.5">
                 <Button
                   type="button"
                   variant="primary"
@@ -1084,13 +1265,45 @@ export function ComposeModal({
                   variant="ghost"
                   size="sm"
                   onClick={() => fileInputRef.current?.click()}
+                  title={t('compose.addAttachment')}
                 >
                   <Paperclip className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">{t('compose.addAttachment')}</span>
                 </Button>
+
+                {/* Reserved Per-Address Rich-Text Signature Selector (C9 interface) */}
+                {availableSignatures.length > 0 && (
+                  <label className="inline-flex min-w-0 items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)]/70 px-2 py-1 text-[12px] text-[var(--ink-secondary)]">
+                    <PenLine className="h-3.5 w-3.5 shrink-0 text-[var(--ink-muted)]" />
+                    <select
+                      aria-label={t('compose.signature.label')}
+                      value={selectedSignatureId}
+                      onChange={(e) => {
+                        const nextId = e.target.value
+                        setSelectedSignatureId(nextId)
+                        if (nextId === 'none') {
+                          toast(t('compose.signature.removed'))
+                        } else {
+                          const found = availableSignatures.find((s) => s.id === nextId)
+                          if (found) {
+                            toast.success(t('compose.signature.applied', { name: found.label }))
+                          }
+                        }
+                      }}
+                      className="max-w-[120px] truncate bg-transparent text-[12px] text-[var(--ink-primary)] outline-none sm:max-w-[150px]"
+                    >
+                      <option value="none">{t('compose.signature.none')}</option>
+                      {availableSignatures.map((sig) => (
+                        <option key={sig.id} value={sig.id}>
+                          {sig.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <span className="hidden text-[11.5px] text-[var(--ink-muted)] md:inline">
                   {t('compose.sendShortcut')}
                 </span>
@@ -1110,37 +1323,5 @@ export function ComposeModal({
         )}
       </div>
     </>
-  )
-}
-
-function ToolbarBtn({
-  active,
-  disabled,
-  onClick,
-  label,
-  icon: Icon,
-}: {
-  active: boolean
-  disabled?: boolean
-  onClick: () => void
-  label: string
-  icon: typeof Bold
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className={cn(
-        'inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] transition-colors disabled:opacity-40',
-        active
-          ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
-          : 'text-[var(--ink-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--ink-primary)]',
-      )}
-    >
-      <Icon className="h-3.5 w-3.5" />
-    </button>
   )
 }

@@ -102,7 +102,7 @@ export function UsersSection() {
   })
 
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.usersRoot })
   }
 
   const createMutation = useMutation({

@@ -57,6 +57,18 @@ export function DnsWizardModal({
   useEffect(() => {
     bodyScrollRef.current?.scrollTo({ top: 0 })
   }, [step])
+
+  // Close wizard on Escape key for keyboard accessibility
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
   const [checkingKey, setCheckingKey] = useState<string | null>(null)
   const [autoCheck, setAutoCheck] = useState(false)
   const [countdown, setCountdown] = useState(30)

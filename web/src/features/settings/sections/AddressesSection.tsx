@@ -95,7 +95,7 @@ export function AddressesSection({ userId, embedded = false }: AddressesSectionP
     void queryClient.invalidateQueries({ queryKey: addressQueryKey })
     void queryClient.invalidateQueries({ queryKey: queryKeys.addresses })
     void queryClient.invalidateQueries({ queryKey: queryKeys.userMe })
-    void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.usersRoot })
   }
 
   const createMutation = useMutation({

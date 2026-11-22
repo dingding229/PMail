@@ -5,6 +5,9 @@ const zhCN = {
     loading: '正在加载…',
     bootError: '无法连接到邮件服务，请稍后重试',
     retry: '重试',
+    reloadPage: '刷新页面',
+    errorBoundaryTitle: '当前视图加载异常',
+    errorBoundaryDesc: '该区域遇到了意外渲染错误，不影响其他功能，你可以尝试重新加载。',
   },
   common: {
     confirm: '确认',
@@ -328,8 +331,59 @@ const zhCN = {
       codeLanguage: '代码语言',
       link: '插入链接',
       linkPrompt: '请输入链接地址（https://...）',
+      linkEditorTitle: '编辑链接',
+      linkPlaceholder: '输入网址（如 https://example.com）或邮箱地址',
+      linkApply: '应用',
+      linkOpen: '在新标签页打开',
+      linkRemove: '移除链接',
+      ariaLabel: '邮件格式工具栏',
+      fontSize: '字号',
+      fontSizeDefault: '默认字号',
+      textColor: '文字颜色',
+      resetColor: '恢复默认颜色',
+      highlight: '文字高亮',
+      clearHighlight: '取消高亮',
+      alignLeft: '左对齐',
+      alignCenter: '居中对齐',
+      alignRight: '右对齐',
+      taskList: '任务列表',
+      quote: '引用块',
+      horizontalRule: '插入分隔线',
+      clearFormat: '清除格式',
+      codeLanguageAuto: '自动语言',
+      table: '表格',
+      insertTable: '插入 3×3 表格',
+      addRowBefore: '在上方插入行',
+      addRowAfter: '在下方插入行',
+      deleteRow: '删除当前行',
+      addColBefore: '在左侧插入列',
+      addColAfter: '在右侧插入列',
+      deleteCol: '删除当前列',
+      deleteTable: '删除表格',
+      insertImage: '插入内嵌图片',
+      moreTools: '更多',
       undo: '撤销',
       redo: '重做',
+    },
+
+    paste: {
+      codeDetected: '已自动识别为 {{lang}} 代码块',
+      undoToPlain: '撤销为纯文本',
+      cleanedHtml: '已自动清洗外部格式与不安全样式',
+    },
+
+    inlineImage: {
+      previewInserted: '已插入内嵌图片预览（{{name}}）',
+      reservedHint: '内嵌图片已加入预览，CID 原生发信将在服务端 C9 接口就绪后自动启用',
+      tooLarge: '图片「{{name}}」超过 10 MB 限制',
+      pendingCount: '{{count}} 张内嵌图片',
+    },
+
+    signature: {
+      label: '签名',
+      none: '不使用签名',
+      applied: '已切换签名：{{name}}',
+      removed: '已移除邮件签名',
     },
 
     validation: {
@@ -342,6 +396,8 @@ const zhCN = {
     quote: {
       wroteAt: '在 {{date}}，{{sender}} 写道：',
       forwardedHeader: '---------- 转发的邮件 ----------',
+      blockedImage: '[图片：{{label}}]',
+      imageFallback: '外部图片',
     },
 
     result: {
