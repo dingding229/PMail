@@ -134,6 +134,9 @@ func ReserveBounceNotice(userID int, rcptTo string) (bool, error) {
 	if err == nil {
 		return true, nil
 	}
+	if !db.IsUniqueViolation(err) {
+		return false, err
+	}
 	// Another worker may have won the unique-key race. Re-read it and apply
 	// the same window decision rather than emitting a duplicate notice.
 	notice = models.BounceNotice{}

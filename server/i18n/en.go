@@ -131,4 +131,5 @@ var en = map[string]string{
 	"dns_guide_zone_intro":           "PMail suggested records. Merge into the existing zone, keep SOA/NS and existing SPF authorizations, and enable optional lines only if needed.",
 	"dns_guide_spf_existing":         "In the DNS panel for %s choose TXT and host %s. Review or edit the existing SPF record; do not add another.",
 	"dns_guide_optional_web":         "Only if a client configuration service is deployed: in the DNS panel for %s choose CNAME, host %s, value %s.",
+	"resource_conflict":              "This resource already exists",
 }

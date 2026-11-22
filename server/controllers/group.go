@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
@@ -77,6 +78,10 @@ func AddGroup(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	newGroup, err := group.CreateGroup(ctx, reqData.Name, reqData.ParentId)
 
 	if err != nil {
+		if db.IsUniqueViolation(err) {
+			serviceError(ctx, w, err)
+			return
+		}
 		log.WithContext(ctx).Errorf("AddGroup: %v", err)
 		response.Localized(ctx, response.ServerError, "group_create_failed").FPrint(w)
 		return

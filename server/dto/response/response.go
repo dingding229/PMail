@@ -11,6 +11,7 @@ import (
 const (
 	NeedSetup          = 402
 	NeedLogin          = 403
+	RouteNotFound      = 404
 	NoAccessPrivileges = 405
 	ParamsError        = 100
 	ServerError        = 500

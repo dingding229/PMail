@@ -218,3 +218,60 @@ func (e *spfEvaluator) addresses(ctx context.Context, host string, bits int, add
 	}
 	return spfNoPass
 }
+
+// suggestSPF keeps the base record and its terminal policy. Additional SPF
+// records contribute their distinct mechanisms, not their competing policies.
+func suggestSPF(records []string) string {
+	if len(records) == 0 {
+		return ""
+	}
+	base := strings.Fields(records[0])
+	if len(base) == 0 {
+		return ""
+	}
+	canonical := func(term string) string { return strings.ToLower(strings.TrimPrefix(term, "+")) }
+	all := len(base)
+	for i, term := range base[1:] {
+		if spfAll(term) {
+			all = i + 1
+			break
+		}
+	}
+	seen := map[string]bool{}
+	for _, term := range base[1:all] {
+		seen[canonical(term)] = true
+	}
+	merge := []string{}
+	for _, record := range records[1:] {
+		parts := strings.Fields(record)
+		if len(parts) == 0 {
+			continue
+		}
+		for _, term := range parts[1:] {
+			key := canonical(term)
+			if spfAll(term) {
+				break
+			}
+			if strings.Contains(term, "=") || seen[key] {
+				continue
+			}
+			merge = append(merge, term)
+			seen[key] = true
+		}
+	}
+	// A qualified positive mx/a is equivalent to its bare mechanism. Do not
+	// remove or override existing explicit negative mechanisms.
+	for _, term := range []string{"mx", "a"} {
+		if !seen[term] {
+			merge = append(merge, term)
+		}
+	}
+	return strings.Join(append(append(base[:all:all], merge...), base[all:]...), " ")
+}
+
+func spfAll(term string) bool {
+	if len(term) > 0 && strings.ContainsRune("+-~?", rune(term[0])) {
+		term = term[1:]
+	}
+	return strings.EqualFold(term, "all")
+}

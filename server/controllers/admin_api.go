@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
@@ -83,6 +84,10 @@ func serviceError(ctx *context.Context, w http.ResponseWriter, err error) {
 			apiError(ctx, w, entry.status, entry.code, entry.key)
 			return
 		}
+	}
+	if db.IsUniqueViolation(err) {
+		apiError(ctx, w, http.StatusConflict, response.ParamsError, "resource_conflict")
+		return
 	}
 	log.WithContext(ctx).Errorf("API operation failed: %v", err)
 	apiError(ctx, w, http.StatusInternalServerError, response.ServerError, "internal_error")

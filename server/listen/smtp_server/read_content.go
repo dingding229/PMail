@@ -29,10 +29,9 @@ import (
 	"github.com/spf13/cast"
 )
 
-// DropUnknownRecipientEmails 是代码级别的功能开关
-// 当设置为 true 时，发给不存在用户的邮件将被直接丢弃，不会保存到数据库
-// 这可以有效防止扫描器产生的垃圾邮件被存入第一个用户（管理员）的邮箱
-// 注意：此开关只能通过修改代码来更改，不暴露给用户配置
+// DropUnknownRecipientEmails gates SPF/DKIM filtering before catch-all
+// delivery. Known recipients are returned before this policy is consulted;
+// the actual filter level is controlled by PMAIL_SPAM_FILTER_LEVEL.
 const DropUnknownRecipientEmails = true
 
 // ImportExternal persists a message fetched from an external mailbox through

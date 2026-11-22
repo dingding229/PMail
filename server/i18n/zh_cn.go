@@ -131,4 +131,5 @@ var cn = map[string]string{
 	"dns_guide_zone_intro":           "PMail 建议记录（合并到现有区域，保留 SOA/NS 和已有 SPF 授权；带分号的可选项按需启用）。",
 	"dns_guide_spf_existing":         "在 %s 的 DNS 服务商面板中：类型选 TXT，主机记录填 %s。已有 SPF 时请核对或编辑原记录，不要再加一条。",
 	"dns_guide_optional_web":         "仅在已部署客户端自动配置服务时：在 %s 的 DNS 面板中选 CNAME，主机记录填 %s，记录值填 %s。",
+	"resource_conflict":              "该资源已存在",
 }

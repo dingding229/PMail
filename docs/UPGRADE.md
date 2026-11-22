@@ -61,3 +61,7 @@ docker compose pull && docker compose up -d --wait postgres
 ## 回滚
 
 保留原先的 SQLite/MySQL 数据和配置备份，直到 v3 验收完成。回退到 v2 时，应使用升级前的旧库备份和与其匹配的旧版本，不要把 v3 的 PostgreSQL 转储直接用于 v2；密码哈希、API Token、队列和前端均有兼容性变更。已使用 PostgreSQL 的 PMail Pro 版本间回滚，参照 [README 的恢复步骤](../README.md#恢复数据库)。
+
+## catch-all 与入站过滤
+
+`PMAIL_SPAM_FILTER_LEVEL` 只在开启 `PMAIL_CATCH_ALL` 且邮件没有匹配到任何已知本地收件人、准备回退投递给管理员时生效。已知收件人不受此等级影响，即使 SPF/DKIM 未通过也不由此设置过滤。关闭 catch-all 后，未知收件人不会回退投递给管理员。

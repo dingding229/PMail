@@ -2,6 +2,8 @@ package http_server
 
 import (
 	"compress/gzip"
+	"encoding/json"
+	"github.com/Jinnrry/pmail/dto/response"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +14,7 @@ import (
 )
 
 func TestStaticWebFilesAndFallback(t *testing.T) {
+	t.Setenv("PMAIL_DEFAULT_LANG", "zh-CN")
 	root := t.TempDir()
 	t.Setenv("PMAIL_WEB_ROOT", root)
 	if err := os.Mkdir(filepath.Join(root, "assets"), 0700); err != nil {
@@ -44,7 +47,7 @@ func TestStaticWebFilesAndFallback(t *testing.T) {
 		{"/assets/ui-CcOsICiy.js", "", "public, max-age=31536000, immutable", "javascript", 200},
 		{"/assets/about.js", "", "", "javascript", 200},
 		{"/assets/missing.js", "*/*", "", "text/plain", 404},
-		{"/api/plugin/list", "text/html", "", "text/plain", 404},
+		{"/api/plugin/list", "text/html", "no-store", "application/json", 404},
 		{"/attachments/missing", "text/html", "", "text/plain", 404},
 		{"/.well-known/acme-challenge/missing", "text/html", "", "text/plain", 404},
 		{"/assets/%2e%2e/escape", "", "", "text/plain", 404},
@@ -58,6 +61,9 @@ func TestStaticWebFilesAndFallback(t *testing.T) {
 			if w.Code != tc.status || w.Header().Get("Cache-Control") != tc.cache ||
 				!strings.Contains(w.Header().Get("Content-Type"), tc.contentType) || w.Header().Get("X-Frame-Options") != "SAMEORIGIN" {
 				t.Fatalf("status=%d headers=%v", w.Code, w.Header())
+			}
+			if tc.contentType == "application/json" {
+				assertUnknownAPI(t, w, "找不到请求的资源")
 			}
 			if tc.contentType == "text/html" && w.Header().Get("Content-Security-Policy") != webCSP {
 				t.Fatalf("missing SPA CSP: %v", w.Header())
@@ -109,4 +115,24 @@ func TestMissingWebRootDoesNotBlockAPIOrCORS(t *testing.T) {
 			t.Fatalf("%s %s (%s): status=%d headers=%v", tc.method, tc.path, tc.origin, w.Code, w.Header())
 		}
 	}
+}
+
+func assertUnknownAPI(t *testing.T, w *httptest.ResponseRecorder, message string) {
+	t.Helper()
+	var api response.Response
+	if err := json.Unmarshal(w.Body.Bytes(), &api); err != nil || w.Code != 404 || w.Header().Get("Content-Type") != "application/json" || api.ErrorNo != response.RouteNotFound || api.ErrorMsg != message || api.Data != "" {
+		t.Fatalf("unknown API: HTTP %d; headers=%v; body=%s", w.Code, w.Header(), w.Body.String())
+	}
+}
+
+func TestUnknownAPIUsesLanguageWithoutServingSPA(t *testing.T) {
+	t.Setenv("PMAIL_WEB_ROOT", filepath.Join(t.TempDir(), "not-built"))
+	mux := http.NewServeMux()
+	router(mux, "test")
+	r := httptest.NewRequest(http.MethodPost, "/api/not-a-route", nil)
+	r.Header.Set("X-PMail-Lang", "en")
+	r.Header.Set("Accept", "text/html")
+	w := httptest.NewRecorder()
+	webMiddleware(mux).ServeHTTP(w, r)
+	assertUnknownAPI(t, w, "The requested resource was not found")
 }

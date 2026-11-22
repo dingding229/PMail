@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
 	log "github.com/sirupsen/logrus"
 )
@@ -34,7 +35,11 @@ func staticWeb() http.HandlerFunc {
 		root.Close()
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		if apiOrAttachment(r.URL.Path) || inNamespace(r.URL.Path, strings.TrimSuffix(acmePrefix, "/")) {
+		if inNamespace(r.URL.Path, "/api") {
+			apiNotFound(w, r)
+			return
+		}
+		if inNamespace(r.URL.Path, "/attachments") || inNamespace(r.URL.Path, strings.TrimSuffix(acmePrefix, "/")) {
 			http.Error(w, i18n.T(i18n.ForRequest(r), "not_found"), http.StatusNotFound)
 			return
 		}
@@ -127,6 +132,13 @@ func openWebFile(root *os.Root, name string) (*os.File, fs.FileInfo, error) {
 		return nil, nil, err
 	}
 	return file, info, nil
+}
+
+func apiNotFound(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Add("Vary", "Accept-Language, X-PMail-Lang")
+	response.Localized(i18n.ForRequest(r), response.RouteNotFound, "not_found").FPrintStatus(w, http.StatusNotFound)
 }
 
 func webUnavailable(w http.ResponseWriter, r *http.Request) {

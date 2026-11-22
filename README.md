@@ -299,8 +299,8 @@ docker compose down -v
 | `PMAIL_SSL_TYPE` | 显式设置优先于网页模式：`0` ACME HTTP-01、`1` 自有证书、`2` ACME DNS-01、`3` 禁用 PMail TLS（包括加密邮件端口） |
 | `PMAIL_HTTPS_ENABLED` | 显式设置优先于网页模式：`0/1` 启用 PMail 网页 HTTPS，`2` 仅网页 HTTP；模式 `3` 强制仅网页 HTTP |
 | `PMAIL_LOG_LEVEL` | `debug`、`info`、`warn` 或 `error` |
-| `PMAIL_SPAM_FILTER_LEVEL` | `0` 至 `3`，分别表示关闭、SPF 与 DKIM 均失败、SPF 失败、DKIM 失败时过滤（服务端内置） |
-| `PMAIL_CATCH_ALL` / `PMAIL_ALLOW_USER_ALIAS` | 未知本地收件人是否交给管理员；是否允许普通用户自助创建别名 |
+| `PMAIL_SPAM_FILTER_LEVEL` | **只作用于 catch-all（未知收件人）分支**，已知收件人不受此设置影响。`0` 关闭过滤，`1` 在 SPF 与 DKIM 均失败时过滤，`2` 在 SPF 失败时过滤，`3` 在 DKIM 失败时过滤。 |
+| `PMAIL_CATCH_ALL` / `PMAIL_ALLOW_USER_ALIAS` | 未知本地收件人是否允许回退到管理员；是否允许普通用户自助创建别名。关闭 catch-all 后，未知收件人不再进入管理员投递分支。 |
 | `PMAIL_QUEUE_WORKERS` / `PMAIL_FETCH_WORKERS` | 外发队列和外部邮箱收取并发数；基础 Compose 不透传，需在自定义覆盖文件中传入容器环境 |
 | `PMAIL_FETCH_ALLOW_PRIVATE` | 允许外部邮箱连接私网，仅用于受控环境；基础 Compose 不透传 |
 

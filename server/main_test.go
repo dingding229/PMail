@@ -3,63 +3,56 @@
 package main
 
 import (
-	"crypto/md5"
-	"encoding/hex"
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/Jinnrry/pmail/config"
-	"github.com/Jinnrry/pmail/db"
+	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/dto/response"
-	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/signal"
 	"github.com/Jinnrry/pmail/testschema"
-	"github.com/Jinnrry/pmail/utils/array"
-	"github.com/spf13/cast"
 )
 
-var httpClient *http.Client
+const (
+	testPort          = 17888
+	testDomain        = "test.domain"
+	testAdmin         = "testcase"
+	testAdminPassword = "integration-admin-password"
+)
 
-const TestPort = 17888
-
-var TestHost string = "http://127.0.0.1:" + cast.ToString(TestPort)
-
-var testDBType, testDBDSN string
+var testHost = "http://127.0.0.1:" + strconv.Itoa(testPort)
 
 func TestMain(m *testing.M) {
 	flag.Parse()
 	args := flag.Args()
+	var dbType, dsn string
 	switch {
-	case array.InArray("mysql", args):
-		testDBType, testDBDSN = config.DBTypeMySQL, os.Getenv("PMAIL_TEST_MYSQL_DSN")
-		if testDBDSN == "" {
-			fmt.Fprintln(os.Stderr, "Skipping full-server integration: PMAIL_TEST_MYSQL_DSN is not set")
-			os.Exit(0)
-		}
-	case array.InArray("postgres", args) || os.Getenv("PMAIL_TEST_PG_DSN") != "":
-		testDBType, testDBDSN = config.DBTypePostgres, os.Getenv("PMAIL_TEST_PG_DSN")
-		if testDBDSN == "" {
-			fmt.Fprintln(os.Stderr, "Skipping full-server integration: PMAIL_TEST_PG_DSN is not set")
-			os.Exit(0)
-		}
+	case slices.Contains(args, "mysql"):
+		dbType, dsn = config.DBTypeMySQL, os.Getenv("PMAIL_TEST_MYSQL_DSN")
+	case slices.Contains(args, "postgres") || os.Getenv("PMAIL_TEST_PG_DSN") != "":
+		dbType, dsn = config.DBTypePostgres, os.Getenv("PMAIL_TEST_PG_DSN")
 	default:
-		testDBType, testDBDSN = config.DBTypeSQLite, "./config/pmail_temp.db"
+		dbType = config.DBTypeSQLite
 	}
-	os.Exit(runIntegration(m))
+	if dbType != config.DBTypeSQLite && dsn == "" {
+		fmt.Fprintf(os.Stderr, "Skipping full-server integration: no test DSN for %s\n", dbType)
+		os.Exit(0)
+	}
+	os.Exit(runIntegration(m, dbType, dsn))
 }
 
-func runIntegration(m *testing.M) int {
+func runIntegration(m *testing.M, dbType, dsn string) int {
 	root, err := os.MkdirTemp("", "pmail-server-integration-*")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Create integration fixture:", err)
@@ -67,1044 +60,320 @@ func runIntegration(m *testing.M) int {
 	}
 	defer os.RemoveAll(root)
 	config.ROOT_PATH = root + string(os.PathSeparator)
+	if dbType == config.DBTypeSQLite {
+		dsn = filepath.Join(root, "config", "integration.db")
+	}
 	if _, _, err := testschema.WriteSelfSignedCertificate(filepath.Join(root, "config", "ssl"),
-		[]string{"test.domain", "mail.test.domain", "smtp.test.domain", "imap.test.domain", "pop.test.domain"}, nil); err != nil {
+		[]string{testDomain, "mail." + testDomain, "smtp." + testDomain, "imap." + testDomain, "pop." + testDomain}, nil); err != nil {
 		fmt.Fprintln(os.Stderr, "Create integration certificate:", err)
 		return 1
 	}
-	if err := os.Setenv("setup_port", strconv.Itoa(TestPort)); err != nil {
-		fmt.Fprintln(os.Stderr, "Set integration setup port:", err)
-		return 1
+	// Bring up the normal application directly. The legacy setup password
+	// writer is intentionally unavailable in v4.
+	for key, value := range map[string]string{
+		"PMAIL_DB_TYPE": dbType, "PMAIL_DB_DSN": dsn,
+		"PMAIL_DOMAIN": testDomain, "PMAIL_DOMAINS": "", "PMAIL_WEB_DOMAIN": "mail." + testDomain,
+		"PMAIL_WEB_MODE": "proxy", "PMAIL_HTTP_PORT": strconv.Itoa(testPort),
+		"PMAIL_HTTPS_ENABLED": "2", "PMAIL_SSL_TYPE": config.SSLTypeUser,
+		"PMAIL_ADMIN_ACCOUNT": testAdmin, "PMAIL_ADMIN_PASSWORD": testAdminPassword,
+		"PMAIL_CATCH_ALL": "true", "PMAIL_SPAM_FILTER_LEVEL": "0", "PMAIL_DEFAULT_LANG": "zh-CN",
+		"PMAIL_WEB_ROOT": filepath.Join(root, "web"),
+	} {
+		if err := os.Setenv(key, value); err != nil {
+			fmt.Fprintln(os.Stderr, "Configure integration environment:", err)
+			return 1
+		}
 	}
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Create integration cookie jar:", err)
-		return 1
-	}
-	httpClient = &http.Client{Jar: jar, Timeout: 5 * time.Minute}
 	stopped := make(chan struct{})
-	go func() {
-		defer close(stopped)
-		main()
-	}()
-	time.Sleep(5 * time.Second)
-
+	go func() { defer close(stopped); main() }()
+	if !waitForIntegration(stopped) {
+		fmt.Fprintln(os.Stderr, "Integration /api/ping not ready within 75 seconds; check the startup log and isolated database")
+		return 1
+	}
 	code := m.Run()
 	select {
 	case signal.StopChan <- true:
-		select {
-		case <-stopped:
-		case <-time.After(10 * time.Second):
-			fmt.Fprintln(os.Stderr, "Timed out waiting for integration server to stop")
-			return 1
-		}
 	case <-stopped:
+		return code
 	case <-time.After(5 * time.Second):
-		// A failed setup step may have left the server in the setup wizard.
 		fmt.Fprintln(os.Stderr, "Integration server did not accept the stop signal")
 		return 1
 	}
-	return code
-}
-
-func TestMaster(t *testing.T) {
-	t.Run("TestPort", testPort)
-	if !t.Run("testDataBaseSet", testDataBaseSet) {
-		t.FailNow()
-	}
-	t.Run("testPwdSet", testPwdSet)
-	t.Run("testDomainSet", testDomainSet)
-	t.Run("testDNSSet", testDNSSet)
-	cfg, err := config.ReadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.HttpsEnabled = 2
-	cfg.HttpPort = TestPort
-	cfg.LogLevel = "debug"
-	err = config.WriteConfig(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Run("testSSLSet", testSSLSet)
-	t.Logf("Stop 8 Second for wating restart")
-	time.Sleep(8 * time.Second)
-	t.Run("testLogin", testLogin)           // 登录管理员账号
-	t.Run("testCreateUser", testCreateUser) // 创建3个测试用户
-	t.Run("testEditUser", testEditUser)     // 编辑user2，封禁user3
-	t.Run("testSendEmail", testSendEmail)
-	t.Logf("Stop 8 Second for wating sending")
-	time.Sleep(8 * time.Second)
-	t.Run("testEmailList", testEmailList)
-	t.Run("testGetDetail", testGetEmailDetail)
-	t.Run("testDelEmail", testDelEmail)
-
-	t.Run("testSendEmail2User1", testSendEmail2User1)
-	t.Run("testSendEmail2User12", testSendEmail2User12)
-	t.Run("testSendEmail2User2", testSendEmail2User2)
-	t.Run("testSendEmail2User3", testSendEmail2User3)
-	time.Sleep(8 * time.Second)
-
-	t.Run("testLoginUser3", testLoginUser3) // 测试登录被封禁账号
-
-	t.Run("testLoginUser2", testLoginUser2) // 测试登录普通账号
-
-	t.Run("testUser2EmailList", testUser2EmailList)
-
-	t.Run("testUser2DelEmail", testUser2DelEmail) // 删除2个人共同拥有的邮件
-
-	// 创建group
-	t.Run("testCreateGroup", testCreateGroup)
-
-	// 创建rule
-	t.Run("testCreateRule", testCreateRule)
-
-	// 再次发邮件
-	t.Run("testMoverEmailSend", testSendEmail2User2ForMove)
-	time.Sleep(4 * time.Second)
-
-	t.Run("testMoverEmailSend", testSendEmail2User2ForSpam)
-	time.Sleep(3 * time.Second)
-
-	// 生成10封测试邮件
-	t.Run("genTestEmailData", genTestEmailData)
-	time.Sleep(3 * time.Second)
-
-	// 检查规则执行
-	t.Run("testCheckRule", testCheckRule)
-	time.Sleep(3 * time.Second)
-
-	t.Run("testTokenLogin", testTokenLogin)
-}
-
-func md5Encode(str string) string {
-	h := md5.New()
-	h.Write([]byte(str))
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-func genToken(account, password string) string {
-	now := cast.ToString(time.Now().Unix())
-	return fmt.Sprintf("%s:%s:%s", account, md5Encode(md5Encode(md5Encode(password+"pmail")+"pmail2023")+now), now)
-}
-
-func testTokenLogin(t *testing.T) {
-	createReq, _ := http.NewRequest("POST", TestHost+"/api/token/create", strings.NewReader(`{"name":"test-token"}`))
-	createReq.Header.Set("Content-Type", "application/json")
-	createResp, err := httpClient.Do(createReq)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer createResp.Body.Close()
-	createData, err := readResponse(createResp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if createData.ErrorNo != 0 {
-		t.Fatalf("create token: %+v", createData)
-	}
-	created, ok := createData.Data.(map[string]interface{})
-	if !ok {
-		t.Fatalf("create token data type: %T", createData.Data)
-	}
-	raw, ok := created["token"].(string)
-	if !ok || raw == "" {
-		t.Fatal("token plaintext missing from create response")
-	}
-	req, _ := http.NewRequest("POST", TestHost+"/api/email/list", strings.NewReader(`{}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+raw)
-	ret, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ret.Body.Close()
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Fatalf("Get Email List Api Error: %+v", data)
+	select {
+	case <-stopped:
+		return code
+	case <-time.After(10 * time.Second):
+		fmt.Fprintln(os.Stderr, "Timed out waiting for integration server to stop")
+		return 1
 	}
 }
 
-func testCheckRule(t *testing.T) {
-	var ue models.UserEmail
-	db.Instance.Where("group_id!=0").Get(&ue)
-	if ue.GroupId == 0 {
-		t.Error("邮件规则执行失败！")
-	}
-}
-
-func testGetEmailDetail(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/email/detail", "application/json", strings.NewReader(`{
-	"id":1
-}`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("GetEmailDetail Error! ", data)
-	}
-
-}
-
-func testCreateRule(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/rule/add", "application/json", strings.NewReader(`{
-	"name":"Move Group",
-	"rules":[{"field":"Subject","type":"contains","rule":"Move"}],
-	"action":4,
-	"params":"1",
-	"sort":1
-}`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("CreateRule Api Error!", data)
-	}
-
-	ret, err = httpClient.Post(TestHost+"/api/rule/get", "application/json", strings.NewReader(`{}`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err = readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("CreateRule Api Error!", data)
-	}
-	dt := data.Data.([]any)
-	if len(dt) != 1 {
-		t.Error("Rule List Is Empty!")
-	}
-
-}
-
-func testCreateGroup(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/group/add", "application/json", strings.NewReader(`{
-	"name":"TestGroup"
-}`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("CreateGroup Api Error!", data)
-	}
-
-	ret, err = httpClient.Post(TestHost+"/api/group/list", "application/json", strings.NewReader(`{}`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err = readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("CreateGroup Api Error!", data)
-	}
-	dt := data.Data.([]any)
-	if len(dt) != 4 {
-		t.Errorf("Group List Check Error!,response: %+v", data)
-	}
-}
-
-func testEditUser(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/user/edit", "application/json", strings.NewReader(`{
-	"account":"user2",
-	"username":"user2New",
-	"password":"user2New"
-}`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Edit User Api Error!", data)
-	}
-
-	ret, err = httpClient.Post(TestHost+"/api/user/edit", "application/json", strings.NewReader(`{
-	"account":"user3",
-	"disabled": 1
-}`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err = readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Edit User Api Error!", data)
-	}
-
-}
-
-func testCreateUser(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/user/create", "application/json", strings.NewReader(`{
-	"account":"user1",
-	"username":"user1",
-	"password":"user1"
-}`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error(data)
-		t.Error("Create User Api Error!")
-	}
-
-	ret, err = httpClient.Post(TestHost+"/api/user/create", "application/json", strings.NewReader(`{
-	"account":"user2",
-	"username":"user2",
-	"password":"user2"
-}`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err = readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Create User Api Error!")
-	}
-
-	ret, err = httpClient.Post(TestHost+"/api/user/create", "application/json", strings.NewReader(`{
-	"account":"user3",
-	"username":"user3",
-	"password":"user3"
-}`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err = readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Create User Api Error!")
-	}
-
-}
-
-func testPort(t *testing.T) {
-	if !portCheck(TestPort) {
-		t.Error("port check failed")
-	} else {
-		t.Log("port check passed")
-	}
-
-}
-
-func testDataBaseSet(t *testing.T) {
-	setup := func(action string) *response.Response {
-		t.Helper()
-		body, err := json.Marshal(map[string]string{
-			"action": action, "step": "database", "db_type": testDBType, "db_dsn": testDBDSN,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		res, err := httpClient.Post(TestHost+"/api/setup", "application/json", strings.NewReader(string(body)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer res.Body.Close()
-		data, err := readResponse(res.Body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if data.ErrorNo != 0 {
-			t.Fatalf("database setup %s failed: HTTP %d, API error %d", action, res.StatusCode, data.ErrorNo)
-		}
-		return data
-	}
-	setup("get")
-	setup("set")
-	data, ok := setup("get").Data.(map[string]interface{})
-	if !ok || data["db_type"] != testDBType || data["db_dsn"] != testDBDSN {
-		t.Fatal("database setup did not persist the expected configuration")
-	}
-}
-
-func testPwdSet(t *testing.T) {
-
-	// 获取配置
-	ret, err := http.Post(TestHost+"/api/setup", "application/json", strings.NewReader("{\"action\":\"get\",\"step\":\"password\"}"))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Get Password Config Api Error!")
-	}
-	// 设置配置
-	ret, err = http.Post(TestHost+"/api/setup", "application/json", strings.NewReader(`
-{"action":"set","step":"password","account":"testCase","password":"testCase"}
-`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err = readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Set Password Config Api Error!")
-		t.Error(data)
-	}
-
-	// 获取配置
-	ret, err = http.Post(TestHost+"/api/setup", "application/json", strings.NewReader("{\"action\":\"get\",\"step\":\"password\"}"))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err = readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Get Password Config Api Error!")
-	}
-
-	if cast.ToString(data.Data) != "testCase" {
-		t.Error("Check Password Config Api Error!")
-	}
-
-	t.Log("Password Config Api Success!")
-}
-
-func testDomainSet(t *testing.T) {
-	// 获取配置
-	ret, err := http.Post(TestHost+"/api/setup", "application/json", strings.NewReader("{\"action\":\"get\",\"step\":\"domain\"}"))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Get domain Config Api Error!")
-	}
-	// 设置配置
-	ret, err = http.Post(TestHost+"/api/setup", "application/json", strings.NewReader(`
-{"action":"set","step":"domain","smtp_domain":"test.domain","web_domain":"mail.test.domain"}
-`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err = readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Set domain Config Api Error!")
-	}
-
-	// 获取配置
-	ret, err = http.Post(TestHost+"/api/setup", "application/json", strings.NewReader("{\"action\":\"get\",\"step\":\"domain\"}"))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err = readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Get Password Config Api Error!")
-	}
-
-	dt := data.Data.(map[string]interface{})
-
-	if cast.ToString(dt["smtp_domain"]) != "test.domain" {
-		t.Error("Check domain Config Api Error!")
-	}
-	if cast.ToString(dt["web_domain"]) != "mail.test.domain" {
-		t.Error("Check domain Config Api Error!")
-	}
-	t.Log("domain Config Api Success!")
-}
-
-func testDNSSet(t *testing.T) {
-	// 获取配置
-	ret, err := http.Post(TestHost+"/api/setup", "application/json", strings.NewReader("{\"action\":\"get\",\"step\":\"dns\"}"))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Get domain Config Api Error!")
-	}
-	t.Log("DNS Set Success!")
-}
-
-func testSSLSet(t *testing.T) {
-	// 获取配置
-	ret, err := http.Post(TestHost+"/api/setup", "application/json", strings.NewReader("{\"action\":\"get\",\"step\":\"ssl\"}"))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Get domain Config Api Error!")
-	}
-	// 设置配置
-	ret, err = http.Post(TestHost+"/api/setup", "application/json", strings.NewReader(fmt.Sprintf(`
-{"action":"set","step":"ssl","ssl_type":"1","key_path":%q,"crt_path":%q}
-`, filepath.Join(config.ROOT_PATH, "config", "ssl", "private.key"),
-		filepath.Join(config.ROOT_PATH, "config", "ssl", "public.crt"))))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err = readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Set domain Config Api Error!")
-	}
-
-	t.Log("domain Config Api Success!")
-}
-
-func testLogin(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/login", "application/json", strings.NewReader("{\"account\":\"testCase\",\"password\":\"testCase\"}"))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Login Api Error!")
-	}
-	t.Logf("testLogin Success! Response: %+v", data)
-}
-
-func testLoginUser2(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/login", "application/json", strings.NewReader("{\"account\":\"user2\",\"password\":\"user2New\"}"))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Login User2 Api Error!", data)
-	}
-	t.Logf("testLoginUser2 Success! Response: %+v", data)
-}
-
-func testLoginUser3(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/login", "application/json", strings.NewReader("{\"account\":\"user3\",\"password\":\"user3\"}"))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 100 {
-		t.Error("Login User3 Api Error!", data)
-	}
-	t.Logf("testLoginUser3 Success! Response: %+v", data)
-}
-
-func testSendEmail(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/email/send", "application/json", strings.NewReader(`
-		{
-    "from": {
-        "name": "i",
-        "email": "i@test.domain"
-    },
-    "to": [
-        {
-            "name": "y",
-            "email": "y@test.domain"
-        }
-    ],
-    "cc": [
-        
-    ],
-    "subject": "Title",
-    "text": "text",
-    "html": "<div>text</div>"
-}
-
-`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Send Email Api Error!")
-	}
-	t.Logf("testSendEmail Success! Response: %+v", data)
-}
-
-func testSendEmail2User2ForSpam(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/email/send", "application/json", strings.NewReader(`
-		{
-    "from": {
-        "name": "user2",
-        "email": "user2@test.domain"
-    },
-    "to": [
-        {
-            "name": "y",
-            "email": "admin@test.domain"
-        }
-    ],
-    "cc": [
-        
-    ],
-    "subject": "spam",
-    "text": "NeedMove",
-    "html": "<div>text</div>"
-}
-
-`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Send Email Api Error!")
-	}
-
-	t.Logf("testSendEmail2User2ForMove Success! Response: %+v", data)
-
-}
-
-func testSendEmail2User2ForMove(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/email/send", "application/json", strings.NewReader(`
-		{
-    "from": {
-        "name": "user2",
-        "email": "user2@test.domain"
-    },
-    "to": [
-        {
-            "name": "y",
-            "email": "user2@test.domain"
-        }
-    ],
-    "cc": [
-        
-    ],
-    "subject": "MovePlease",
-    "text": "NeedMove",
-    "html": "<div>text</div>"
-}
-
-`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Send Email Api Error!")
-	}
-
-	t.Logf("testSendEmail2User2ForMove Success! Response: %+v", data)
-
-}
-
-func genTestEmailData(t *testing.T) {
-	for i := 0; i < 10; i++ {
-		ret, err := httpClient.Post(TestHost+"/api/email/send", "application/json", strings.NewReader(fmt.Sprintf(
-			`
-		{
-    "from": {
-        "name": "user2",
-        "email": "user2@test.domain"
-    },
-    "to": [
-        {
-            "name": "admin",
-            "email": "admin@test.domain"
-        }
-    ],
-    "cc": [
-        
-    ],
-    "subject": "测试邮件%d",
-    "text": "测试邮件%d",
-    "html": "<div>测试邮件%d</div>"
-}
-
-`, i, i, i)))
-		if err != nil {
-			t.Error(err)
-		}
-		data, err := readResponse(ret.Body)
-		if err != nil {
-			t.Error(err)
-		}
-		if data.ErrorNo != 0 {
-			t.Error("Send Email Api Error!")
-		}
-		time.Sleep(3 * time.Second)
-	}
-
-}
-
-func testSendEmail2User12(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/email/send", "application/json", strings.NewReader(`
-		{
-    "from": {
-        "name": "i",
-        "email": "i@test.domain"
-    },
-    "to": [
-        {
-            "name": "y",
-            "email": "user1@test.domain"
-        },
-		{
-            "name": "y2",
-            "email": "user2@test.domain"
-        }
-    ],
-    "cc": [
-        
-    ],
-    "subject": "HelloUser1User2",
-    "text": "HelloUser1User2",
-    "html": "<div>HelloUser1User2</div>"
-}
-
-`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Send Email Api Error!")
-	}
-
-	t.Logf("testSendEmail2User1 Success! Response: %+v", data)
-}
-
-func testSendEmail2User1(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/email/send", "application/json", strings.NewReader(`
-		{
-    "from": {
-        "name": "i",
-        "email": "i@test.domain"
-    },
-    "to": [
-        {
-            "name": "y",
-            "email": "user1@test.domain"
-        }
-    ],
-    "cc": [
-        
-    ],
-    "subject": "HelloUser1",
-    "text": "text",
-    "html": "<div>text</div>"
-}
-
-`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Send Email Api Error!")
-	}
-
-	t.Logf("testSendEmail2User1 Success! Response: %+v", data)
-}
-
-func testSendEmail2User2(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/email/send", "application/json", strings.NewReader(`
-		{
-    "from": {
-        "name": "i",
-        "email": "i@test.domain"
-    },
-    "to": [
-        {
-            "name": "y",
-            "email": "user2@test.domain"
-        }
-    ],
-    "cc": [
-        
-    ],
-    "subject": "HelloUser2",
-    "text": "text",
-    "html": "<div>text</div>"
-}
-
-`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Send Email Api Error!")
-	}
-
-	t.Logf("testSendEmail2User2 Success! Response: %+v", data)
-}
-
-func testSendEmail2User3(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/email/send", "application/json", strings.NewReader(`
-		{
-    "from": {
-        "name": "i",
-        "email": "i@test.domain"
-    },
-    "to": [
-        {
-            "name": "y",
-            "email": "user3@test.domain"
-        }
-    ],
-    "cc": [
-        
-    ],
-    "subject": "HelloUser3",
-    "text": "text",
-    "html": "<div>text</div>"
-}
-
-`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo == 0 {
-		t.Error("禁用用户收件应返回失败结果")
-	}
-
-	t.Logf("testSendEmail2User3 expected failure response: %+v", data)
-
-}
-
-func testEmailList(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/email/list", "application/json", strings.NewReader(`{}`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Get Email List Api Error!")
-	}
-	dt := data.Data.(map[string]interface{})
-	if dt["list"] == nil || len(dt["list"].([]interface{})) == 0 {
-		t.Error("Email List Is Empty!")
-		return
-	}
-
-	lst := dt["list"].([]interface{})
-	item := lst[0].(map[string]interface{})
-	id := cast.ToInt(item["id"])
-	if id == 0 {
-		t.Error("Email List Data Error!")
-	}
-
-	t.Logf("testEmailList Success! Response: %+v", data)
-}
-
-func testUser2EmailList(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/email/list", "application/json", strings.NewReader(`{}`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Get Email List Api Error!")
-	}
-	dt := data.Data.(map[string]interface{})
-
-	if dt["list"] == nil || len(dt["list"].([]interface{})) != 2 {
-		t.Error("Email List Is Empty!")
-	}
-
-	t.Logf("testUser2EmailList Success! Response: %+v", data)
-
-}
-
-func testDelEmail(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/email/list", "application/json", strings.NewReader(`{}`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Get Email List Api Error!")
-	}
-	dt := data.Data.(map[string]interface{})
-	if len(dt["list"].([]interface{})) == 0 {
-		t.Error("Email List Is Empty!")
-	}
-	lst := dt["list"].([]interface{})
-	item := lst[0].(map[string]interface{})
-	id := cast.ToInt(item["id"])
-
-	ret, err = httpClient.Post(TestHost+"/api/email/del", "application/json", strings.NewReader(fmt.Sprintf(`{
-	"ids":[%d]	
-}`, id)))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err = readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Email Delete Api Error!")
-	}
-	var mail models.UserEmail
-	db.Instance.Where("email_id = ?", id).Get(&mail)
-	if mail.Status != 3 {
-		t.Error("Email Delete Api Error!")
-	}
-
-	t.Logf("testDelEmail Success! Response: %+v", data)
-}
-
-func testUser2DelEmail(t *testing.T) {
-	ret, err := httpClient.Post(TestHost+"/api/email/list", "application/json", strings.NewReader(`{}`))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Get Email List Api Error!")
-	}
-	dt := data.Data.(map[string]interface{})
-	if len(dt["list"].([]interface{})) == 0 {
-		t.Error("Email List Is Empty!")
-	}
-	lst := dt["list"].([]interface{})
-
-	for _, item := range lst {
-		// 删除两个用户的邮件
-		title := cast.ToString(item.(map[string]interface{})["title"])
-		id := cast.ToInt(item.(map[string]interface{})["id"])
-		if title == "HelloUser1User2" {
-			ret, err = httpClient.Post(TestHost+"/api/email/del", "application/json", strings.NewReader(fmt.Sprintf(`{
-	"ids":[%d]	
-}`, id)))
-			if err != nil {
-				t.Error(err)
+func waitForIntegration(stopped <-chan struct{}) bool {
+	client := &http.Client{Timeout: time.Second}
+	deadline := time.Now().Add(75 * time.Second)
+	for time.Now().Before(deadline) {
+		if res, err := client.Get(testHost + "/api/ping"); err == nil {
+			data, decodeErr := io.ReadAll(res.Body)
+			res.Body.Close()
+			if res.StatusCode == http.StatusOK && decodeErr == nil && bytes.Contains(data, []byte(`"pong"`)) {
+				return true
 			}
-			data, err = readResponse(ret.Body)
-			if err != nil {
-				t.Error(err)
-			}
-			if data.ErrorNo != 0 {
-				t.Error("Email Delete Api Error!")
-			}
-			var mails []models.UserEmail
-			db.Instance.Where("email_id = ?", id).Find(&mails)
-			for _, mail := range mails {
-				if mail.Status != 3 && mail.UserID == 3 {
-					t.Error("Email Delete Api Error!")
-				}
-				if mail.UserID != 3 && mail.Status == 3 {
-					t.Error("Email Delete Api Error!")
-				}
-			}
-
 		}
-
+		select {
+		case <-stopped:
+			return false
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
-
-	t.Logf("testDelEmail Success! Response: %+v", data)
-}
-
-// portCheck 检查端口是占用
-func portCheck(port int) bool {
-	l, err := net.Listen("tcp", fmt.Sprintf(":%s", strconv.Itoa(port)))
-	if err != nil {
-		return true
-	}
-	defer l.Close()
 	return false
 }
 
-func readResponse(r io.Reader) (*response.Response, error) {
-	data, err := io.ReadAll(r)
+func testClient(t *testing.T) *http.Client {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
 	if err != nil {
-		return nil, err
+		t.Fatal(err)
 	}
-	ret := &response.Response{}
-	err = json.Unmarshal(data, ret)
+	return &http.Client{Jar: jar, Timeout: 20 * time.Second}
+}
+
+type integrationResult struct {
+	Status int
+	Body   []byte
+}
+
+func integrationRequest(t *testing.T, client *http.Client, method, path string, body any, bearer string) integrationResult {
+	t.Helper()
+	var input []byte
+	if body != nil {
+		var err error
+		input, err = json.Marshal(body)
+		if err != nil {
+			t.Fatalf("encode %s: %v", path, err)
+		}
+	}
+	req, err := http.NewRequest(method, testHost+path, bytes.NewReader(input))
 	if err != nil {
-		return nil, err
+		t.Fatal(err)
 	}
-	return ret, nil
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, path, err)
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("%s %s: read: %v; partial body: %s", method, path, err, raw)
+	}
+	return integrationResult{res.StatusCode, raw}
+}
+
+type integrationEnvelope struct {
+	ErrorNo int             `json:"errorNo"`
+	Data    json.RawMessage `json:"data"`
+}
+
+func requireResponse(t *testing.T, path string, got integrationResult, status, errorNo int, data any) {
+	t.Helper()
+	var env integrationEnvelope
+	if err := json.Unmarshal(got.Body, &env); err != nil || got.Status != status || env.ErrorNo != errorNo || len(env.Data) == 0 {
+		t.Fatalf("%s: HTTP %d with errorNo %d; want %d/%d; body: %s", path, got.Status, env.ErrorNo, status, errorNo, got.Body)
+	}
+	if data != nil {
+		if err := json.Unmarshal(env.Data, data); err != nil {
+			t.Fatalf("%s: unexpected response data for %T: %v; body: %s", path, data, err, got.Body)
+		}
+	}
+}
+
+func postIntegration(t *testing.T, client *http.Client, path string, payload, target any) integrationResult {
+	t.Helper()
+	res := integrationRequest(t, client, http.MethodPost, path, payload, "")
+	requireResponse(t, path, res, http.StatusOK, 0, target)
+	return res
+}
+
+func testPwdSet(t *testing.T, client *http.Client) {
+	t.Helper()
+	result := integrationRequest(t, client, http.MethodGet, "/api/bootstrap", nil, "")
+	var setup struct {
+		NeedRegister *bool `json:"need_register"`
+		LoggedIn     *bool `json:"logged_in"`
+	}
+	if err := json.Unmarshal(result.Body, &setup); err != nil || result.Status != 200 || setup.NeedRegister == nil || *setup.NeedRegister || setup.LoggedIn == nil || *setup.LoggedIn {
+		t.Fatalf("explicit-password bootstrap: HTTP %d; body: %s", result.Status, result.Body)
+	}
+	result = integrationRequest(t, client, http.MethodPost, "/api/register", struct{}{}, "")
+	requireResponse(t, "/api/register", result, http.StatusForbidden, response.NoAccessPrivileges, nil)
+	if _, err := os.Stat(filepath.Join(config.ROOT_PATH, "config", "registration_key")); !os.IsNotExist(err) {
+		t.Fatalf("explicit-password startup must not create a registration key; stat error = %v", err)
+	}
+}
+
+func testLogin(t *testing.T, client *http.Client, account, password string, admin int) {
+	t.Helper()
+	var user struct {
+		Account string `json:"account"`
+		Admin   int    `json:"is_admin"`
+	}
+	res := postIntegration(t, client, "/api/login", map[string]string{"account": account, "password": password}, &user)
+	if user.Account != account || user.Admin != admin {
+		t.Fatalf("login identity mismatch: %s", res.Body)
+	}
+}
+
+type integrationMailItem struct {
+	ID    int    `json:"id"`
+	Title string `json:"title"`
+}
+
+func mailList(t *testing.T, client *http.Client, bearer string, tag dto.SearchTag) []integrationMailItem {
+	t.Helper()
+	path := "/api/email/list"
+	res := integrationRequest(t, client, http.MethodPost, path, map[string]any{"tag": tag.ToString(), "page_size": 100}, bearer)
+	var page struct {
+		List []integrationMailItem `json:"list"`
+	}
+	requireResponse(t, path, res, http.StatusOK, 0, &page)
+	for _, item := range page.List {
+		if item.ID <= 0 {
+			t.Fatalf("mail list entry lacks an ID: %s", res.Body)
+		}
+	}
+	return page.List
+}
+
+func findMail(t *testing.T, messages []integrationMailItem, title string) int {
+	t.Helper()
+	for _, mail := range messages {
+		if mail.Title == title {
+			return mail.ID
+		}
+	}
+	t.Fatalf("mail %q not in decoded mailbox response: %+v", title, messages)
+	return 0
+}
+
+func sendIntegrationMail(t *testing.T, client *http.Client, sender, subject string, recipients ...string) integrationResult {
+	t.Helper()
+	to := make([]map[string]string, 0, len(recipients))
+	for _, recipient := range recipients {
+		to = append(to, map[string]string{"email": recipient + "@" + testDomain})
+	}
+	return integrationRequest(t, client, http.MethodPost, "/api/email/send", map[string]any{
+		"from_address": sender + "@" + testDomain, "to": to, "subject": subject, "text": "integration message",
+	}, "")
+}
+
+func TestMaster(t *testing.T) {
+	admin := testClient(t)
+	if !t.Run("testPwdSet", func(t *testing.T) { testPwdSet(t, admin) }) {
+		t.FailNow()
+	}
+	if !t.Run("testLogin", func(t *testing.T) { testLogin(t, admin, testAdmin, testAdminPassword, 1) }) {
+		t.FailNow()
+	}
+
+	if !t.Run("testDomainConflict", func(t *testing.T) {
+		const path = "/api/domain/create"
+		res := integrationRequest(t, admin, http.MethodPost, path, map[string]string{"name": "TEST.DOMAIN."}, "")
+		requireResponse(t, path, res, http.StatusConflict, response.ParamsError, nil)
+		var env struct {
+			ErrorMsg string `json:"errorMsg"`
+		}
+		if err := json.Unmarshal(res.Body, &env); err != nil || env.ErrorMsg != "域名已存在" {
+			t.Fatalf("normalized duplicate domain: body: %s", res.Body)
+		}
+	}) {
+		t.FailNow()
+	}
+
+	inbox := dto.SearchTag{Type: 0, Status: -1, GroupId: 0}
+	const sendPath = "/api/email/send"
+	requireResponse(t, sendPath, sendIntegrationMail(t, admin, testAdmin, "Catch-all fixture", "unassigned"), 200, 0, nil)
+	initialID := findMail(t, mailList(t, admin, "", inbox), "Catch-all fixture")
+	var detail struct {
+		ID      int    `json:"id"`
+		Subject string `json:"subject"`
+	}
+	res := postIntegration(t, admin, "/api/email/detail", map[string]int{"id": initialID}, &detail)
+	if detail.ID != initialID || detail.Subject != "Catch-all fixture" {
+		t.Fatalf("mail detail mismatch: %s", res.Body)
+	}
+	postIntegration(t, admin, "/api/email/del", map[string][]int{"ids": {initialID}}, nil)
+	if deletedID := findMail(t, mailList(t, admin, "", dto.SearchTag{Type: -1, Status: 3, GroupId: -1}), "Catch-all fixture"); deletedID != initialID {
+		t.Fatalf("deleted id = %d, want %d", deletedID, initialID)
+	}
+
+	for _, account := range []string{"user1", "user2", "user3"} {
+		postIntegration(t, admin, "/api/user/create", map[string]string{"account": account, "display_name": account, "password": account}, nil)
+	}
+	postIntegration(t, admin, "/api/user/edit", map[string]any{"account": "user2", "display_name": "User Two", "password": "user2New"}, nil)
+	postIntegration(t, admin, "/api/user/edit", map[string]any{"account": "user3", "disabled": 1}, nil)
+	disabled := testClient(t)
+	requireResponse(t, "/api/login", integrationRequest(t, disabled, http.MethodPost, "/api/login", map[string]string{"account": "user3", "password": "user3"}, ""), 200, response.ParamsError, nil)
+	requireResponse(t, sendPath, sendIntegrationMail(t, admin, testAdmin, "Disabled recipient", "user3"), 200, response.ServerError, nil)
+
+	for _, fixture := range []struct {
+		subject string
+		to      []string
+	}{{"User one only", []string{"user1"}}, {"Shared fixture", []string{"user1", "user2"}}, {"User two only", []string{"user2"}}} {
+		requireResponse(t, sendPath, sendIntegrationMail(t, admin, testAdmin, fixture.subject, fixture.to...), 200, 0, nil)
+	}
+	user1, user2 := testClient(t), testClient(t)
+	testLogin(t, user1, "user1", "user1", 0)
+	testLogin(t, user2, "user2", "user2New", 0)
+	user2Inbox := mailList(t, user2, "", inbox)
+	findMail(t, user2Inbox, "User two only")
+	sharedID := findMail(t, user2Inbox, "Shared fixture")
+	postIntegration(t, user2, "/api/email/del", map[string][]int{"ids": {sharedID}}, nil)
+	findMail(t, mailList(t, user1, "", inbox), "Shared fixture")
+	findMail(t, mailList(t, user2, "", dto.SearchTag{Type: -1, Status: 3, GroupId: -1}), "Shared fixture")
+
+	var group int
+	res = postIntegration(t, user2, "/api/group/add", map[string]string{"name": "TestGroup"}, &group)
+	if group <= 0 {
+		t.Fatalf("group ID missing: %s", res.Body)
+	}
+	var groupList []struct {
+		ID int `json:"id"`
+	}
+	res = postIntegration(t, user2, "/api/group/list", struct{}{}, &groupList)
+	if !slices.ContainsFunc(groupList, func(g struct {
+		ID int `json:"id"`
+	}) bool {
+		return g.ID == group
+	}) {
+		t.Fatalf("group not listed: %s", res.Body)
+	}
+	postIntegration(t, user2, "/api/rule/add", map[string]any{
+		"name": "Move Group", "rules": []map[string]string{{"field": "Subject", "type": "contains", "rule": "Move"}}, "action": 4, "params": strconv.Itoa(group), "sort": 1,
+	}, nil)
+	var ruleList []struct {
+		Action int `json:"action"`
+	}
+	res = postIntegration(t, user2, "/api/rule/get", struct{}{}, &ruleList)
+	if len(ruleList) != 1 || ruleList[0].Action != 4 {
+		t.Fatalf("move rule missing: %s", res.Body)
+	}
+	requireResponse(t, sendPath, sendIntegrationMail(t, admin, testAdmin, "Move fixture", "user2"), 200, 0, nil)
+	findMail(t, mailList(t, user2, "", dto.SearchTag{Type: -1, Status: -1, GroupId: group}), "Move fixture")
+	for i := range 10 {
+		requireResponse(t, sendPath, sendIntegrationMail(t, admin, testAdmin, fmt.Sprintf("Batch %d", i), "user2"), 200, 0, nil)
+	}
+
+	var issued struct {
+		Token string `json:"token"`
+	}
+	postIntegration(t, user2, "/api/token/create", map[string]string{"name": "test-token"}, &issued)
+	if issued.Token == "" {
+		t.Fatal("token create response contained no token")
+	}
+	findMail(t, mailList(t, testClient(t), issued.Token, inbox), "Batch 9")
 }

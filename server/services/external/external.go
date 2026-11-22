@@ -74,6 +74,7 @@ func Create(userID int, input models.ExternalAccount, password string) (models.E
 	if err != nil {
 		return input, err
 	}
+	input.ID = 0 // Create must not accept a caller-supplied primary key.
 	input.UserID = userID
 	input.PasswordEnc = enc
 	input.Created = time.Now()

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/external"
@@ -146,6 +147,10 @@ func localizeExternal(ctx *context.Context, row *models.ExternalAccount) {
 }
 
 func externalFailure(ctx *context.Context, w http.ResponseWriter, err error, fallback string) {
+	if db.IsUniqueViolation(err) {
+		serviceError(ctx, w, err)
+		return
+	}
 	key := fallback
 	switch {
 	case errors.Is(err, external.ErrNotFound):

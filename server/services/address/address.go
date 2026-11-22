@@ -218,6 +218,9 @@ func insert(tx *xorm.Session, row *models.MailboxAddress) error {
 		return ErrExists
 	}
 	_, err = tx.Insert(row)
+	if db.IsUniqueViolation(err) {
+		return ErrExists
+	}
 	return err
 }
 

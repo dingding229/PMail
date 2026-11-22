@@ -134,6 +134,9 @@ func ensureGuard(ctx context.Context) error {
 		return err
 	}
 	if _, err := db.Instance.Context(ctx).Insert(&models.RegistrationGuard{ID: 1}); err != nil {
+		if !db.IsUniqueViolation(err) {
+			return err
+		}
 		if exists, checkErr := db.Instance.Context(ctx).ID(1).Exist(&models.RegistrationGuard{}); checkErr != nil || !exists {
 			return err
 		}

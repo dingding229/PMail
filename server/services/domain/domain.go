@@ -205,14 +205,22 @@ func Create(name string) (models.Domain, error) {
 	if err != nil {
 		return models.Domain{}, err
 	}
+	db.MailboxRegistry.Lock()
+	defer db.MailboxRegistry.Unlock()
+	if exists, err := db.Instance.Where("LOWER(name) = ?", name).Exist(&models.Domain{}); err != nil {
+		return models.Domain{}, err
+	} else if exists {
+		return models.Domain{}, ErrExists
+	}
 	key, err := dkimkey.Generate()
 	if err != nil {
 		return models.Domain{}, err
 	}
-	db.MailboxRegistry.Lock()
-	defer db.MailboxRegistry.Unlock()
 	d := models.Domain{Name: name, DkimSelector: "default", DkimPrivateKey: key}
 	if _, err := db.Instance.Insert(&d); err != nil {
+		if db.IsUniqueViolation(err) {
+			return models.Domain{}, ErrExists
+		}
 		return models.Domain{}, err
 	}
 	d.DkimPrivateKey = ""

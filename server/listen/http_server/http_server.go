@@ -26,6 +26,10 @@ func HttpStop() {
 
 func router(mux *http.ServeMux, version string) {
 	mux.HandleFunc("/", staticWeb())
+	registerAppRoutes(mux, version)
+}
+
+func registerAppRoutes(mux *http.ServeMux, version string) {
 	mux.HandleFunc("GET "+acmePrefix+"{token}", controllers.AcmeChallenge)
 	mux.HandleFunc("/api/ping", controllers.Ping)
 	mux.HandleFunc("GET /api/bootstrap", contextIterceptor(controllers.Bootstrap(version)))
@@ -106,7 +110,17 @@ func HttpStart(httpsReady bool, version string) {
 	if httpsReady {
 		mux.HandleFunc("GET "+acmePrefix+"{token}", controllers.AcmeChallenge)
 		mux.HandleFunc("/api/ping", controllers.Ping)
-		mux.HandleFunc("/", controllers.Interceptor)
+		catalog := http.NewServeMux()
+		registerAppRoutes(catalog, version)
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			if inNamespace(r.URL.Path, "/api") {
+				if _, pattern := catalog.Handler(r); pattern == "" {
+					apiNotFound(w, r)
+					return
+				}
+			}
+			controllers.Interceptor(w, r)
+		})
 	} else {
 		// Serve HTTP directly rather than redirecting to an unavailable HTTPS listener.
 		router(mux, version)

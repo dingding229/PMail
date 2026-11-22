@@ -5,9 +5,9 @@ info:
   description: |-
     C3 runtime contract. Cookie, Bearer token, and the legacy Token header are alternative credentials; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource; any admin override is stated per operation.
 
-    JSON responses use {errorNo, errorMsg, data} unless stated otherwise. Legacy failures can return HTTP 200. x-error-codes lists application codes by HTTP status. Don't infer success from HTTP status alone. Unregistered API URLs and unsupported attachment subpaths never return SPA HTML. The legacy setup endpoint is available only on the setup listener; when HTTPS is active the plain HTTP listener serves ping and ACME directly and redirects other requests to HTTPS. Listed GET/POST variants are supported contracts; incidental verbs accepted by some older handlers are not part of the contract.
+    JSON responses use {errorNo, errorMsg, data} unless stated otherwise. Legacy failures can return HTTP 200. x-error-codes lists application codes by HTTP status. Don't infer success from HTTP status alone. Unmatched /api requests return HTTP 404 with the localized JSON envelope (errorNo 404). The reusable UnknownApiPath response describes this routing error. Resource-not-found errors on matched routes keep their existing error codes. Unsupported attachment subpaths never return SPA HTML. The legacy setup endpoint is available only on the setup listener; when HTTPS is active the plain HTTP listener serves ping and ACME directly and redirects other requests to HTTPS. Listed GET/POST variants are supported contracts; incidental verbs accepted by some older handlers are not part of the contract.
 
-    POST /api/domain/dns is the DNS guide; GET /api/domain/dns remains a legacy compatibility view. With development CORS enabled, allowlisted origins can send credentialed requests and preflight API/attachment paths. Cookie SameSite behavior is unchanged. Localized errors use the saved user language when set, otherwise X-PMail-Lang, Accept-Language, then PMAIL_DEFAULT_LANG. During pending first registration, only bootstrap, register, ping and ACME are available; other API and attachment requests respond HTTP 403.
+    POST /api/domain/dns is the DNS guide; GET /api/domain/dns remains a legacy compatibility view. With development CORS enabled, allowlisted origins can send credentialed requests and preflight API/attachment paths. Cookie SameSite behavior is unchanged. Localized errors use the saved user language when set, otherwise X-PMail-Lang, Accept-Language, then PMAIL_DEFAULT_LANG. During pending first registration, only bootstrap, register, ping and ACME are available; other matched API and attachment routes respond HTTP 403.
 servers:
 - {url: /}
 security:
@@ -18,8 +18,10 @@ x-application-error-codes:
   '100': Invalid parameters or credentials (or resource rejected by some legacy handlers).
   '402': Legacy setup required; API is not initialized.
   '403': Login required or session revoked.
+  '404': No API route matched the request.
   '405': Insufficient permission.
   '500': Server or delivery failure.
+x-unmatched-api-response: {$ref: '#/components/responses/UnknownApiPath'}
 paths:
   /api/ping:
     get:
@@ -331,7 +333,7 @@ paths:
         content:
           application/json:
             schema: {$ref: '#/components/schemas/CreateGroupRequest'}
-      x-error-codes: {'200': [100, 402, 403, 500], '400': [100], '403': [405], '405': [100]}
+      x-error-codes: {'200': [100, 402, 403, 500], '400': [100], '403': [405], '405': [100], '409': [100]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -344,6 +346,7 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/group/del:
     post:
       operationId: deleteGroup
@@ -982,7 +985,7 @@ paths:
         content:
           application/json:
             schema: {$ref: '#/components/schemas/ExternalCreateRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100], '409': [100]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -995,6 +998,7 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/external/update:
     post:
       operationId: updateExternal
@@ -1011,7 +1015,7 @@ paths:
         content:
           application/json:
             schema: {$ref: '#/components/schemas/ExternalUpdateRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100], '409': [100]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -1024,6 +1028,7 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/external/delete:
     post:
       operationId: deleteExternal
@@ -1979,7 +1984,7 @@ paths:
         content:
           application/json:
             schema: {$ref: '#/components/schemas/CreateTokenRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100], '500': [500]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100], '409': [100], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -1992,6 +1997,7 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/token/delete:
     post:
@@ -2482,6 +2488,14 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error500EmptyData'}
+    UnknownApiPath:
+      description: Unmatched /api path (HTTP 404, independent of authentication).
+      headers:
+        Cache-Control:
+          schema: {const: no-store}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error404EmptyData'}
   schemas:
     Envelope:
       type: object
@@ -2520,6 +2534,14 @@ components:
       - type: object
         properties:
           errorNo: {enum: [500]}
+          errorMsg: {type: string}
+          data: {const: ''}
+    Error404EmptyData:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {enum: [404]}
           errorMsg: {type: string}
           data: {const: ''}
     IdRequest:
@@ -3334,6 +3356,11 @@ components:
           type: array
           items: {type: string}
           description: TXT chunks of at most 255 bytes each; concatenate without spaces before comparison.
+        suggested_value:
+          type: string
+          description: 'SPF only: when the current record does not authorize this server or multiple records exist, a
+            proposed replacement retains mechanisms and the first record’s all policy, inserting missing mx/a before all.
+            Review the suggestion; do not add another SPF record.'
         matches: {type: boolean, description: 'PTR targets match the mail host for each probed family, when known.'}
         priority: {type: integer}
         ttl: {type: integer}

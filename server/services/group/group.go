@@ -26,8 +26,11 @@ type GroupItem struct {
 func CreateGroup(ctx *context.Context, name string, parentId int) (*models.Group, error) {
 	// 先查询是否存在
 	var group models.Group
-	db.Instance.Table("group").Where("name = ? and user_id = ?", name, ctx.UserID).Get(&group)
-	if group.ID > 0 {
+	found, err := db.Instance.Where("name = ? and user_id = ?", name, ctx.UserID).Get(&group)
+	if err != nil {
+		return nil, err
+	}
+	if found {
 		return &group, nil
 	}
 	group.Name = name
@@ -35,7 +38,7 @@ func CreateGroup(ctx *context.Context, name string, parentId int) (*models.Group
 	group.UserId = ctx.UserID
 	group.FullPath = getLayerName(ctx, &group, true)
 
-	_, err := db.Instance.Insert(&group)
+	_, err = db.Instance.Insert(&group)
 	return &group, err
 }
 

@@ -60,6 +60,9 @@ func Create(account, name, secret string, disabled int, mb int64) (models.User, 
 		}
 		created = models.User{Account: local, Name: name, Password: hash, Disabled: disabled, QuotaMB: mb}
 		if _, err := tx.Insert(&created); err != nil {
+			if db.IsUniqueViolation(err) {
+				return ErrExists
+			}
 			return err
 		}
 		return address.Seed(tx, created)

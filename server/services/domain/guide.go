@@ -21,23 +21,24 @@ import (
 )
 
 type GuideRecord struct {
-	Key         string   `json:"key"`
-	Purpose     string   `json:"purpose"`
-	Type        string   `json:"type"`
-	Host        string   `json:"host"`
-	FQDN        string   `json:"fqdn"`
-	Zone        string   `json:"zone"`
-	Value       string   `json:"value"`
-	ValueChunks []string `json:"value_chunks,omitempty"`
-	Priority    *uint16  `json:"priority,omitempty"`
-	TTL         int      `json:"ttl"`
-	Required    bool     `json:"required"`
-	Status      string   `json:"status"`
-	Actual      []string `json:"actual"`
-	Matches     *bool    `json:"matches,omitempty"`
-	Description string   `json:"description"`
-	FixHint     string   `json:"fix_hint,omitempty"`
-	hint        string
+	Key            string   `json:"key"`
+	Purpose        string   `json:"purpose"`
+	Type           string   `json:"type"`
+	Host           string   `json:"host"`
+	FQDN           string   `json:"fqdn"`
+	Zone           string   `json:"zone"`
+	Value          string   `json:"value"`
+	ValueChunks    []string `json:"value_chunks,omitempty"`
+	SuggestedValue string   `json:"suggested_value,omitempty"`
+	Priority       *uint16  `json:"priority,omitempty"`
+	TTL            int      `json:"ttl"`
+	Required       bool     `json:"required"`
+	Status         string   `json:"status"`
+	Actual         []string `json:"actual"`
+	Matches        *bool    `json:"matches,omitempty"`
+	Description    string   `json:"description"`
+	FixHint        string   `json:"fix_hint,omitempty"`
+	hint           string
 }
 
 type DNSGuide struct {
@@ -354,6 +355,7 @@ func checkGuideRecord(ctx context.Context, r guideResolver, rec *GuideRecord, do
 			if len(rec.Actual) > 1 {
 				rec.Status = "mismatch"
 				rec.hint = "dns_guide_spf_merge"
+				rec.SuggestedValue = suggestSPF(rec.Actual)
 				return
 			}
 			if len(rec.Actual) == 1 {
@@ -373,6 +375,7 @@ func checkGuideRecord(ctx context.Context, r guideResolver, rec *GuideRecord, do
 				}
 				if !match {
 					rec.hint = "dns_guide_spf_authorize"
+					rec.SuggestedValue = suggestSPF(rec.Actual)
 				}
 			}
 		case "dkim":

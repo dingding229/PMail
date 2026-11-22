@@ -99,7 +99,7 @@ func TestSPFAndProxyRecordChecks(t *testing.T) {
 	guide := buildGuide(models.Domain{Name: domain, DkimSelector: "default"}, guideKey{web: "mail.example.com", proxy: true}, ip, netip.Addr{})
 	spf := getRecord(t, guide, "spf")
 	checkGuideRecord(context.Background(), fake, &spf, domain, guide.MailHost, ip, netip.Addr{}, true)
-	if spf.Status != "mismatch" || spf.hint != "dns_guide_spf_merge" || len(spf.Actual) != 2 {
+	if spf.Status != "mismatch" || spf.hint != "dns_guide_spf_merge" || len(spf.Actual) != 2 || spf.SuggestedValue != "v=spf1 mx ip4:203.0.113.10 a ~all" {
 		t.Fatalf("SPF merge: %+v", spf)
 	}
 	web := getRecord(t, guide, "web_a")
@@ -111,5 +111,32 @@ func TestSPFAndProxyRecordChecks(t *testing.T) {
 	checkGuideRecord(context.Background(), fake, &ptr, domain, guide.MailHost, ip, netip.Addr{}, true)
 	if ptr.Status != "advice" || ptr.Matches == nil || !*ptr.Matches {
 		t.Fatalf("PTR: %+v", ptr)
+	}
+}
+
+func TestSuggestedSPFPreservesMechanismsAndPrimaryPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		records []string
+		want    string
+	}{
+		{[]string{"v=spf1 include:_spf.provider.test ip4:192.0.2.1 -all"}, "v=spf1 include:_spf.provider.test ip4:192.0.2.1 mx a -all"},
+		{[]string{"v=spf1 +mx ~all"}, "v=spf1 +mx a ~all"},
+		{[]string{"V=SPF1 a ?ALL"}, "V=SPF1 a mx ?ALL"},
+		{[]string{"v=spf1 include:old.test ~all exp=explain.test", "v=spf1 include:other.test ip6:2001:db8::/32 include:old.test -all"}, "v=spf1 include:old.test include:other.test ip6:2001:db8::/32 mx a ~all exp=explain.test"},
+		{[]string{"v=spf1 redirect=_spf.provider.test"}, "v=spf1 redirect=_spf.provider.test mx a"},
+	} {
+		if got := suggestSPF(tc.records); got != tc.want {
+			t.Errorf("records %q: %q != %q", tc.records, got, tc.want)
+		}
+	}
+	ip := netip.MustParseAddr("203.0.113.10")
+	guide := buildGuide(models.Domain{Name: "example.com", DkimSelector: "default"}, guideKey{web: "mail.example.com"}, ip, netip.Addr{})
+	for _, tc := range []struct{ record, want string }{{"v=spf1 ip4:203.0.113.10 -all", ""}, {"v=spf1 ip4:203.0.113.11 -all", "v=spf1 ip4:203.0.113.11 mx a -all"}} {
+		fake := guideDNS{txt: map[string][]string{"example.com.": {tc.record}}}
+		r := getRecord(t, guide, "spf")
+		checkGuideRecord(context.Background(), fake, &r, guide.Domain, guide.MailHost, ip, netip.Addr{}, false)
+		if r.SuggestedValue != tc.want {
+			t.Errorf("SPF %q suggestion: %q != %q", tc.record, r.SuggestedValue, tc.want)
+		}
 	}
 }
