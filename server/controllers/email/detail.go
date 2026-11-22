@@ -12,6 +12,7 @@ import (
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/detail"
+	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/services/token"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
@@ -51,6 +52,15 @@ func EmailDetail(ctx *context.Context, w http.ResponseWriter, req *http.Request)
 	if err != nil {
 		response.Localized(ctx, response.ServerError, "internal_error").FPrint(w)
 		return
+	}
+	analysisJSON, err := json.Marshal(inbound.ReadDetail(email.InboundAnalysis, email.InboundSpam))
+	var analysisFields map[string]json.RawMessage
+	if err != nil || json.Unmarshal(analysisJSON, &analysisFields) != nil {
+		response.Localized(ctx, response.ServerError, "internal_error").FPrint(w)
+		return
+	}
+	for key, value := range analysisFields {
+		view[key] = value
 	}
 	response.NewSuccessResponse(view).FPrint(w)
 }

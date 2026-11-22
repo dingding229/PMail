@@ -104,6 +104,8 @@ func TestMissingWebRootDoesNotBlockAPIOrCORS(t *testing.T) {
 		{"GET", "/api/missing", "", "", "", 404},
 		{"GET", "/api/example", "http://localhost:5173", "", "http://localhost:5173", 200},
 		{"OPTIONS", "/api/example", "https://dev.example.test", "POST", "https://dev.example.test", 204},
+		{"OPTIONS", "/api/settings/spam", "https://dev.example.test", "PUT", "https://dev.example.test", 204},
+		{"OPTIONS", "/api/spam/rules", "https://dev.example.test", "DELETE", "https://dev.example.test", 204},
 		{"OPTIONS", "/api/example", "https://dev.example.test.attacker.invalid", "POST", "", 403},
 	} {
 		r := httptest.NewRequest(tc.method, tc.path, nil)

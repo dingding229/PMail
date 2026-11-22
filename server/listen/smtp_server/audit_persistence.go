@@ -17,6 +17,7 @@ import (
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
+	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/services/quota"
@@ -133,7 +134,7 @@ func localPersistenceSMTPError() error {
 	}
 }
 
-func persistInitialAuditWithQuota(ctx *context.Context, modelEmail models.Email, userIDs []int) (*models.Email, []int, error) {
+func persistInitialAuditWithQuota(ctx *context.Context, modelEmail models.Email, userIDs []int, scores map[int]*inbound.Spam) (*models.Email, []int, error) {
 	var saved models.Email
 	userIDs = sortedOwners(userIDs)
 	accepted := make([]int, 0, len(userIDs))
@@ -166,7 +167,8 @@ func persistInitialAuditWithQuota(ctx *context.Context, modelEmail models.Email,
 			return stderrors.New("email insert returned no id")
 		}
 		for _, id := range accepted {
-			if _, err := session.Insert(&models.UserEmail{EmailID: candidate.Id, UserID: id, Status: candidate.Status}); err != nil {
+			link := initialLink(&candidate, id, 0, scores[id])
+			if _, err := session.Insert(&link); err != nil {
 				return err
 			}
 			if err := quota.Adjust(session, id, int64(candidate.Size)); err != nil {

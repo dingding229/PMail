@@ -5,12 +5,14 @@ import (
 	stdctx "context"
 	"encoding/json"
 	"io"
+	"slices"
 	"unicode/utf8"
 
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/auth"
+	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
@@ -20,17 +22,20 @@ func InlineContentType(raw string) (string, bool) { return mailstore.InlineConte
 
 type Part struct {
 	models.MailAttachmentInfo
-	legacy []byte
+	legacy   []byte
+	HighRisk bool
 }
 
 // Find authorizes the email before dereferencing either the new metadata or
 // legacy JSON. The returned reader is pinned to one attachment generation.
 func Find(ctx *context.Context, emailID, index int, cid string) *Part {
 	var mail models.Email
-	ok, err := db.Instance.ID(emailID).Cols("id", "status", "projection_ready").Get(&mail)
+	ok, err := db.Instance.ID(emailID).Cols("id", "status", "projection_ready", "inbound_analysis").Get(&mail)
 	if err != nil || !ok || !auth.HasAuth(ctx, &mail) {
 		return nil
 	}
+	evidence := inbound.FromStorage(mail.InboundAnalysis)
+	isRisky := func(index int) bool { return evidence != nil && slices.Contains(evidence.HighRiskParts, index) }
 	if mail.ProjectionReady {
 		var info models.MailAttachmentInfo
 		q := db.Instance.Where("email_id=?", emailID).Asc("part")
@@ -40,7 +45,7 @@ func Find(ctx *context.Context, emailID, index int, cid string) *Part {
 			q.And("content_id=?", cid)
 		}
 		if ok, err := q.Get(&info); err == nil && ok {
-			return &Part{MailAttachmentInfo: info}
+			return &Part{MailAttachmentInfo: info, HighRisk: isRisky(info.Index)}
 		}
 		return nil
 	}
@@ -56,7 +61,8 @@ func Find(ctx *context.Context, emailID, index int, cid string) *Part {
 		if index == i || (index < 0 && a.ContentID == cid) {
 			info := mailstore.Metadata([]parsemail.Attachment{a})[0]
 			info.Index = i
-			return &Part{MailAttachmentInfo: info, legacy: a.Content}
+			info.EmailID = emailID
+			return &Part{MailAttachmentInfo: info, legacy: a.Content, HighRisk: isRisky(i)}
 		}
 	}
 	return nil
@@ -103,7 +109,7 @@ func (r *chunkReader) Read(b []byte) (int, error) {
 }
 
 func (p *Part) Preview(ctx stdctx.Context) (parsemail.TextPreview, bool) {
-	if !p.Previewable {
+	if p.HighRisk || !p.Previewable {
 		return parsemail.TextPreview{}, false
 	}
 	raw, err := io.ReadAll(io.LimitReader(p.Open(ctx), int64(min(p.Size, parsemail.PreviewLimit+8))))

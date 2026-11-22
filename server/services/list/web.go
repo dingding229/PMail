@@ -42,9 +42,9 @@ func EncodeCursor(row *response.EmailResponseData) string {
 }
 
 const webFields = `e.id,e.type,e.status,e.send_date,e.create_time,e.update_time,e.cron_send_time,
- e.from_address,e.from_name,e.reply_to,e.sender,e.subject,e.%s,e.cc,e.bcc,e.error,e.auth_results,e.auth_unchecked,e.spf_check,e.dkim_check,e.projection_ready,
+ e.from_address,e.from_name,e.reply_to,e.sender,e.subject,e.%s,e.cc,e.bcc,e.error,e.auth_results,e.inbound_analysis,e.auth_unchecked,e.spf_check,e.dkim_check,e.projection_ready,
  CASE WHEN e.projection_ready THEN e.list_snippet ELSE SUBSTR(e.text,1,1024) END AS list_snippet,
- ue.is_read,ue.is_starred,ue.status AS mailbox_status,ue.id AS ue_id`
+ ue.is_read,ue.is_starred,ue.inbound_spam,ue.status AS mailbox_status,ue.id AS ue_id`
 
 func webPageSQL(ctx *context.Context, tag dto.SearchTag, keyword string, cursor MailCursor, offset, limit int) (string, []any, string, []any, error) {
 	// Reuse the legacy mailbox semantics, including IMAP copies and drafts.

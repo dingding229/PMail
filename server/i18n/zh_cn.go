@@ -1,6 +1,19 @@
 package i18n
 
 var cn = map[string]string{
+	"inbound_invalid_parameters":          "参数无效",
+	"inbound_login_required":              "请先登录",
+	"inbound_permission_denied":           "没有操作权限",
+	"inbound_resource_not_found":          "找不到请求的资源",
+	"spam_rule_conflict":                  "此规则已存在",
+	"spam_rule_limit":                     "黑白名单最多可添加 500 条规则",
+	"risk_confirmation_required":          "请确认高危附件的下载风险",
+	"risk_preview_forbidden":              "高危附件不可预览",
+	"inbound_payload_too_large":           "请求体过大",
+	"inbound_internal_error":              "操作失败，请稍后重试",
+	"dnsbl_unavailable":                   "DNSBL 查询失败，未计入垃圾评分",
+	"dnsbl_resolver_refused":              "DNSBL 服务拒绝当前解析器，未计入垃圾评分",
+	"clamd_unavailable":                   "ClamAV 扫描不可用，邮件仍正常投递",
 	"all_email":                           "全部邮件",
 	"inbox":                               "收件箱",
 	"outbox":                              "发件箱",

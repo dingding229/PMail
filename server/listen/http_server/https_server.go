@@ -92,7 +92,17 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 
 		ctx := i18n.ForRequest(r)
 		ctx.SetValue(context.LogID, id.GenLogID())
-		refuse := func(status, code int, key string) { response.Localized(ctx, code, key).FPrintStatus(w, status) }
+		isInbound := controllers.InboundAPIPath(r.URL.Path)
+		refuse := func(status, code int, key string) {
+			if isInbound {
+				if status == http.StatusForbidden {
+					key = "inbound_permission_denied"
+				}
+				controllers.InboundError(ctx, w, status, code, key)
+				return
+			}
+			response.Localized(ctx, code, key).FPrintStatus(w, status)
+		}
 		if r.URL.Path == "/api/logout" && r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")
 			refuse(http.StatusMethodNotAllowed, response.ParamsError, "method_not_allowed")
@@ -119,6 +129,10 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 			userInfo, err := session.CurrentUser(ctx)
 			if err != nil {
 				log.WithContext(ctx).Errorf("Validate session: %v", err)
+				if isInbound {
+					refuse(500, response.ServerError, "inbound_internal_error")
+					return
+				}
 				response.Localized(ctx, response.ServerError, "internal_error").FPrint(w)
 				return
 			}
@@ -157,10 +171,18 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 					ctx.Lang = lang
 				}
 			} else if r.URL.Path != "/api/login" && !publicBootstrap {
+				if isInbound {
+					refuse(401, response.NeedLogin, "inbound_login_required")
+					return
+				}
 				response.Localized(ctx, response.NeedLogin, "login_exp").FPrint(w)
 				return
 			}
 		} else if r.URL.Path != "/api/setup" && !publicBootstrap {
+			if isInbound {
+				refuse(403, response.NoAccessPrivileges, "inbound_permission_denied")
+				return
+			}
 			response.Localized(ctx, response.NeedSetup, "setup_required").FPrint(w)
 			return
 		}

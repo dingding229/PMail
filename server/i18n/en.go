@@ -1,6 +1,19 @@
 package i18n
 
 var en = map[string]string{
+	"inbound_invalid_parameters":          "Invalid parameters",
+	"inbound_login_required":              "Sign in first",
+	"inbound_permission_denied":           "Permission denied",
+	"inbound_resource_not_found":          "Resource not found",
+	"spam_rule_conflict":                  "Rule already exists",
+	"spam_rule_limit":                     "You can add up to 500 allow/block rules",
+	"risk_confirmation_required":          "Confirm the risk before downloading this attachment",
+	"risk_preview_forbidden":              "High-risk attachments cannot be previewed",
+	"inbound_payload_too_large":           "Request body is too large",
+	"inbound_internal_error":              "Operation failed; try again later",
+	"dnsbl_unavailable":                   "DNSBL lookup failed and was not used for scoring",
+	"dnsbl_resolver_refused":              "The DNSBL rejected the resolver and was not used for scoring",
+	"clamd_unavailable":                   "ClamAV scanning is unavailable; mail delivery continues",
 	"all_email":                           "All mail",
 	"inbox":                               "Inbox",
 	"outbox":                              "Sent",

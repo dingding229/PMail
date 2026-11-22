@@ -9,6 +9,7 @@ import (
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/services/list"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/isotime"
@@ -23,6 +24,7 @@ type emailListResponse struct {
 
 type emilItem struct {
 	normalizedMail
+	inbound.ListView
 	models.EmailISOTimes
 	mailAuthenticationView
 	DatetimeISO *time.Time `json:"datetime_iso"`
@@ -119,6 +121,7 @@ func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 
 		lst = append(lst, &emilItem{
 			normalizedMail:         normalizeMail(email.Email),
+			ListView:               inbound.ReadList(email.InboundAnalysis, email.InboundSpam),
 			EmailISOTimes:          email.Email.ISOTimes(),
 			mailAuthenticationView: mailAuthentication(email.Email, email.MailboxStatus),
 			DatetimeISO:            isotime.UTC(email.SendDate),

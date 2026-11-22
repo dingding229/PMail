@@ -21,6 +21,7 @@ import (
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/group"
+	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/services/inboundauth"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/services/quota"
@@ -38,6 +39,37 @@ import (
 // delivery. Known recipients are returned before this policy is consulted;
 // the actual filter level is controlled by PMAIL_SPAM_FILTER_LEVEL.
 const DropUnknownRecipientEmails = true
+
+type inboundDelivery struct {
+	prepared bool
+	envelope inbound.Envelope
+	analysis *inbound.Analysis
+	scores   map[int]*inbound.Spam
+}
+
+func (d *inboundDelivery) analyze(ctx *context.Context, email *parsemail.Email, owners []int) {
+	if d.prepared {
+		return
+	}
+	d.prepared = true
+	d.analysis, d.scores = inbound.AnalyzeDelivery(ctx.Context, email, d.envelope, email.AuthResults, owners)
+}
+func (d *inboundDelivery) recipient(uid int) *inbound.Analysis {
+	if d == nil || d.analysis == nil {
+		return nil
+	}
+	a := *d.analysis
+	a.Recipient = d.scores[uid]
+	return &a
+}
+func initialLink(row *models.Email, uid, groupID int, score *inbound.Spam) models.UserEmail {
+	link := models.UserEmail{UserID: uid, EmailID: row.Id, GroupId: groupID, Status: row.Status, InboundSpam: inbound.Storage(score)}
+	if link.Status == consts.EmailStatusWait && score != nil && score.Verdict == "spam" {
+		link.Status = consts.EmailStatusJunk
+		link.GroupId = 0
+	}
+	return link
+}
 
 // ImportExternal commits the message, its owner link and the caller's remote
 // deduplication marker together. Rule side effects happen only after commit.
@@ -58,6 +90,8 @@ func ImportExternal(ctx *context.Context, raw []byte, recipient string, targetGr
 		email.MsgID = parsemail.GenerateMsgID(domain.DefaultName())
 	}
 	email.Size = len(raw)
+	delivery := inboundDelivery{envelope: inbound.Envelope{}}
+	delivery.analyze(ctx, email, []int{ctx.UserID})
 	var saved *models.Email
 	var owner models.User
 	err = db.Transaction(db.Instance, func(tx *xorm.Session) error {
@@ -92,6 +126,7 @@ func ImportExternal(ctx *context.Context, raw []byte, recipient string, targetGr
 			}
 		}
 		row := storedEmail(email, 0, int(consts.EmailTypeReceive), email.MsgID, false, false)
+		row.InboundAnalysis = inbound.Storage(delivery.analysis)
 		mailstore.Prepare(&row)
 		mailstore.SetPOPSize(ctx, &row)
 		if _, err = tx.Insert(&row); err != nil {
@@ -100,7 +135,8 @@ func ImportExternal(ctx *context.Context, raw []byte, recipient string, targetGr
 		if err = mailstore.WriteParts(tx, &row, false); err != nil {
 			return err
 		}
-		if _, err = tx.Insert(&models.UserEmail{UserID: ctx.UserID, EmailID: row.Id, GroupId: targetGroupID}); err != nil {
+		link := initialLink(&row, ctx.UserID, targetGroupID, delivery.scores[ctx.UserID])
+		if _, err = tx.Insert(&link); err != nil {
 			return err
 		}
 		if err = quota.Adjust(tx, ctx.UserID, int64(row.Size)); err != nil {
@@ -113,7 +149,7 @@ func ImportExternal(ctx *context.Context, raw []byte, recipient string, targetGr
 		return saved, err
 	}
 	email.MessageId = int64(saved.Id)
-	processIncomingDelivery(ctx, email, saved, []*models.User{&owner}, raw)
+	processIncomingDelivery(ctx, email, saved, []*models.User{&owner}, raw, &delivery)
 	return saved, nil
 }
 
@@ -122,6 +158,9 @@ func ImportExternal(ctx *context.Context, raw []byte, recipient string, targetGr
 func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*parsemail.User) (error, map[string]error) {
 	var first error
 	errs := map[string]error{}
+	if len(recipients) == 0 {
+		return nil, errs
+	}
 	accepted := 0
 	raw := email.RawData
 	if len(raw) == 0 {
@@ -131,12 +170,42 @@ func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*p
 			return err, errs
 		}
 	}
+	// Web/authenticated local submission persists one row per recipient for
+	// legacy delivery reporting. Share the expensive scan across those rows.
+	// Administrative catch-all candidates are included only if an address is
+	// unknown; normal delivery still independently enforces its old gate.
+	delivery := inboundDelivery{envelope: inbound.Envelope{MailFrom: email.EnvelopeFrom}}
+	var owners []int
+	catchAll := false
+	for _, r := range recipients {
+		if r == nil {
+			continue
+		}
+		if u, ok, err := address.Resolve(r.EmailAddress); err == nil && ok {
+			owners = append(owners, u.ID)
+		} else {
+			catchAll = true
+		}
+	}
+	if catchAll && config.Instance != nil && config.Instance.CatchAll {
+		var admins []models.User
+		if err := db.Instance.Cols("id").Where("is_admin=1 AND disabled=0").Find(&admins); err == nil {
+			for _, u := range admins {
+				owners = append(owners, u.ID)
+			}
+		}
+	}
+	delivery.analyze(ctx, email, owners)
+
 	for _, recipient := range recipients {
+		if recipient == nil {
+			continue
+		}
 		// saveEmail assigns MessageId/MsgID on the parsed email. Use a per-
 		// recipient copy so local persistence cannot mutate the sender's parent
 		// audit email that outbound queue rows reference.
 		localEmail := *email
-		users, saved, err := saveEmail(ctx, len(raw), &localEmail, 0, int(consts.EmailTypeReceive), []string{recipient.EmailAddress}, true, true)
+		users, saved, err := saveEmail(ctx, len(raw), &localEmail, 0, int(consts.EmailTypeReceive), []string{recipient.EmailAddress}, true, true, &delivery)
 		if err == nil && len(users) == 0 && !config.Instance.CatchAll {
 			err = address.ErrNotFound
 		}
@@ -148,7 +217,7 @@ func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*p
 			continue
 		}
 		accepted++
-		processIncomingDelivery(ctx, &localEmail, saved, users, raw)
+		processIncomingDelivery(ctx, &localEmail, saved, users, raw, &delivery)
 	}
 	// SMTP DATA cannot report a separate result for each RCPT. Return a
 	// recipient error only when every local recipient was rejected; partial
@@ -160,12 +229,23 @@ func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*p
 	return first, errs
 }
 
-func processIncomingDelivery(ctx *context.Context, email *parsemail.Email, dbEmail *models.Email, users []*models.User, emailData []byte) {
+func processIncomingDelivery(ctx *context.Context, email *parsemail.Email, dbEmail *models.Email, users []*models.User, emailData []byte, delivery ...*inboundDelivery) {
 	if dbEmail == nil || email == nil {
 		return
 	}
 	log.WithContext(ctx).Debugf("开始执行邮件规则！")
+	var info *inboundDelivery
+	if len(delivery) > 0 {
+		info = delivery[0]
+	}
 	for _, user := range users {
+		result := info.recipient(user.ID)
+		inbound.Notify(user.ID, dbEmail.Id, result)
+		// Junk is not auto-forwarded or moved out by ordinary mailbox rules.
+		// Keep the existing spoofed/deleted path separate from the new classifier.
+		if dbEmail.Status == consts.EmailStatusWait && result != nil && result.Recipient != nil && result.Recipient.Verdict == "spam" {
+			continue
+		}
 		for _, ruleItem := range rule.GetAllRules(ctx, user.ID) {
 			if rule.MatchRule(ctx, ruleItem, email) {
 				rule.DoRule(ctx, ruleItem, email, user, emailData)
@@ -266,7 +346,8 @@ func (s *Session) Data(r io.Reader) error {
 			email.Status = 3
 		}
 
-		users, dbEmail, saveErr := saveEmail(ctx, len(emailData), email, 0, 0, s.To, SPFStatus, dkimStatus)
+		delivery := inboundDelivery{envelope: inbound.Envelope{SourceIP: inbound.SourceIP(peer, emailData), MailFrom: s.From}}
+		users, dbEmail, saveErr := saveEmail(ctx, len(emailData), email, 0, 0, s.To, SPFStatus, dkimStatus, &delivery)
 		if saveErr != nil {
 			if oerrors.Is(saveErr, quota.ErrExceeded) {
 				return quotaSMTPError()
@@ -278,14 +359,14 @@ func (s *Session) Data(r io.Reader) error {
 			return localPersistenceSMTPError()
 		}
 
-		processIncomingDelivery(ctx, email, dbEmail, users, emailData)
+		processIncomingDelivery(ctx, email, dbEmail, users, emailData, &delivery)
 
 	}
 
 	return nil
 }
 
-func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserID int, emailType int, reallyTo []string, SPFStatus, dkimStatus bool) ([]*models.User, *models.Email, error) {
+func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserID int, emailType int, reallyTo []string, SPFStatus, dkimStatus bool, delivery ...*inboundDelivery) ([]*models.User, *models.Email, error) {
 	if email == nil {
 		return nil, nil, oerrors.New("email is missing")
 	}
@@ -328,7 +409,13 @@ func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserI
 	var accepted []int
 	if emailType == int(consts.EmailTypeReceive) {
 		var err error
-		saved, accepted, err = persistInitialAuditWithQuota(ctx, modelEmail, userIDs)
+		var scores map[int]*inbound.Spam
+		if len(delivery) > 0 && delivery[0] != nil {
+			delivery[0].analyze(ctx, email, userIDs)
+			modelEmail.InboundAnalysis = inbound.Storage(delivery[0].analysis)
+			scores = delivery[0].scores
+		}
+		saved, accepted, err = persistInitialAuditWithQuota(ctx, modelEmail, userIDs, scores)
 		if err != nil {
 			return users, nil, err
 		}

@@ -43,6 +43,15 @@ func registerAppRoutes(mux *http.ServeMux, version string) {
 	mux.HandleFunc("/api/email/list", contextIterceptor(email.EmailList))
 	mux.HandleFunc("/api/email/del", contextIterceptor(email.EmailDelete))
 	mux.HandleFunc("POST /api/email/star", contextIterceptor(email.Star))
+	mux.HandleFunc("POST /api/email/spam", contextIterceptor(controllers.MarkSpam))
+	mux.HandleFunc("GET /api/settings/spam", contextIterceptor(controllers.SpamSettings))
+	mux.HandleFunc("PUT /api/settings/spam", contextIterceptor(controllers.SpamSettings))
+	for _, method := range []string{"GET", "POST", "DELETE"} {
+		mux.HandleFunc(method+" /api/spam/rules", contextIterceptor(controllers.SpamRules))
+	}
+	mux.HandleFunc("GET /api/admin/inbound", contextIterceptor(controllers.InboundSettings))
+	mux.HandleFunc("PUT /api/admin/inbound", contextIterceptor(controllers.InboundSettings))
+
 	mux.HandleFunc("POST /api/email/draft/save", contextIterceptor(email.SaveDraft))
 	mux.HandleFunc("POST /api/email/draft/delete", contextIterceptor(email.DeleteDraft))
 	mux.HandleFunc("/api/email/read", contextIterceptor(email.MarkRead))

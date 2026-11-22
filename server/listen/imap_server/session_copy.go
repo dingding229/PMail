@@ -54,7 +54,7 @@ func (s *serverSession) transfer(set imap.NumSet, dest string, move bool) (*imap
 		ar := make([]int, 0, len(selected))
 		for _, entry := range selected {
 			original := entry.row
-			next := models.UserEmail{UserID: s.ctx.UserID, EmailID: original.EmailID, IsRead: original.IsRead, IsStarred: original.IsStarred, IMAPDeleted: original.IMAPDeleted, GroupId: target.group, Status: target.status}
+			next := models.UserEmail{UserID: s.ctx.UserID, EmailID: original.EmailID, IsRead: original.IsRead, IsStarred: original.IsStarred, InboundSpam: original.InboundSpam, IMAPDeleted: original.IMAPDeleted, GroupId: target.group, Status: target.status}
 			if move {
 				next.IMAPDeleted = false
 			}

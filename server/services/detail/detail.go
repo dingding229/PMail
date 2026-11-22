@@ -28,7 +28,7 @@ func WebDetail(ctx *context.Context, id int, markRead bool) (*response.EmailResp
 func getDetail(ctx *context.Context, id int, markRead, web bool) (*response.EmailResponseData, error) {
 	// 先查是否是本人的邮件
 	var ue models.UserEmail
-	_, err := db.Instance.Where("email_id = ? AND user_id = ?", id, ctx.UserID).Get(&ue)
+	_, err := db.Instance.Where("email_id = ? AND user_id = ?", id, ctx.UserID).Asc("id").Get(&ue)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func getDetail(ctx *context.Context, id int, markRead, web bool) (*response.Emai
 	var email response.EmailResponseData
 	cols := "*,1 AS is_read"
 	if web {
-		cols = "id,type,status,subject,reply_to,from_name,from_address," + db.Instance.Quote("to") + ",bcc,cc,text,html,sender,spf_check,dkim_check,cron_send_time,update_time,send_user_id,size,error,send_date,create_time,msg_id,text_format,auth_results,auth_unchecked,projection_ready,CASE WHEN projection_ready THEN '' ELSE attachments END AS attachments"
+		cols = "id,type,status,subject,reply_to,from_name,from_address," + db.Instance.Quote("to") + ",bcc,cc,text,html,sender,spf_check,dkim_check,cron_send_time,update_time,send_user_id,size,error,send_date,create_time,msg_id,text_format,auth_results,inbound_analysis,auth_unchecked,projection_ready,CASE WHEN projection_ready THEN '' ELSE attachments END AS attachments"
 	}
 	found, err := db.Instance.Select(cols).Table("email").Where("id=?", id).Get(&email)
 	if err != nil {
@@ -60,6 +60,7 @@ func getDetail(ctx *context.Context, id int, markRead, web bool) (*response.Emai
 			return nil, err
 		}
 	}
+	email.InboundSpam = ue.InboundSpam
 	email.IsRead = ue.IsRead
 	email.IsStarred = ue.IsStarred
 	email.MailboxStatus = ue.Status

@@ -1,6 +1,7 @@
 package http_server
 
 import (
+	"github.com/Jinnrry/pmail/controllers"
 	"net/http"
 	"net/url"
 	"strings"
@@ -38,9 +39,17 @@ func apiSessions(next *http.ServeMux) http.Handler {
 					ctx := i18n.ForRequest(r)
 					if err != nil {
 						log.WithContext(ctx).Errorf("Read registration state: %v", err)
-						response.Localized(ctx, response.ServerError, "internal_error").FPrintStatus(w, http.StatusInternalServerError)
+						if controllers.InboundAPIPath(r.URL.Path) {
+							controllers.InboundError(ctx, w, http.StatusInternalServerError, response.ServerError, "inbound_internal_error")
+						} else {
+							response.Localized(ctx, response.ServerError, "internal_error").FPrintStatus(w, http.StatusInternalServerError)
+						}
 					} else {
-						response.Localized(ctx, response.NoAccessPrivileges, "registration_required").FPrintStatus(w, http.StatusForbidden)
+						if controllers.InboundAPIPath(r.URL.Path) {
+							controllers.InboundError(ctx, w, http.StatusForbidden, response.NoAccessPrivileges, "inbound_permission_denied")
+						} else {
+							response.Localized(ctx, response.NoAccessPrivileges, "registration_required").FPrintStatus(w, http.StatusForbidden)
+						}
 					}
 					return
 				}
@@ -92,7 +101,7 @@ func webMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
 		}
 		if preflight {
-			w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept-Language, Lang, Token, X-PMail-Lang, Range")
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -102,7 +111,7 @@ func webMiddleware(next http.Handler) http.Handler {
 }
 
 func allowedCORSRequest(method, headers string) bool {
-	if method != http.MethodGet && method != http.MethodHead && method != http.MethodPost && method != http.MethodOptions {
+	if method != http.MethodGet && method != http.MethodHead && method != http.MethodPost && method != http.MethodPut && method != http.MethodDelete && method != http.MethodOptions {
 		return false
 	}
 	for header := range strings.SplitSeq(headers, ",") {
