@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/netip"
+	"sync"
 )
 
 type Envelope struct {
@@ -114,6 +115,23 @@ func ReadList(shared, personal sql.NullString) ListView {
 	return out
 }
 
-// Notify is the post-commit integration point for C9. It does not execute or
-// send anything in C8. Analysis may be nil when the budget is exhausted.
-func Notify(userID, emailID int, analysis *Analysis) {}
+var notifier struct {
+	sync.RWMutex
+	send func(int, int, *Analysis)
+}
+
+func SetNotifier(fn func(int, int, *Analysis)) {
+	notifier.Lock()
+	notifier.send = fn
+	notifier.Unlock()
+}
+
+// Notify executes only after durable delivery; consumers must not reject mail.
+func Notify(userID, emailID int, analysis *Analysis) {
+	notifier.RLock()
+	fn := notifier.send
+	notifier.RUnlock()
+	if fn != nil {
+		fn(userID, emailID, analysis)
+	}
+}

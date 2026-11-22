@@ -240,7 +240,6 @@ func processIncomingDelivery(ctx *context.Context, email *parsemail.Email, dbEma
 	}
 	for _, user := range users {
 		result := info.recipient(user.ID)
-		inbound.Notify(user.ID, dbEmail.Id, result)
 		// Junk is not auto-forwarded or moved out by ordinary mailbox rules.
 		// Keep the existing spoofed/deleted path separate from the new classifier.
 		if dbEmail.Status == consts.EmailStatusWait && result != nil && result.Recipient != nil && result.Recipient.Verdict == "spam" {
@@ -257,6 +256,7 @@ func processIncomingDelivery(ctx *context.Context, email *parsemail.Email, dbEma
 	}
 
 	for _, user := range users {
+		inbound.Notify(user.ID, dbEmail.Id, info.recipient(user.ID))
 		_ = imap_server.IdleNotice(ctx, user.ID, dbEmail)
 	}
 }

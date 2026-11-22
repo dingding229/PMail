@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router'
+import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -83,6 +83,11 @@ export function MailWorkspace() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { folder: folderParam } = useParams<{ folder?: string }>()
+  const [urlSearch] = useSearchParams()
+  const requestedMail = urlSearch.get('mail') ?? ''
+  const linkedMailId = /^[1-9]\d{0,14}$/.test(requestedMail) && Number.isSafeInteger(Number(requestedMail))
+    ? Number(requestedMail)
+    : null
   const { isDesktop, isTablet, isMobile } = useViewportBreakpoint()
   const { listDensity, readingPanePosition } = usePreferences()
 
@@ -98,7 +103,7 @@ export function MailWorkspace() {
   )
 
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [activeEmailId, setActiveEmailId] = useState<number | null>(null)
+  const [activeEmailId, setActiveEmailId] = useState<number | null>(linkedMailId)
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
   const [searchInput, setSearchInput] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -215,10 +220,12 @@ export function MailWorkspace() {
   // Clear selection when changing folder
   useEffect(() => {
     setCheckedIds(new Set())
-    if (isMobile) {
+    if (linkedMailId !== null) {
+      setActiveEmailId(linkedMailId)
+    } else if (isMobile) {
       setActiveEmailId(null)
     }
-  }, [folderParam, isMobile])
+  }, [folderParam, isMobile, linkedMailId])
 
   // Compute unread counts from sidebarGroups + inbox items
   const unreadCounts = useMemo<Partial<Record<SystemFolderKey, number>>>(() => {
