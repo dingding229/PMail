@@ -34,6 +34,7 @@ import {
   useEmailInfiniteList,
   useGroupOptionsQuery,
   useMarkReadMutation,
+  useMarkSpamMutation,
   useMoveEmailsMutation,
   usePrefetchEmailDetail,
   useSidebarGroupsQuery,
@@ -158,6 +159,7 @@ export function MailWorkspace() {
   const markReadMutation = useMarkReadMutation()
   const deleteMutation = useDeleteEmailsMutation()
   const moveMutation = useMoveEmailsMutation()
+  const markSpamMutation = useMarkSpamMutation()
   const createGroupMutation = useCreateGroupMutation()
   const deleteGroupMutation = useDeleteGroupMutation()
 
@@ -398,6 +400,15 @@ export function MailWorkspace() {
       })
     },
     [advanceSelectionAfterRemoval, currentRestoreGroupId, moveMutation],
+  )
+
+  const handleMarkSpam = useCallback(
+    (ids: number[], isSpam: boolean) => {
+      if (ids.length === 0) return
+      advanceSelectionAfterRemoval(ids)
+      markSpamMutation.mutate({ ids, isSpam })
+    },
+    [advanceSelectionAfterRemoval, markSpamMutation],
   )
 
   const handleToggleStar = useCallback(
@@ -678,6 +689,7 @@ export function MailWorkspace() {
       onBulkStar={(ids) => handleToggleStar(ids, true)}
       onBulkDelete={handleDeleteEmails}
       onBulkMove={handleMoveEmails}
+      onBulkMarkSpam={handleMarkSpam}
       onPrefetchEmail={prefetchEmail}
       onCancelPrefetch={cancelPrefetch}
       onResumeDraft={handleResumeDraft}
@@ -722,6 +734,7 @@ export function MailWorkspace() {
         onToggleRead={(id, nextRead) => handleToggleRead([id], nextRead)}
         onDelete={(id, forced) => handleDeleteEmails([id], forced)}
         onMove={(id, groupId, label) => handleMoveEmails([id], groupId, label)}
+        onMarkSpam={(id, isSpam) => handleMarkSpam([id], isSpam)}
       />
     </ErrorBoundary>
   )

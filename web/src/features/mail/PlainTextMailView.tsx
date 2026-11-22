@@ -2,14 +2,17 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import DOMPurify from 'dompurify'
 import { Code2, FileText } from 'lucide-react'
+import type { MailRiskFinding } from '@/api'
 import { cn } from '@/lib/cn'
 import { CodeBlockView } from './CodeBlockView'
 import { DiffPatchView } from './DiffPatchView'
+import { formatRiskCopyWarning, matchCodeBlockRiskFindings } from './inboundAnalysis'
 
 interface PlainTextMailViewProps {
   text: string
   textFormat?: 'plain' | 'flowed' | 'markdown' | 'patch'
   hasCode?: boolean
+  riskFindings?: MailRiskFinding[]
 }
 
 type TextSegment =
@@ -74,8 +77,13 @@ export function PlainTextMailView({
   text,
   textFormat = 'plain',
   hasCode = false,
+  riskFindings = [],
 }: PlainTextMailViewProps) {
   const { t } = useTranslation()
+  const bodyRiskFindings = useMemo(
+    () => riskFindings.filter((f) => f.location === 'body'),
+    [riskFindings],
+  )
   const isPatch = textFormat === 'patch' || looksLikePatch(text)
   const isMarkdown = textFormat === 'markdown'
   const [monospace, setMonospace] = useState(false)
@@ -178,11 +186,17 @@ export function PlainTextMailView({
         <div className="space-y-2">
           {segments.map((seg, idx) => {
             if (seg.kind === 'code') {
+              const matchedFindings = matchCodeBlockRiskFindings(seg.content, bodyRiskFindings)
               return (
                 <CodeBlockView
                   key={idx}
                   code={seg.content}
                   language={seg.language || undefined}
+                  riskWarning={
+                    matchedFindings.length > 0
+                      ? formatRiskCopyWarning(matchedFindings, t)
+                      : null
+                  }
                 />
               )
             }

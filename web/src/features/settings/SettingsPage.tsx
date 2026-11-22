@@ -10,6 +10,7 @@ import {
   Palette,
   SendToBack,
   Shield,
+  ShieldBan,
   UserCog,
 } from 'lucide-react'
 import { useUserMeQuery } from '@/hooks/useMailQueries'
@@ -21,6 +22,7 @@ import { AppearanceSection } from './sections/AppearanceSection'
 import { AddressesSection } from './sections/AddressesSection'
 import { ForwardSection } from './sections/ForwardSection'
 import { RulesSection } from './sections/RulesSection'
+import { SpamSection } from './sections/SpamSection'
 import { GroupsSection } from './sections/GroupsSection'
 import { ExternalMailSection } from './sections/ExternalMailSection'
 import { TokensSection } from './sections/TokensSection'
@@ -32,6 +34,7 @@ type SettingsTabKey =
   | 'addresses'
   | 'forward'
   | 'rules'
+  | 'spam'
   | 'groups'
   | 'external'
   | 'tokens'
@@ -49,6 +52,7 @@ export function SettingsPage() {
     { key: 'addresses', label: t('settings.tabs.addresses'), icon: AtSign },
     { key: 'forward', label: t('settings.tabs.forward'), icon: Forward },
     { key: 'rules', label: t('settings.tabs.rules'), icon: Filter },
+    { key: 'spam', label: t('settings.tabs.spam'), icon: ShieldBan },
     { key: 'groups', label: t('settings.tabs.groups'), icon: Folder },
     { key: 'external', label: t('settings.tabs.external'), icon: MailPlus },
     { key: 'tokens', label: t('settings.tabs.tokens'), icon: KeyRound },
@@ -87,6 +91,7 @@ export function SettingsPage() {
       {activeTab === 'addresses' && <AddressesSection />}
       {activeTab === 'forward' && <ForwardSection />}
       {activeTab === 'rules' && <RulesSection />}
+      {activeTab === 'spam' && <SpamSection />}
       {activeTab === 'groups' && <GroupsSection />}
       {activeTab === 'external' && <ExternalMailSection />}
       {activeTab === 'tokens' && <TokensSection />}

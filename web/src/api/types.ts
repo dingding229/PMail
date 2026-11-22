@@ -137,6 +137,87 @@ export interface MailAuthResults {
   trusted_relay: boolean
 }
 
+export type MailSpamVerdict = 'ham' | 'spam' | 'unknown'
+
+export interface MailSpamSummary {
+  verdict: MailSpamVerdict
+}
+
+export interface MailSpamReason {
+  code: string
+  weight: number
+  detail?: string
+}
+
+export interface MailSpamAssessment {
+  score: number
+  verdict: MailSpamVerdict
+  reasons: MailSpamReason[]
+}
+
+export type MailRiskLevel = 'none' | 'low' | 'medium' | 'high'
+export type MailRiskFindingSeverity = 'low' | 'medium' | 'high'
+export type MailRiskFindingLocation = 'body' | 'attachment'
+
+export interface MailRiskSummary {
+  level: MailRiskLevel
+}
+
+export interface MailRiskFinding {
+  code: string
+  severity: MailRiskFindingSeverity
+  location: MailRiskFindingLocation
+  attachment_index?: number
+  line?: number
+  excerpt?: string
+}
+
+export interface MailRiskAssessment {
+  level: MailRiskLevel
+  findings: MailRiskFinding[]
+}
+
+export interface MailVerificationCodeSummary {
+  code: string
+}
+
+export interface MailVerificationCode {
+  code: string
+  confidence: number
+  source: 'subject' | 'body'
+}
+
+export interface SpamSettings {
+  enabled: boolean
+  threshold: number
+  bayes_enabled: boolean
+}
+
+export type SpamRuleAction = 'allow' | 'block'
+export type SpamRuleKind = 'address' | 'domain' | 'keyword'
+
+export interface SpamRule {
+  id: number
+  action: SpamRuleAction
+  kind: SpamRuleKind
+  value: string
+}
+
+export interface SpamRuleInput {
+  action: SpamRuleAction
+  kind: SpamRuleKind
+  value: string
+}
+
+export interface InboundSettings {
+  dnsbl_enabled: boolean
+  dnsbl_zones: string[]
+  default_spam_threshold: number
+  clamd_enabled: boolean
+  clamd_addr: string
+  risk_block_dangerous_attachments: boolean
+}
+
 export interface EmailListItem {
   id: number
   title: string
@@ -156,6 +237,9 @@ export interface EmailListItem {
   dangerous: boolean
   auth_status?: MailAuthStatus
   auth_results?: MailAuthResults | null
+  spam?: MailSpamSummary | null
+  risk?: MailRiskSummary
+  verification_code?: MailVerificationCodeSummary | null
   type?: number
   status?: number
   error: string
@@ -201,6 +285,9 @@ export interface EmailDetail {
   dkim_check: number
   auth_status?: MailAuthStatus
   auth_results?: MailAuthResults | null
+  spam?: MailSpamAssessment | null
+  risk?: MailRiskAssessment
+  verification_code?: MailVerificationCode | null
   status: number
   cron_send_time?: string
   send_time: string

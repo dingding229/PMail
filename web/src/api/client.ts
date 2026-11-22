@@ -90,6 +90,10 @@ const MACHINE_ERROR_KEY_MAP: Record<string, string> = {
   token_scope_forbidden: 'common.errors.tokenScopeForbidden',
   method_not_allowed: 'common.errors.methodNotAllowed',
   payload_too_large: 'common.errors.payloadTooLarge',
+  spam_rule_conflict: 'settings.spam.errors.conflict',
+  spam_rule_limit: 'settings.spam.errors.limitReached',
+  risk_confirmation_required: 'mail.risk.confirmDownloadRequired',
+  risk_preview_forbidden: 'mail.risk.previewForbidden',
 }
 
 function resolveApiErrorMessage(rawMessage: string | undefined, status: number): string {
@@ -289,3 +293,15 @@ export const apiPost = <T>(
   body: unknown = {},
   options?: Omit<RequestOptions, 'method' | 'body'>,
 ) => apiRequest<T>(path, { ...options, method: 'POST', body })
+
+export const apiPut = <T>(
+  path: string,
+  body: unknown = {},
+  options?: Omit<RequestOptions, 'method' | 'body'>,
+) => apiRequest<T>(path, { ...options, method: 'PUT', body })
+
+export const apiDelete = <T>(
+  path: string,
+  body?: unknown,
+  options?: Omit<RequestOptions, 'method' | 'body'>,
+) => apiRequest<T>(path, { ...options, method: 'DELETE', body })

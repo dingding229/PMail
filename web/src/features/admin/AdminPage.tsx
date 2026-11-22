@@ -6,6 +6,7 @@ import {
   SendToBack,
   Settings,
   ShieldAlert,
+  ShieldCheck,
   Users,
 } from 'lucide-react'
 import { useUserMeQuery } from '@/hooks/useMailQueries'
@@ -16,8 +17,9 @@ import { QueueSection } from '@/features/settings/sections/QueueSection'
 import { DomainsSection } from './DomainsSection'
 import { UsersSection } from './UsersSection'
 import { AdminAddressesSection } from './AdminAddressesSection'
+import { InboundSecuritySection } from './InboundSecuritySection'
 
-type AdminTabKey = 'domains' | 'users' | 'addresses' | 'queue'
+type AdminTabKey = 'domains' | 'users' | 'addresses' | 'inbound' | 'queue'
 
 export function AdminPage() {
   const { t } = useTranslation()
@@ -29,6 +31,7 @@ export function AdminPage() {
     { key: 'domains', label: t('admin.tabs.domains'), icon: Globe },
     { key: 'users', label: t('admin.tabs.users'), icon: Users },
     { key: 'addresses', label: t('admin.tabs.addresses'), icon: AtSign },
+    { key: 'inbound', label: t('admin.tabs.inbound'), icon: ShieldCheck },
     { key: 'queue', label: t('admin.tabs.queue'), icon: SendToBack },
   ]
 
@@ -79,6 +82,7 @@ export function AdminPage() {
       {activeTab === 'domains' && <DomainsSection />}
       {activeTab === 'users' && <UsersSection />}
       {activeTab === 'addresses' && <AdminAddressesSection />}
+      {activeTab === 'inbound' && <InboundSecuritySection />}
       {activeTab === 'queue' && <QueueSection scope="global" />}
     </SectionPanelShell>
   )

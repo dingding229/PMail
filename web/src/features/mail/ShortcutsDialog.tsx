@@ -42,6 +42,7 @@ export function ShortcutsDialog({ open, onOpenChange }: ShortcutsDialogProps) {
         { keys: ['s'], label: t('shortcuts.items.star') },
         { keys: ['e'], label: t('shortcuts.items.archive') },
         { keys: ['#'], label: t('shortcuts.items.delete') },
+        { keys: ['Shift', 'C'], label: t('shortcuts.items.copyCode') },
       ],
     },
     {

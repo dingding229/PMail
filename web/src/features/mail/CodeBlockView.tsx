@@ -1,11 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Check, Copy, Hash, WrapText } from 'lucide-react'
+import { Check, Copy, Hash, ShieldAlert, WrapText } from 'lucide-react'
 import type { ThemedToken } from 'shiki/core'
 import { useTheme } from '@/lib/theme'
 import type { SupportedCodeLang } from '@/lib/code-languages'
 import { cn } from '@/lib/cn'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 interface CodeBlockViewProps {
   code: string
@@ -14,6 +24,7 @@ interface CodeBlockViewProps {
   defaultWrap?: boolean
   maxHeightClass?: string
   className?: string
+  riskWarning?: string | null
 }
 
 export function CodeBlockView({
@@ -23,6 +34,7 @@ export function CodeBlockView({
   defaultWrap = false,
   maxHeightClass,
   className,
+  riskWarning = null,
 }: CodeBlockViewProps) {
   const { t } = useTranslation()
   const { resolved } = useTheme()
@@ -34,6 +46,7 @@ export function CodeBlockView({
   const [wrap, setWrap] = useState(defaultWrap)
   const [showLines, setShowLines] = useState(defaultShowLineNumbers)
   const [copied, setCopied] = useState(false)
+  const [copyConfirmOpen, setCopyConfirmOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -53,7 +66,7 @@ export function CodeBlockView({
   const rawLines = useMemo(() => normalizedCode.split('\n'), [normalizedCode])
   const lineCount = rawLines.length
 
-  const handleCopy = async () => {
+  const performCopy = async () => {
     try {
       await navigator.clipboard.writeText(normalizedCode)
       setCopied(true)
@@ -64,12 +77,21 @@ export function CodeBlockView({
     }
   }
 
+  const handleCopyClick = () => {
+    if (riskWarning) {
+      setCopyConfirmOpen(true)
+      return
+    }
+    void performCopy()
+  }
+
   const langLabel = t(`mail.code.languages.${resolvedLang}` as const)
 
   return (
     <div
       className={cn(
-        'my-3 overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--surface-subtle)]/75',
+        'my-3 overflow-hidden rounded-[var(--radius-md)] border bg-[var(--surface-subtle)]/75',
+        riskWarning ? 'border-[var(--danger)]/45' : 'border-[var(--border-subtle)]',
         className,
       )}
     >
@@ -80,6 +102,12 @@ export function CodeBlockView({
           <span className="tabular-nums text-[var(--ink-muted)]">
             {t('mail.code.linesCount', { count: lineCount })}
           </span>
+          {riskWarning && (
+            <Badge variant="danger">
+              <ShieldAlert className="h-3 w-3" />
+              {t('mail.risk.flaggedCodeBadge')}
+            </Badge>
+          )}
         </div>
 
         <div className="flex items-center gap-1">
@@ -119,7 +147,7 @@ export function CodeBlockView({
 
           <button
             type="button"
-            onClick={() => void handleCopy()}
+            onClick={handleCopyClick}
             aria-label={t('mail.code.copy')}
             title={t('mail.code.copy')}
             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[var(--ink-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--ink-primary)]"
@@ -133,6 +161,45 @@ export function CodeBlockView({
           </button>
         </div>
       </div>
+
+      {/* Risky code copy confirmation dialog */}
+      {riskWarning && (
+        <Dialog open={copyConfirmOpen} onOpenChange={setCopyConfirmOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-[var(--danger)]">
+                <ShieldAlert className="h-4.5 w-4.5 shrink-0" />
+                <span>{t('mail.risk.copyConfirmTitle')}</span>
+              </DialogTitle>
+              <DialogDescription className="pt-1 leading-relaxed">
+                {riskWarning}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setCopyConfirmOpen(false)}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                size="sm"
+                onClick={() => {
+                  setCopyConfirmOpen(false)
+                  void performCopy()
+                }}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                {t('mail.risk.copyConfirmAction')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Highlighted Code Body */}
       <div

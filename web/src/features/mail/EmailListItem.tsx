@@ -1,7 +1,9 @@
 import { memo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import {
   AlertCircle,
+  Copy,
   Mail,
   MailOpen,
   Paperclip,
@@ -263,11 +265,18 @@ export const EmailListItem = memo(function EmailListItem({
 
           {/* Row 2: Subject + Badges */}
           <div className="mt-0.5 flex items-center gap-1.5">
-            {showAuthWarning && (
+            {email.risk?.level === 'high' ? (
               <ShieldAlert
                 className="h-3.5 w-3.5 shrink-0 text-[var(--danger)]"
-                aria-label={t('mail.security.dangerousTitle')}
+                aria-label={t('mail.risk.listBadgeAria')}
               />
+            ) : (
+              showAuthWarning && (
+                <ShieldAlert
+                  className="h-3.5 w-3.5 shrink-0 text-[var(--danger)]"
+                  aria-label={t('mail.security.dangerousTitle')}
+                />
+              )
             )}
             {email.error && (
               <AlertCircle
@@ -287,12 +296,40 @@ export const EmailListItem = memo(function EmailListItem({
             </p>
           </div>
 
-          {/* Row 3: Snippet + Attachment / Star */}
+          {/* Row 3: Snippet + Verification Code / Attachment / Star */}
           <div className="mt-0.5 flex items-center justify-between gap-2">
             <p className="min-w-0 flex-1 truncate text-[12px] text-[var(--ink-muted)]">
               {email.desc?.trim() || t('mail.noSnippet')}
             </p>
             <div className="flex shrink-0 items-center gap-1.5">
+              {email.verification_code?.code && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const code = email.verification_code?.code
+                    if (!code) return
+                    void navigator.clipboard
+                      .writeText(code)
+                      .then(() => {
+                        toast.success(t('mail.verificationCode.copied'))
+                      })
+                      .catch(() => {
+                        toast.error(t('common.copyFailed'))
+                      })
+                  }}
+                  aria-label={t('mail.verificationCode.copyAria', {
+                    code: email.verification_code.code,
+                  })}
+                  title={t('mail.verificationCode.copyAria', {
+                    code: email.verification_code.code,
+                  })}
+                  className="inline-flex items-center gap-1 rounded-[var(--radius-xs)] border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-wider text-[var(--accent-ink)] transition-colors hover:bg-[var(--accent)] hover:text-white"
+                >
+                  <span>{email.verification_code.code}</span>
+                  <Copy className="h-2.5 w-2.5" />
+                </button>
+              )}
               {hasAttachments && (
                 <Paperclip className="h-3.5 w-3.5 text-[var(--ink-muted)]" />
               )}

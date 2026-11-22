@@ -11,4 +11,7 @@ export {
   tokenApi,
   queueApi,
   domainApi,
+  spamSettingsApi,
+  spamRulesApi,
+  adminInboundApi,
 } from './settings'

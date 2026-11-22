@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import {
   Download,
   Eye,
@@ -10,22 +11,28 @@ import {
   FileText,
   Loader2,
   Paperclip,
+  ShieldAlert,
 } from 'lucide-react'
-import { mailApi, type AttachmentPreviewResponse } from '@/api'
+import { mailApi, type AttachmentPreviewResponse, type MailRiskFinding } from '@/api'
 import { formatBytes, type NormalizedAttachmentItem } from '@/lib/format'
+import { cn } from '@/lib/cn'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
 import { CodeBlockView } from './CodeBlockView'
+import { formatRiskFindingTitle } from './inboundAnalysis'
 
 interface AttachmentSectionProps {
   emailId: number
   attachments: NormalizedAttachmentItem[]
+  riskFindings?: MailRiskFinding[]
 }
 
 function getFileIcon(contentType: string, filename: string) {
@@ -69,15 +76,85 @@ function isTextPreviewable(att: NormalizedAttachmentItem): boolean {
   )
 }
 
-export function AttachmentSection({ emailId, attachments }: AttachmentSectionProps) {
+export function AttachmentSection({
+  emailId,
+  attachments,
+  riskFindings = [],
+}: AttachmentSectionProps) {
   const { t } = useTranslation()
   const [previewAtt, setPreviewAtt] = useState<NormalizedAttachmentItem | null>(null)
   const [previewData, setPreviewData] = useState<AttachmentPreviewResponse | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
+  const [confirmDownloadAtt, setConfirmDownloadAtt] = useState<NormalizedAttachmentItem | null>(
+    null,
+  )
+  const [downloadingIndex, setDownloadingIndex] = useState<number | null>(null)
+
+  const attachmentRiskMap = useMemo(() => {
+    const map = new Map<number, MailRiskFinding[]>()
+    for (const f of riskFindings) {
+      if (f.location === 'attachment' && typeof f.attachment_index === 'number') {
+        const list = map.get(f.attachment_index) ?? []
+        list.push(f)
+        map.set(f.attachment_index, list)
+      }
+    }
+    return map
+  }, [riskFindings])
 
   const visibleAttachments = attachments.filter((a) => !a.inline)
   if (visibleAttachments.length === 0) return null
+
+  const triggerBlobDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  const executeDownload = async (att: NormalizedAttachmentItem, confirmRisk: boolean) => {
+    setDownloadingIndex(att.index)
+    try {
+      const url = mailApi.attachmentDownloadUrl(emailId, att.index, confirmRisk)
+      const res = await fetch(url, { credentials: 'include' })
+      if (res.status === 409) {
+        const payload = (await res.json().catch(() => null)) as {
+          errorMsg?: string
+          data?: { code?: string }
+        } | null
+        if (!confirmRisk && payload?.data?.code === 'risk_confirmation_required') {
+          setConfirmDownloadAtt(att)
+          return
+        }
+        toast.error(payload?.errorMsg || t('mail.risk.confirmDownloadRequired'))
+        return
+      }
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as { errorMsg?: string } | null
+        toast.error(payload?.errorMsg || t('common.unknownError'))
+        return
+      }
+      const blob = await res.blob()
+      triggerBlobDownload(blob, att.filename)
+    } catch {
+      toast.error(t('common.networkError'))
+    } finally {
+      setDownloadingIndex(null)
+    }
+  }
+
+  const handleDownloadClick = (att: NormalizedAttachmentItem, isHighRisk: boolean) => {
+    if (isHighRisk) {
+      setConfirmDownloadAtt(att)
+      return
+    }
+    void executeDownload(att, false)
+  }
 
   const openPreview = async (att: NormalizedAttachmentItem) => {
     setPreviewAtt(att)
@@ -109,22 +186,46 @@ export function AttachmentSection({ emailId, attachments }: AttachmentSectionPro
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {visibleAttachments.map((att) => {
           const Icon = getFileIcon(att.contentType, att.filename)
-          const downloadUrl = mailApi.attachmentDownloadUrl(emailId, att.index)
-          const canPreview = isImageFile(att) || isTextPreviewable(att)
+          const attFindings = attachmentRiskMap.get(att.index) ?? []
+          const isHighRisk = attFindings.length > 0
+          const canPreview = !isHighRisk && (isImageFile(att) || isTextPreviewable(att))
+          const isDownloading = downloadingIndex === att.index
 
           return (
             <div
               key={`${att.index}-${att.filename}`}
-              className="group flex items-center gap-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--surface-subtle)]/60 px-3 py-2.5 transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]"
+              className={cn(
+                'group flex items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2.5 transition-colors',
+                isHighRisk
+                  ? 'border-[var(--danger)]/40 bg-[var(--danger-soft)]/50 hover:border-[var(--danger)]/60'
+                  : 'border-[var(--border-subtle)] bg-[var(--surface-subtle)]/60 hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]',
+              )}
             >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--surface-canvas)] text-[var(--accent)] shadow-[var(--shadow-xs)]">
-                <Icon className="h-4 w-4" />
+              <div
+                className={cn(
+                  'relative flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] shadow-[var(--shadow-xs)]',
+                  isHighRisk
+                    ? 'bg-[var(--danger-soft)] text-[var(--danger)]'
+                    : 'bg-[var(--surface-canvas)] text-[var(--accent)]',
+                )}
+              >
+                {isHighRisk ? <ShieldAlert className="h-4.5 w-4.5" /> : <Icon className="h-4 w-4" />}
               </div>
 
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-medium text-[var(--ink-primary)]" title={att.filename}>
-                  {att.filename}
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <p
+                    className="truncate text-[13px] font-medium text-[var(--ink-primary)]"
+                    title={att.filename}
+                  >
+                    {att.filename}
+                  </p>
+                  {isHighRisk && (
+                    <Badge variant="danger" className="shrink-0">
+                      {t('mail.risk.dangerousAttachmentBadge')}
+                    </Badge>
+                  )}
+                </div>
                 <p className="truncate text-[11.5px] text-[var(--ink-muted)]">
                   {att.size ? `${formatBytes(att.size)} · ` : ''}
                   {att.contentType || 'application/octet-stream'}
@@ -145,21 +246,81 @@ export function AttachmentSection({ emailId, attachments }: AttachmentSectionPro
                   </Button>
                 )}
                 <Button
-                  asChild
-                  variant="ghost"
+                  type="button"
+                  variant={isHighRisk ? 'dangerGhost' : 'ghost'}
                   size="iconSm"
+                  disabled={isDownloading}
+                  onClick={() => handleDownloadClick(att, isHighRisk)}
                   aria-label={t('mail.attachments.download')}
-                  title={t('mail.attachments.download')}
+                  title={
+                    isHighRisk
+                      ? t('mail.risk.previewDisabledHint')
+                      : t('mail.attachments.download')
+                  }
                 >
-                  <a href={downloadUrl} download={att.filename}>
+                  {isDownloading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
                     <Download className="h-3.5 w-3.5" />
-                  </a>
+                  )}
                 </Button>
               </div>
             </div>
           )
         })}
       </div>
+
+      {/* High-risk attachment download confirmation dialog */}
+      <Dialog
+        open={confirmDownloadAtt !== null}
+        onOpenChange={(open) => !open && setConfirmDownloadAtt(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[var(--danger)]">
+              <ShieldAlert className="h-4.5 w-4.5 shrink-0" />
+              <span>{t('mail.risk.downloadConfirmTitle')}</span>
+            </DialogTitle>
+            <DialogDescription className="pt-1 leading-relaxed">
+              {confirmDownloadAtt
+                ? t('mail.risk.downloadConfirmDesc', { filename: confirmDownloadAtt.filename })
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          {confirmDownloadAtt && (attachmentRiskMap.get(confirmDownloadAtt.index)?.length ?? 0) > 0 && (
+            <ul className="mt-2 space-y-1 rounded-[var(--radius-sm)] border border-[var(--danger)]/30 bg-[var(--danger-soft)]/60 px-3 py-2 text-[12px] text-[var(--danger)]">
+              {(attachmentRiskMap.get(confirmDownloadAtt.index) ?? []).map((f, idx) => (
+                <li key={idx}>• {formatRiskFindingTitle(f, t)}</li>
+              ))}
+            </ul>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmDownloadAtt(null)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              onClick={() => {
+                const target = confirmDownloadAtt
+                setConfirmDownloadAtt(null)
+                if (target) {
+                  void executeDownload(target, true)
+                }
+              }}
+            >
+              <Download className="h-3.5 w-3.5" />
+              {t('mail.risk.downloadConfirmAction')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Attachment preview modal */}
       <Dialog open={previewAtt !== null} onOpenChange={(open) => !open && setPreviewAtt(null)}>

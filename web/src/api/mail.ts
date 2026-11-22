@@ -36,6 +36,12 @@ export const mailApi = {
       ...(groupName ? { group_name: groupName } : {}),
     }),
 
+  markSpam: (ids: number | number[], isSpam: boolean) =>
+    apiPost<string>('/api/email/spam', {
+      ids: toIds(ids),
+      is_spam: isSpam,
+    }),
+
   send: (payload: SendEmailRequest) =>
     apiPost<SendEmailResponse>('/api/email/send', payload),
 
@@ -54,8 +60,8 @@ export const mailApi = {
     }),
 
   /** OpenAPI attachment routes: /api/attachments/download/{emailId}.{index} */
-  attachmentDownloadUrl: (emailId: number, index: number) =>
-    `/api/attachments/download/${emailId}.${index}`,
+  attachmentDownloadUrl: (emailId: number, index: number, confirmRisk = false) =>
+    `/api/attachments/download/${emailId}.${index}${confirmRisk ? '?confirm_risk=1' : ''}`,
 
   /** OpenAPI inline attachment route: /api/attachments/{emailId}.{index} */
   attachmentInlineUrl: (emailId: number, index: number) =>

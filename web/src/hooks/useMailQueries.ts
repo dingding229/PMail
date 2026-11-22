@@ -38,11 +38,14 @@ export const queryKeys = {
   externalAccounts: ['settings', 'external'] as const,
   externalPresets: ['settings', 'external', 'presets'] as const,
   tokens: ['settings', 'tokens'] as const,
+  spamSettings: ['settings', 'spam'] as const,
+  spamRules: ['settings', 'spam', 'rules'] as const,
   queue: ['queue', 'list'] as const,
   usersRoot: ['admin', 'users'] as const,
   users: (page: number, pageSize: number) => ['admin', 'users', page, pageSize] as const,
   userAddresses: (userId: number) => ['admin', 'addresses', userId] as const,
   domains: ['admin', 'domains'] as const,
+  adminInbound: ['admin', 'inbound'] as const,
   domainDns: (id: number) => ['admin', 'domains', 'dns', id] as const,
 }
 
@@ -417,6 +420,37 @@ export function useMoveEmailsMutation() {
           },
         },
       })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+    },
+  })
+}
+
+export function useMarkSpamMutation() {
+  const queryClient = useQueryClient()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: async ({ ids, isSpam }: { ids: number[]; isSpam: boolean }) =>
+      mailApi.markSpam(ids, isSpam),
+    onMutate: async ({ ids }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.emailListsRoot })
+      const idSet = new Set(ids)
+      const snapshots = updateEmailListsInCache(queryClient, (list) =>
+        list.filter((item) => !idSet.has(item.id)),
+      )
+      return { snapshots }
+    },
+    onError: (err, _vars, ctx) => {
+      if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots)
+      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+    },
+    onSuccess: (_res, vars) => {
+      toast.success(
+        vars.isSpam
+          ? t('mail.toast.markedSpam', { count: vars.ids.length })
+          : t('mail.toast.markedNotSpam', { count: vars.ids.length }),
+      )
       void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
       void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
     },

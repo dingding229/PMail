@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import {
   AlertTriangle,
   ArrowLeft,
+  Check,
   ChevronDown,
   ChevronUp,
+  Copy,
   FolderInput,
   Forward,
   Image as ImageIcon,
   Inbox,
+  KeyRound,
   Mail,
   MailOpen,
   MoreHorizontal,
@@ -16,6 +20,8 @@ import {
   Reply,
   ReplyAll,
   ShieldAlert,
+  ShieldBan,
+  ShieldCheck,
   Star,
   Trash2,
 } from 'lucide-react'
@@ -50,6 +56,7 @@ import {
   formatDmarcPolicyLabel,
   getAuthBadgeVariant,
 } from './authResults'
+import { formatRiskFindingTitle, formatSpamReason } from './inboundAnalysis'
 import type { FolderSelection } from './types'
 
 interface ReadingPaneProps {
@@ -69,6 +76,7 @@ interface ReadingPaneProps {
   onToggleRead: (id: number, nextRead: boolean) => void
   onDelete: (id: number, forced: boolean) => void
   onMove: (id: number, groupId: number, label: string) => void
+  onMarkSpam: (id: number, isSpam: boolean) => void
 }
 
 export function ReadingPane({
@@ -88,6 +96,7 @@ export function ReadingPane({
   onToggleRead,
   onDelete,
   onMove,
+  onMarkSpam,
 }: ReadingPaneProps) {
   const { t, i18n } = useTranslation()
   const { data: email, isLoading, isError, error, refetch } = useEmailDetailQuery(emailId)
@@ -95,13 +104,55 @@ export function ReadingPane({
   const [detailsExpanded, setDetailsExpanded] = useState(false)
   const [hasExternalImages, setHasExternalImages] = useState(false)
   const [externalImagesAllowed, setExternalImagesAllowed] = useState(false)
+  const [codeCopied, setCodeCopied] = useState(false)
+  const [expandedRiskExcerpts, setExpandedRiskExcerpts] = useState<Set<number>>(new Set())
 
   // Reset per-message ephemeral states when switching messages
   useEffect(() => {
     setDetailsExpanded(false)
     setHasExternalImages(false)
     setExternalImagesAllowed(false)
+    setCodeCopied(false)
+    setExpandedRiskExcerpts(new Set())
   }, [emailId])
+
+  const copyVerificationCode = useCallback(
+    async (code: string) => {
+      try {
+        await navigator.clipboard.writeText(code)
+        setCodeCopied(true)
+        toast.success(t('mail.verificationCode.copiedWithCode', { code }))
+        window.setTimeout(() => setCodeCopied(false), 1800)
+      } catch {
+        toast.error(t('common.copyFailed'))
+      }
+    },
+    [t],
+  )
+
+  // Shift+C shortcut in detail view to copy verification code
+  useEffect(() => {
+    const code = email?.verification_code?.code
+    if (!code) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (!e.shiftKey || e.key.toLowerCase() !== 'c') return
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      e.preventDefault()
+      void copyVerificationCode(code)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [email?.verification_code?.code, copyVerificationCode])
 
   const handleDetectExternal = useCallback((detected: boolean) => {
     setHasExternalImages(detected)
@@ -129,6 +180,7 @@ export function ReadingPane({
   )
 
   const isInTrash = folder.kind === 'system' && folder.key === 'trash'
+  const isInJunk = folder.kind === 'system' && folder.key === 'junk'
   const isDraftOrSentFolder =
     folder.kind === 'system' && (folder.key === 'drafts' || folder.key === 'sent')
   const isDangerous = (() => {
@@ -420,6 +472,26 @@ export function ReadingPane({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
+                variant="ghost"
+                size="iconSm"
+                onClick={() => onMarkSpam(email.id, !isInJunk)}
+                aria-label={isInJunk ? t('mail.actions.notSpam') : t('mail.actions.markSpam')}
+              >
+                {isInJunk ? (
+                  <ShieldCheck className="h-4 w-4 text-[var(--success)]" />
+                ) : (
+                  <ShieldBan className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isInJunk ? t('mail.actions.notSpam') : t('mail.actions.markSpam')}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
                 variant="dangerGhost"
                 size="iconSm"
                 onClick={() => onDelete(email.id, isInTrash)}
@@ -469,6 +541,169 @@ export function ReadingPane({
           <h1 className="text-[20px] font-semibold leading-snug tracking-tight text-[var(--ink-primary)] sm:text-[22px]">
             {email.subject || t('mail.noSubject')}
           </h1>
+
+          {/* Verification Code Bar */}
+          {email.verification_code?.code && (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--accent)]/30 bg-[var(--accent-soft)]/70 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-3 min-w-0">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--accent)]/15 text-[var(--accent)]">
+                  <KeyRound className="h-4.5 w-4.5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[12px] font-medium text-[var(--ink-secondary)]">
+                      {email.verification_code.confidence < 0.6
+                        ? t('mail.verificationCode.possibleLabel')
+                        : t('mail.verificationCode.label')}
+                    </span>
+                    <span className="hidden text-[11px] text-[var(--ink-muted)] sm:inline">
+                      · {t('mail.verificationCode.shortcutHint')}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 font-mono text-[22px] font-bold leading-tight tracking-[0.2em] text-[var(--ink-primary)] select-all">
+                    {email.verification_code.code}
+                  </p>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={() => void copyVerificationCode(email.verification_code!.code)}
+                aria-label={t('mail.verificationCode.copyAria', {
+                  code: email.verification_code.code,
+                })}
+              >
+                {codeCopied ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+                {codeCopied
+                  ? t('mail.verificationCode.copied')
+                  : t('mail.verificationCode.copy')}
+              </Button>
+            </div>
+          )}
+
+          {/* Code / Attachment Risk Banner */}
+          {email.risk && (email.risk.level === 'high' || email.risk.level === 'medium') && (
+            <div
+              className={cn(
+                'mt-4 rounded-[var(--radius-md)] border px-3.5 py-3 text-[13px]',
+                email.risk.level === 'high'
+                  ? 'border-[var(--danger)]/35 bg-[var(--danger-soft)] text-[var(--danger)]'
+                  : 'border-[var(--warning)]/35 bg-[var(--warning-soft)] text-[var(--warning)]',
+              )}
+            >
+              <div className="flex items-start gap-2.5">
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div>
+                    <p className="font-semibold">
+                      {email.risk.level === 'high'
+                        ? t('mail.risk.highTitle')
+                        : t('mail.risk.mediumTitle')}
+                    </p>
+                    <p className="mt-0.5 text-[12.5px] opacity-90">
+                      {email.risk.level === 'high'
+                        ? t('mail.risk.highDesc')
+                        : t('mail.risk.mediumDesc')}
+                    </p>
+                  </div>
+
+                  {email.risk.findings.length > 0 && (
+                    <ul className="space-y-1.5 border-t border-current/15 pt-2">
+                      {email.risk.findings.map((finding, idx) => {
+                        const isExcerptOpen = expandedRiskExcerpts.has(idx)
+                        return (
+                          <li key={idx} className="space-y-1 text-[12.5px]">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <Badge
+                                variant={
+                                  finding.severity === 'high'
+                                    ? 'danger'
+                                    : finding.severity === 'medium'
+                                      ? 'warning'
+                                      : 'default'
+                                }
+                              >
+                                {t(`mail.risk.severity.${finding.severity}`)}
+                              </Badge>
+                              <span className="font-medium text-[var(--ink-primary)]">
+                                {formatRiskFindingTitle(finding, t)}
+                              </span>
+                              <span className="text-[11.5px] opacity-80">
+                                {finding.location === 'attachment' &&
+                                typeof finding.attachment_index === 'number'
+                                  ? t('mail.risk.locationAttachment', {
+                                      index: finding.attachment_index + 1,
+                                    })
+                                  : t('mail.risk.locationBody')}
+                                {typeof finding.line === 'number'
+                                  ? ` · ${t('mail.risk.lineLabel', { line: finding.line })}`
+                                  : ''}
+                              </span>
+                              {finding.excerpt && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedRiskExcerpts((prev) => {
+                                      const next = new Set(prev)
+                                      if (next.has(idx)) next.delete(idx)
+                                      else next.add(idx)
+                                      return next
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11.5px] font-medium underline underline-offset-2 hover:bg-black/5 dark:hover:bg-white/10"
+                                >
+                                  {isExcerptOpen
+                                    ? t('mail.risk.hideExcerpt')
+                                    : t('mail.risk.showExcerpt')}
+                                </button>
+                              )}
+                            </div>
+                            {finding.excerpt && isExcerptOpen && (
+                              <pre className="mail-scroll overflow-x-auto rounded-[var(--radius-sm)] border border-current/20 bg-[var(--surface-canvas)] px-2.5 py-1.5 font-mono text-[11.5px] text-[var(--ink-primary)] whitespace-pre-wrap break-all">
+                                {finding.excerpt}
+                              </pre>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Spam Assessment Banner (shown in Junk folder or when classified as spam) */}
+          {(isInJunk || email.spam?.verdict === 'spam') && email.spam && (
+            <div className="mt-4 flex items-start gap-2.5 rounded-[var(--radius-md)] border border-[var(--warning)]/35 bg-[var(--warning-soft)] px-3.5 py-2.5 text-[12.5px] text-[var(--warning)]">
+              <ShieldBan className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold">{t('mail.spam.bannerTitle')}</span>
+                  <Badge variant="warning" className="font-mono">
+                    {t('mail.spam.scoreLabel', { score: email.spam.score })}
+                  </Badge>
+                </div>
+                {email.spam.reasons.length > 0 && (
+                  <ul className="space-y-0.5 text-[12px] text-[var(--ink-primary)]">
+                    {email.spam.reasons.map((reason, idx) => (
+                      <li key={idx} className="flex flex-wrap items-center gap-1.5">
+                        <span>• {formatSpamReason(reason, t)}</span>
+                        <span className="font-mono text-[11px] text-[var(--ink-muted)]">
+                          ({reason.weight >= 0 ? `+${reason.weight}` : reason.weight})
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* SPF/DKIM security warning */}
           {isDangerous && (
@@ -727,12 +962,17 @@ export function ReadingPane({
                 text={email.text || t('mail.noSnippet')}
                 textFormat={email.text_format}
                 hasCode={email.has_code}
+                riskFindings={email.risk?.findings}
               />
             )}
           </div>
 
           {/* Attachments */}
-          <AttachmentSection emailId={email.id} attachments={normalizedAttachments} />
+          <AttachmentSection
+            emailId={email.id}
+            attachments={normalizedAttachments}
+            riskFindings={email.risk?.findings}
+          />
 
           {/* Quick Reply Actions Footer */}
           <div className="mt-7 flex flex-wrap items-center gap-2 border-t border-[var(--border-hairline)] pt-5 pb-6">

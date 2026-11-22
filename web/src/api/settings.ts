@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './client'
+import { apiDelete, apiGet, apiPost, apiPut } from './client'
 import type {
   ApiTokenItem,
   DomainDnsResponse,
@@ -9,10 +9,14 @@ import type {
   ExternalTestResult,
   ForwardSettingsRequest,
   ForwardSettingsView,
+  InboundSettings,
   MailDomain,
   MailRule,
   QueueItem,
   RuleRequest,
+  SpamRule,
+  SpamRuleInput,
+  SpamSettings,
   TokenCreatedResponse,
 } from './types'
 
@@ -67,4 +71,20 @@ export const domainApi = {
   dns: (id: number, refresh = false) =>
     apiPost<DomainDnsResponse>('/api/domain/dns', { id, refresh }),
   zoneDownloadUrl: (id: number) => `/api/domain/dns/zone?id=${id}`,
+}
+
+export const spamSettingsApi = {
+  get: () => apiGet<SpamSettings>('/api/settings/spam'),
+  update: (payload: SpamSettings) => apiPut<SpamSettings>('/api/settings/spam', payload),
+}
+
+export const spamRulesApi = {
+  list: async () => (await apiGet<SpamRule[] | null>('/api/spam/rules')) ?? [],
+  create: (payload: SpamRuleInput) => apiPost<SpamRule>('/api/spam/rules', payload),
+  remove: (id: number) => apiDelete<string>('/api/spam/rules', { id }),
+}
+
+export const adminInboundApi = {
+  get: () => apiGet<InboundSettings>('/api/admin/inbound'),
+  update: (payload: InboundSettings) => apiPut<InboundSettings>('/api/admin/inbound', payload),
 }

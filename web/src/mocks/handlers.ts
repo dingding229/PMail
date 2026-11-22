@@ -8,10 +8,14 @@ import {
   type ExternalAccount,
   type ExternalPreset,
   type GroupOption,
+  type InboundSettings,
   type MailboxAddress,
   type MailDomain,
   type MailRule,
   type QueueItem,
+  type SpamRule,
+  type SpamRuleInput,
+  type SpamSettings,
   type UserProfile,
 } from '@/api'
 import {
@@ -26,6 +30,30 @@ import {
 } from './seed'
 
 const VALID_REGISTER_KEY = 'ABCD-EFGH-JKLM-NPQR'
+
+/* ==================== Inbound Analysis (Spam / Risk / Admin Inbound) ==================== */
+let mockSpamSettings: SpamSettings = {
+  enabled: true,
+  threshold: 6,
+  bayes_enabled: true,
+}
+
+let nextSpamRuleId = 60
+let mockSpamRules: SpamRule[] = [
+  { id: 51, action: 'allow', kind: 'domain', value: 'acme-cloud.cn' },
+  { id: 52, action: 'allow', kind: 'address', value: 'notifications@github.com' },
+  { id: 53, action: 'block', kind: 'domain', value: 'promo-blast.example' },
+  { id: 54, action: 'block', kind: 'keyword', value: '限时百倍返利' },
+]
+
+let mockInboundSettings: InboundSettings = {
+  dnsbl_enabled: true,
+  dnsbl_zones: ['zen.spamhaus.org', 'bl.spamcop.net'],
+  default_spam_threshold: 6,
+  clamd_enabled: false,
+  clamd_addr: 'tcp://clamav:3310',
+  risk_block_dangerous_attachments: true,
+}
 
 function resolveInitialMockMode(): { needRegister: boolean; loggedIn: boolean } {
   if (typeof window !== 'undefined') {
@@ -669,6 +697,13 @@ function toListItem(rec: MockEmailRecord) {
     })),
     dangerous: rec.dangerous,
     auth_status: resolveMockAuthStatus(rec),
+    spam: rec.spam
+      ? { verdict: rec.spam.verdict }
+      : rec.status === 5
+        ? { verdict: 'spam' as const }
+        : null,
+    risk: rec.risk ? { level: rec.risk.level } : { level: 'none' as const },
+    verification_code: rec.verification_code ? { code: rec.verification_code.code } : null,
     type: rec.type,
     status: rec.status,
     error: rec.error,
@@ -1601,10 +1636,129 @@ export const handlers = [
     })
   }),
 
-  http.get('/api/attachments/download/:id', async ({ params }) => {
+  /* ==================== Inbound Analysis (C7c / C8 Contract) ==================== */
+  http.post('/api/email/spam', async ({ request }) => {
+    await delay(90)
+    const body = (await request.json()) as { ids?: number[]; is_spam?: boolean }
+    const ids = body.ids ?? []
+    const isSpam = Boolean(body.is_spam)
+    for (const id of ids) {
+      const rec = getOrCreateRecord(id)
+      if (rec) {
+        rec.status = isSpam ? 5 : 0
+        rec.group_id = 0
+        rec.spam = isSpam
+          ? {
+              score: 9.5,
+              verdict: 'spam',
+              reasons: [{ code: 'bayes_spam', weight: 9.5 }],
+            }
+          : {
+              score: 0,
+              verdict: 'ham',
+              reasons: [],
+            }
+      }
+    }
+    return ok('')
+  }),
+
+  http.get('/api/settings/spam', async () => {
+    await delay(40)
+    return ok(mockSpamSettings)
+  }),
+
+  http.put('/api/settings/spam', async ({ request }) => {
+    await delay(80)
+    const body = (await request.json()) as SpamSettings
+    mockSpamSettings = {
+      enabled: Boolean(body.enabled),
+      threshold: Math.max(1, Math.min(20, Number(body.threshold) || 6)),
+      bayes_enabled: Boolean(body.bayes_enabled),
+    }
+    return ok(mockSpamSettings)
+  }),
+
+  http.get('/api/spam/rules', async () => {
+    await delay(40)
+    return ok(mockSpamRules)
+  }),
+
+  http.post('/api/spam/rules', async ({ request }) => {
+    await delay(80)
+    const body = (await request.json()) as SpamRuleInput
+    const value = (body.value || '').trim()
+    if (!value) {
+      return fail('匹配值不能为空', 100, 400)
+    }
+    if (mockSpamRules.length >= 500) {
+      return fail('黑白名单最多可添加 500 条规则', 100, 409, { code: 'spam_rule_limit' })
+    }
+    const exists = mockSpamRules.some(
+      (r) =>
+        r.action === body.action &&
+        r.kind === body.kind &&
+        r.value.toLowerCase() === value.toLowerCase(),
+    )
+    if (exists) {
+      return fail('此规则已存在', 100, 409, { code: 'spam_rule_conflict' })
+    }
+    const created: SpamRule = {
+      id: nextSpamRuleId++,
+      action: body.action,
+      kind: body.kind,
+      value,
+    }
+    mockSpamRules = [created, ...mockSpamRules]
+    return ok(created)
+  }),
+
+  http.delete('/api/spam/rules', async ({ request }) => {
+    await delay(60)
+    const body = (await request.json()) as { id?: number }
+    mockSpamRules = mockSpamRules.filter((r) => r.id !== body.id)
+    return ok('')
+  }),
+
+  http.get('/api/admin/inbound', async () => {
+    await delay(40)
+    return ok(mockInboundSettings)
+  }),
+
+  http.put('/api/admin/inbound', async ({ request }) => {
+    await delay(80)
+    const body = (await request.json()) as InboundSettings
+    mockInboundSettings = {
+      dnsbl_enabled: Boolean(body.dnsbl_enabled),
+      dnsbl_zones: Array.isArray(body.dnsbl_zones) ? body.dnsbl_zones : [],
+      default_spam_threshold: Math.max(
+        1,
+        Math.min(20, Number(body.default_spam_threshold) || 6),
+      ),
+      clamd_enabled: Boolean(body.clamd_enabled),
+      clamd_addr: String(body.clamd_addr || ''),
+      risk_block_dangerous_attachments: Boolean(body.risk_block_dangerous_attachments),
+    }
+    return ok(mockInboundSettings)
+  }),
+
+  http.get('/api/attachments/download/:id', async ({ params, request }) => {
     const [emailIdStr, indexStr] = String(params.id || '').split('.')
+    const index = Number(indexStr)
     const rec = getOrCreateRecord(Number(emailIdStr))
-    const att = rec?.attachments.find((a) => a.Index === Number(indexStr))
+    const att = rec?.attachments.find((a) => a.Index === index)
+    const url = new URL(request.url)
+    const confirmRisk = url.searchParams.get('confirm_risk') === '1'
+    const isHighRisk = Boolean(
+      rec?.risk?.findings.some(
+        (f) => f.location === 'attachment' && f.attachment_index === index,
+      ),
+    )
+    if (isHighRisk && !confirmRisk) {
+      return fail('请确认高危附件的下载风险', 100, 409, {
+        code: 'risk_confirmation_required',
+      })
+    }
     const content = att?.previewContent || `Mock file: ${att?.Filename || 'attachment.bin'}`
     return new HttpResponse(content, {
       status: 200,

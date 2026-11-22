@@ -255,3 +255,52 @@
 .pt-safe {
   padding-top: var(--safe-top);
 }
+
+/* Sonner toast theme integration (follows .dark class and semantic surface tokens) */
+[data-sonner-toaster] {
+  --normal-bg: var(--surface-elevated);
+  --normal-border: var(--border-subtle);
+  --normal-text: var(--ink-primary);
+  --success-bg: var(--surface-elevated);
+  --success-border: color-mix(in srgb, var(--success) 35%, var(--border-subtle));
+  --success-text: var(--success);
+  --warning-bg: var(--surface-elevated);
+  --warning-border: color-mix(in srgb, var(--warning) 35%, var(--border-subtle));
+  --warning-text: var(--warning);
+  --error-bg: var(--surface-elevated);
+  --error-border: color-mix(in srgb, var(--danger) 35%, var(--border-subtle));
+  --error-text: var(--danger);
+  --info-bg: var(--surface-elevated);
+  --info-border: color-mix(in srgb, var(--accent) 35%, var(--border-subtle));
+  --info-text: var(--accent-ink);
+}
+
+.dark [data-sonner-toaster] [data-sonner-toast] {
+  background: var(--surface-elevated) !important;
+  color: var(--ink-primary) !important;
+  border-color: var(--border-subtle) !important;
+}
+
+.dark [data-sonner-toaster] [data-sonner-toast][data-type='error'] {
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface-elevated)) !important;
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border-subtle)) !important;
+  color: #fca5a5 !important;
+}
+
+.dark [data-sonner-toaster] [data-sonner-toast][data-type='success'] {
+  background: color-mix(in srgb, var(--success) 14%, var(--surface-elevated)) !important;
+  border-color: color-mix(in srgb, var(--success) 40%, var(--border-subtle)) !important;
+  color: #86efac !important;
+}
+
+.dark [data-sonner-toaster] [data-sonner-toast][data-type='warning'] {
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface-elevated)) !important;
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border-subtle)) !important;
+  color: #fcd34d !important;
+}
+
+.dark [data-sonner-toaster] [data-close-button] {
+  background: var(--surface-subtle) !important;
+  border-color: var(--border-subtle) !important;
+  color: var(--ink-secondary) !important;
+}

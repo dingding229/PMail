@@ -10,6 +10,8 @@ import {
   Menu,
   RefreshCw,
   Search,
+  ShieldBan,
+  ShieldCheck,
   Star,
   Trash2,
   X,
@@ -66,6 +68,7 @@ interface EmailListPaneProps {
   onBulkStar: (ids: number[]) => void
   onBulkDelete: (ids: number[], forced: boolean) => void
   onBulkMove: (ids: number[], groupId: number, label: string) => void
+  onBulkMarkSpam: (ids: number[], isSpam: boolean) => void
   onPrefetchEmail: (id: number) => void
   onCancelPrefetch: () => void
   onResumeDraft: (draft: LocalDraft) => void
@@ -106,6 +109,7 @@ export function EmailListPane({
   onBulkStar,
   onBulkDelete,
   onBulkMove,
+  onBulkMarkSpam,
   onPrefetchEmail,
   onCancelPrefetch,
   onResumeDraft,
@@ -120,6 +124,7 @@ export function EmailListPane({
   const isDraftOrSentFolder =
     folder.kind === 'system' && (folder.key === 'drafts' || folder.key === 'sent')
   const isInTrash = folder.kind === 'system' && folder.key === 'trash'
+  const isInJunk = folder.kind === 'system' && folder.key === 'junk'
   const selectionMode = checkedIds.size > 0
   const selectedIdsArray = Array.from(checkedIds)
 
@@ -330,6 +335,19 @@ export function EmailListPane({
                       ))}
                   </DropdownMenuContent>
                 </DropdownMenu>
+                <Button
+                  variant="ghost"
+                  size="iconSm"
+                  onClick={() => onBulkMarkSpam(selectedIdsArray, !isInJunk)}
+                  aria-label={isInJunk ? t('mail.actions.notSpam') : t('mail.actions.markSpam')}
+                  title={isInJunk ? t('mail.actions.notSpam') : t('mail.actions.markSpam')}
+                >
+                  {isInJunk ? (
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                  ) : (
+                    <ShieldBan className="h-3.5 w-3.5" />
+                  )}
+                </Button>
                 <Button
                   variant="dangerGhost"
                   size="iconSm"
