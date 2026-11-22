@@ -167,8 +167,18 @@ check_project_safety() {
 }
 
 compose() {
-    # Compose loads COMPOSE_FILE from this env file for every command.
-    docker compose --project-directory "$root_dir" --env-file "$env_file" -p "$project_name" "$@"
+    local -a cmd=(docker compose --project-directory "$root_dir" --env-file "$env_file" -p "$project_name")
+    if [[ "${1:-}" == build ]]; then
+        # The base file is pull-only. Include the source overlay only for builds,
+        # retaining any file list and path separator configured for this project.
+        local compose_env files separator
+        compose_env="$("${cmd[@]}" config --environment)" || return
+        files="$(compose_env_value COMPOSE_FILE docker-compose.yml <<< "$compose_env")"
+        separator="$(compose_env_value COMPOSE_PATH_SEPARATOR : <<< "$compose_env")"
+        COMPOSE_FILE="${files}${separator}docker-compose.build.yml" "${cmd[@]}" "$@"
+    else
+        "${cmd[@]}" "$@"
+    fi
 }
 
 valid_ipv4() {

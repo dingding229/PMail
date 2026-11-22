@@ -1,0 +1,6 @@
+# 仅供有源码的部署或开发环境显式加载。
+services:
+  pmail:
+    image: ${PMAIL_IMAGE:-pmail-${PMAIL_PROJECT_NAME:-pmail}:local}
+    build:
+      context: .

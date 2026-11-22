@@ -1,151 +1,126 @@
 # PMail Pro
 
-PMail Pro is an enhanced fork of [PMail](https://github.com/Jinnrry/PMail). PMail is a self-hosted mail platform with PostgreSQL as its default database, multi-domain mailboxes, aliases, queue-backed outbound delivery, automatic/rule/manual forwarding, external IMAP/POP3 collection, API tokens, and a responsive Vue 3 web UI.
+PMail Pro 是 [Jinnrry/PMail](https://github.com/Jinnrry/PMail) 的增强分支，是一套可自托管的邮件服务。发布镜像位于 Docker Hub：`dingding229/pmail-pro`。
 
-![Desktop UI placeholder](docs/images/desktop.png)
-![Mobile UI placeholder](docs/images/mobile.png)
+## 功能
 
-## Installation guide
+- PostgreSQL 17 持久化存储；支持多域名、主地址、别名、发件权限与用户配额。
+- 支持 SMTP、IMAP 和 POP3；外发进入队列，支持重试、退信和本地投递。
+- 支持自动转发、多目标规则、手动转发、SRS 发件人改写与防循环。
+- 支持收取外部 IMAP/POP3 邮件、去重及加密保存凭据。
+- 管理页面支持 DNS 记录核对、API Token 管理和中英文切换；界面适配电脑、平板和手机。
 
-This guide installs PMail Pro on a fresh Linux server using a prebuilt Docker Hub image. Both options use `dingding229/pmail-pro:3.0.0-beta.3`, which contains the external-proxy certificate fix; do not use the older beta.1/beta.2 images. Replace the example names `example.com`, `mail.example.com`, their `smtp`/`imap`/`pop` hostnames, and `203.0.113.10` with your own domain names and public IP. Replace an entire `<...>` placeholder, including the angle brackets. Run the deployment steps in the same Bash terminal and deployment directory.
+## 安装：Docker Compose
 
-### 1. Prerequisites
+### 1. 准备服务器
 
-- 64-bit Linux (`amd64` or `arm64`) and a usable public IP. For a small installation, start with at least **2 GB RAM and 20 GB free disk** and allow room for mail and backups. These are recommendations, not script requirements.
-- Run the deployment commands as an account that can access the Docker daemon. If `docker version` reports a permission error, you can open an administrator shell with `sudo -i` and continue from step 2. Install **Docker Engine and Compose v2**. For production, prefer the package repository and Compose plugin in the [official Docker installation guide](https://docs.docker.com/engine/install/). On a fresh Ubuntu/Debian server, install the following host tools. `jq` and `python3` are optional; they format the `dns` output.
-
-```bash
-sudo apt-get update && sudo apt-get install -y ca-certificates curl git dnsutils netcat-openbsd iproute2 openssl
-```
-
-If you opt for the [official Docker convenience script](https://docs.docker.com/engine/install/ubuntu/#install-using-the-convenience-script), review it before running it. Docker does not recommend this method for production installations or upgrades of an existing Engine.
+准备一台 `amd64` 或 `arm64` 的 Linux 服务器、可用公网 IP 和能修改 DNS 的域名。小型部署建议至少 2 GB 内存、20 GB 可用磁盘。按 [Docker 官方安装指南](https://docs.docker.com/engine/install/) 安装 Docker Engine 与 Compose v2，然后用有权限访问 Docker 的账号执行以下操作。在 Ubuntu/Debian 上，可这样安装本教程所需的工具：
 
 ```bash
-curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+sudo apt-get update && sudo apt-get install -y ca-certificates curl openssl dnsutils iproute2 netcat-openbsd
 ```
 
-After reviewing the downloaded script, run the installer:
+本文使用 `example.com`（邮件域名）、`mail.example.com`（网页域名）和 `203.0.113.10`（公网 IP）作为示例。执行前替换为自己的值，`<…>` 也是需要替换的占位符。**启动前先配置 [DNS](#dns-配置) 中的 A 记录**，并确认下表所需端口已放行。
 
-```bash
-sudo sh /tmp/get-docker.sh
-```
-
-```bash
-docker version && docker compose version
-```
-
-Allow the required **TCP** ports in your cloud security group and host firewall. The base Compose file maps all the mail ports below; port mapping is not a firewall. Block unused ports at the public boundary. Do not expose PostgreSQL `5432` publicly.
-
-| Port | Direction | Purpose |
-| --- | --- | --- |
-| `25` | Inbound and outbound | **Inbound is required** to receive mail from other servers; outbound is required for direct delivery to them |
-| `465` / `587` | Inbound, optional | SMTP client submission: implicit TLS / STARTTLS |
-| `993` / `143` | Inbound, optional | IMAP: implicit TLS / STARTTLS |
-| `995` / `110` | Inbound, optional | POP3: prefer `995` (implicit TLS); avoid publicly exposing `110` |
-| `80` / `443` | Inbound | HTTP and ACME validation / HTTPS; PMail uses these ports in option A, NPM in option B |
-
-Many cloud providers block outbound TCP `25` by default. Opening it in your own firewall does not remove the provider's block; ask the provider to lift it, usually through a support ticket. You also need a domain whose DNS you can edit and a public IP for which the IP provider can set PTR. **Publish and check the A records in [step 6](#6-configure-dns) before starting**. Certificate issuance uses the web name and the `smtp`, `imap`, and `pop` names, even if you do not plan to use POP3.
-
-### 2. Get the deployment files
-
-```bash
-git clone --branch feature/v3 --depth 1 https://github.com/dingding229/PMail.git pmail-pro && cd pmail-pro
-```
-
-The shallow clone provides `deploy/`, `docker-compose.yml`, and `.env.example`. You do not need Go, Node.js, or a source build. Do not copy `.env.example` to `.env` first: `init` generates the passwords and keys when it creates `.env`.
-
-### 3. Initialize
-
-Run the following in a directory that does not yet contain `.env`. For option B, first replace the example image tag with one that includes the external-proxy certificate fix:
-
-```bash
-export PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.3
-./deploy/deploy.sh init
-```
-
-The wizard asks these questions in order. Use certificate mode `0` for this guide. In option A, PMail serves public web HTTPS. In option B, an external Nginx Proxy Manager (NPM) terminates web HTTPS. PMail uses HTTP-01 (mode `0`) for the mail certificate.
-
-| Prompt as printed | What to enter |
+| TCP 端口 | 用途 |
 | --- | --- |
-| `主邮件域名 [example.com]:` | Your mail domain: `example.com` in this guide, with addresses such as `admin@example.com`. |
-| `附加域名（逗号分隔，可留空） []:` | Additional comma-separated domains. Press Enter; this guide configures one mail domain. |
-| `Web 域名 [example.com]:` | The website hostname, such as `mail.example.com`. If left blank, it defaults to the mail domain. |
-| `证书模式 0=ACME HTTP-01, 1=自有证书, 2=ACME DNS-01, 3=反代仅 HTTP [3]:` | Enter `0`. Mode `1` requires an existing certificate, `2` requires additional DNS-01 setup, and `3` disables TLS in PMail, including the TLS mail listeners. |
-| `Web 是否由外部反向代理（如 Nginx Proxy Manager）提供？[y/N]` | Enter `y` for option B; the wizard skips the public Web question. Press Enter for option A. |
-| `反代上游的宿主机 IPv4 地址 [172.17.0.1]:` | Shown only in option B. Docker-based NPM can usually use the bridge address; for NPM running on the host, enter `127.0.0.1`. |
-| `是否对公网开放 Web？[y/N]:` | Shown only without an external proxy and without `--web-public`. Enter `y` for option A; otherwise Web binds to `127.0.0.1` by default. |
-| `管理员账号 [admin]:` | Press Enter for `admin`, or choose a different account name. |
+| `25` | 入站必需，用于其他服务器投递邮件；直接向外投递还需放行出站 `25` |
+| `465` / `587` | 按需开放，供 SMTP 客户端提交邮件 |
+| `993` / `143` | 按需开放，供 IMAP 客户端收信 |
+| `995` / `110` | 按需开放，供 POP3 客户端收信；优先用 `995`，不建议公开 `110` |
+| `80` / `443` | A 路线由 PMail 处理 HTTP-01 验证和网页访问；B 路线由 Nginx Proxy Manager（NPM）或你的外部反代使用 |
 
-Alternatively, **choose one of these non-interactive commands** instead of the wizard. Option A (PMail serves HTTPS directly):
+邮件端口默认绑定 `0.0.0.0`；请在云安全组和主机防火墙上限制未使用的端口，不要对公网发布 PostgreSQL `5432`。云服务商如封锁出站 `25`，需向服务商申请解封，改本机防火墙不能代替解封。
 
-```bash
-PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.3 ./deploy/deploy.sh init --yes --domain example.com --web-domain mail.example.com --ssl-type 0 --web-public --admin-account admin
-```
+### 2. 下载部署文件
 
-Option B (recommended, external NPM). Replace `<tag-containing-this-fix>` before running:
+不需要克隆仓库，不需要 Go、Node.js 或源码。新建目录，只下载这两个文件：
 
 ```bash
-PMAIL_IMAGE='dingding229/pmail-pro:<tag-containing-this-fix>' \
-  ./deploy/deploy.sh init --yes --reverse-proxy --domain example.com --web-domain mail.example.com --admin-account admin
-```
-
-`init` writes the image, domains, certificate mode, web bind address, and administrator settings to `.env` with permissions `600`. On a fresh setup, look for `初始化完成。最终项目名：pmail` (project initialized), `管理员账号：admin`, and `管理员密码（仅此处显示）：…` (admin password), followed by DNS guidance. **Save the password shown at this point** and back up `.env` securely. In particular, do not regenerate `PMAIL_SECRET_KEY` (credential encryption/SRS) or `POSTGRES_PASSWORD` for an existing installation (the PostgreSQL volume does not change its password when `.env` changes). The bootstrap password stays in `.env`, but it is not the current password once the account password has been changed. If an existing `.env` already sets an image, rerunning `init` will not replace it with the shell value; check `PMAIL_IMAGE` in `.env`.
-
-### 4. Start and check the services
-
-Confirm the A records in step 6 resolve and that you selected direct public access or an external reverse proxy in step 3. Then run:
-
-```bash
-./deploy/deploy.sh check
-```
-
-On success the script prints `部署前检查通过。` (preflight checks passed). An occupied port or a failed outbound `25` probe may only produce a warning; resolve real port conflicts before proceeding. In proxy mode, the script checks PMail’s mapped host HTTP port (`8080` by default); it does not report NPM’s normal use of public `80/443` as a PMail port conflict. If the configured `172.17.0.1` address does not exist, `check` fails and points to `--web-bind`. `check` checks Docker, Compose configuration, ports, disk, and the required `.env` fields, not public DNS, TLS issuance, or mail delivery.
-
-```bash
-./deploy/deploy.sh up
-```
-
-The image name contains `/`, so the script pulls PMail rather than building it. On success the script prints two status lines with the same `restart_count`, ten seconds apart. `0` is shown here as an example:
-
-```text
-PMail 运行校验：status=running health=healthy restart_count=0
-PMail 稳定性校验：status=running health=healthy restart_count=0
-```
-
-A healthy container does not mean that HTTPS certificates have already been issued or that the mail listeners are ready. Check container status and logs with:
-
-```bash
-./deploy/deploy.sh status
+mkdir pmail-pro && cd pmail-pro
 ```
 
 ```bash
-./deploy/deploy.sh logs
+curl -fsSLO https://raw.githubusercontent.com/dingding229/PMail/master/docker-compose.yml &&
+curl -fsSLO https://raw.githubusercontent.com/dingding229/PMail/master/.env.example &&
+(umask 077; cp .env.example .env)
 ```
 
-`logs` shows the last 200 lines and follows new entries. Press `Ctrl+C` to leave the log viewer without stopping the service.
+### 3. 写入 `.env` 并选择网页访问方式
 
-### 5. Open the website: choose A or B
-
-#### A. Direct public access with HTTPS handled by PMail
-
-If you selected mode `0` and public web access during initialization, the script has already enabled PMail web HTTPS. No `.env` edit is needed. Public TCP `80` must reach PMail for HTTP-01; browsers use `443`. Initially, only web HTTP and SMTP `25` may be available. Wait for issuance and the service reload, then open `https://mail.example.com/`. Do not log in over public, unencrypted HTTP while waiting for the certificate.
-
-#### B. Recommended: Nginx Proxy Manager reverse proxy
-
-Run your own [Nginx Proxy Manager (NPM)](https://nginxproxymanager.com/) on the **same host**, listening on public `80/443`. PMail does not install or manage NPM. By default, `--reverse-proxy` in step 3 publishes PMail’s HTTP port `80` on `172.17.0.1:8080` on the host and sets `PMAIL_SSL_TYPE=0` and `PMAIL_HTTPS_ENABLED=2`. PMail does not listen on its container web HTTPS port `443` in this mode. Host port `8443` is mapped but unused; **do not use it as the NPM upstream or open it to the public**.
-
-If NPM runs directly on the host, add `--web-bind 127.0.0.1` at initialization and use `127.0.0.1` as the upstream below. If NPM runs in Docker and the bridge address differs, look up the host’s bridge IPv4 (omit the mask after `/`), then use `--web-bind <ip>` for an address reachable from the NPM container, not the container’s own IP. If `8080` is taken, pick a free port using `--web-port <port>` and use that same port in NPM.
+镜像默认是 `dingding229/pmail-pro:3.0.0-beta.3`。首次部署需要设置 `PMAIL_DOMAIN`、`PMAIL_WEB_DOMAIN`、`POSTGRES_PASSWORD`、`PMAIL_ADMIN_PASSWORD` 和 `PMAIL_SECRET_KEY`。管理员账号默认是 `admin`，可按需修改。以下命令使用三个不同的随机值，一次写入 `.env`。先替换两处示例域名；**不要在已部署的实例上重新生成这些值**。
 
 ```bash
-ip -4 addr show docker0
+(
+  set -eu
+  chmod 600 .env
+  pg_password=$(openssl rand -hex 24)
+  admin_password=$(openssl rand -hex 24)
+  secret_key=$(openssl rand -hex 32)
+  sed -i \
+    -e 's/^PMAIL_DOMAIN=.*/PMAIL_DOMAIN=example.com/' \
+    -e 's/^PMAIL_WEB_DOMAIN=.*/PMAIL_WEB_DOMAIN=mail.example.com/' \
+    -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$pg_password/" \
+    -e "s/^PMAIL_ADMIN_PASSWORD=.*/PMAIL_ADMIN_PASSWORD=$admin_password/" \
+    -e "s/^PMAIL_SECRET_KEY=.*/PMAIL_SECRET_KEY=$secret_key/" \
+    .env
+)
 ```
 
-`init` does not switch an existing `.env`. Back up an existing deployment before adjusting its settings; do not delete `.env` or the data volumes.
+把 `.env` 作为机密保管并另存备份。已有数据库卷不会随 `.env` 改密码；更换 `PMAIL_SECRET_KEY` 会影响外部邮箱凭据解密和 SRS。多实例使用不同的 `PMAIL_PROJECT_NAME` 和宿主机端口。**接管已有部署时，先核对其原 Compose 项目名**，设置为同名才能继续使用已有命名卷，不要误用新项目名。
 
-1. **Web Proxy Host:** In NPM, create `mail.example.com` under **Hosts → Proxy Hosts**. Set **Scheme** to `http`, **Forward Hostname / IP** to `172.17.0.1`, and **Forward Port** to `8080`. Enable **Websockets Support** and **Block Common Exploits**. In **SSL**, request a **Let's Encrypt** certificate for this web host, and enable **Force SSL** and **HTTP/2 Support**.
-2. **Mail-validation Proxy Hosts:** Create separate hosts for `smtp.example.com`, `imap.example.com`, and `pop.example.com`, all forwarding to `http://172.17.0.1:8080`. **Do not request or select a certificate in NPM for these hosts, and do not enable Force SSL.** Do not restrict access to the validation path. Requests for `/.well-known/acme-challenge/` on public `80` must reach PMail unchanged for issuance and renewal of its mail certificate. Set up the same three DNS records and Proxy Hosts for each additional mail domain. SMTP, IMAP, and POP3 traffic itself still goes directly to PMail’s mail ports, not through these HTTP proxy hosts.
+**A：PMail 直接提供公网 HTTPS。** 公网 `80` 必须到达 PMail，以完成 HTTP-01；公网 `443` 用于浏览器访问。宿主机这两个端口不能已被反向代理占用。
 
-To avoid exposing a plaintext web login on the mail-validation hostnames, you can add the following to **Advanced** on each **mail-validation** Proxy Host to allow only HTTP-01 requests:
+```bash
+sed -i \
+  -e 's/^PMAIL_SSL_TYPE=.*/PMAIL_SSL_TYPE=0/' \
+  -e 's/^PMAIL_HTTPS_ENABLED=.*/PMAIL_HTTPS_ENABLED=0/' \
+  -e 's/^PMAIL_WEB_BIND=.*/PMAIL_WEB_BIND=0.0.0.0/' \
+  -e 's/^PMAIL_HOST_HTTP_PORT=.*/PMAIL_HOST_HTTP_PORT=80/' \
+  -e 's/^PMAIL_HOST_HTTPS_PORT=.*/PMAIL_HOST_HTTPS_PORT=443/' \
+  .env
+```
+
+**B：推荐使用外部 NPM。** 两条路线只选其一。公网 `80/443` 由代理使用，PMail 则通过宿主机 `172.17.0.1:8080` 提供反代上游。若 NPM 直接运行在宿主机，把下方的绑定改为 `127.0.0.1`；若 Docker 网桥不是默认地址，先查看 `ip -4 addr show docker0`，填写 NPM 容器可访问的宿主机地址。
+
+```bash
+sed -i \
+  -e 's/^PMAIL_SSL_TYPE=.*/PMAIL_SSL_TYPE=0/' \
+  -e 's/^PMAIL_HTTPS_ENABLED=.*/PMAIL_HTTPS_ENABLED=2/' \
+  -e 's/^PMAIL_WEB_BIND=.*/PMAIL_WEB_BIND=172.17.0.1/' \
+  -e 's/^PMAIL_HOST_HTTP_PORT=.*/PMAIL_HOST_HTTP_PORT=8080/' \
+  -e 's/^PMAIL_HOST_HTTPS_PORT=.*/PMAIL_HOST_HTTPS_PORT=8443/' \
+  .env
+```
+
+B 路线的 `8443` 仅保留端口映射，**容器内并不监听网页 HTTPS**。不要将 `8443` 配为代理上游，不要向公网开放上游端口。配置代理主机的方法见下一节。
+
+### 4. 拉取、启动并登录
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+```bash
+docker compose ps
+```
+
+```bash
+docker compose logs -f pmail
+```
+
+等待 `postgres` 和 `pmail` 都显示 `healthy`。这个状态不代表公网 DNS、邮件端口或证书已就绪；首次证书签发时先查看日志，待证书就绪后再用浏览器打开 `https://mail.example.com/`，不要在公网 HTTP 上输入密码。使用 `.env` 的 `PMAIL_ADMIN_ACCOUNT`、`PMAIL_ADMIN_PASSWORD` 登录，在「管理 → 域名管理」核对主邮件域名，并在「设置 → 地址与别名」确认实际邮箱地址。网页域名不会自动成为收信域名。按 `Ctrl+C` 退出日志跟踪不会停止服务。
+
+## 反向代理
+
+### 推荐：Nginx Proxy Manager
+
+NPM 由你另外部署，PMail 不启动或管理它。以下示例使用安装步骤的默认上游 `172.17.0.1:8080`；若修改了绑定地址或宿主机 HTTP 端口，所有代理主机都使用相同的新值。
+
+1. **网页主机。** 在 NPM 的「主机 → 代理主机（Proxy Hosts）」创建 `mail.example.com`。协议（Scheme）选 `http`，转发地址填 `172.17.0.1`，转发端口填 `8080`。开启 WebSocket 支持（Websockets Support）和拦截常见攻击（Block Common Exploits）。在 SSL 页为这个主机申请 **Let's Encrypt** 证书，然后开启强制 SSL（Force SSL）和 HTTP/2 支持。
+2. **邮件验证主机。** 为 `smtp.example.com`、`imap.example.com`、`pop.example.com` 各建一个代理主机，使用同一 HTTP 上游。**不要为这三个主机在 NPM 申请或选择证书，不要开启强制 SSL**。让公网 `80` 的 `/.well-known/acme-challenge/` 请求保留原路径转给 PMail。每个附加收信域名也需要这三个主机的 DNS 记录和代理规则。SMTP、IMAP、POP3 本身走各自的邮件端口，不通过 HTTP 代理。
+
+可以在各个**邮件验证主机**的高级设置（Advanced）中加上以下规则，只开放验证路径，避免从这些主机访问明文登录页：
 
 ```nginx
 if ($uri !~ "^/[.]well-known/acme-challenge/[^/]+$") {
@@ -153,186 +128,37 @@ if ($uri !~ "^/[.]well-known/acme-challenge/[^/]+$") {
 }
 ```
 
-Once NPM has issued the web certificate, open `https://mail.example.com/`. The mail certificate is separate. Look for `TLS certificate is ready or replaced; reloading listeners` in the PMail logs. After the reload, if SMTP `465` is open, inspect the certificate actually presented there:
+PMail 日志出现 `TLS certificate is ready or replaced; reloading listeners` 后，等待邮件监听器重载。如果开放了 SMTP `465`，可核对证书链和主机名：
 
 ```bash
-openssl s_client -connect smtp.example.com:465 -servername smtp.example.com -showcerts </dev/null
+openssl s_client -connect smtp.example.com:465 -servername smtp.example.com \
+  -verify_hostname smtp.example.com -verify_return_error -showcerts </dev/null
 ```
 
-For plain Nginx instead of NPM, see the [Nginx reverse proxy example](#nginx-reverse-proxy-example).
+### 普通 Nginx 示例
 
-**First login, for either option:** use the administrator account and password printed by `init`. In **Admin → Domain management**, confirm that `example.com` is the primary mail domain. To confirm the actual mailbox address, check **Settings → Addresses and aliases**. Using `mail.example.com` for the website does not automatically make it a second mail domain.
-
-### 6. Configure DNS
-
-Add the following at your DNS provider. Publish the A records before step 4, then add the generated DKIM value after startup. Hostnames in the table are fully qualified; some DNS dashboards instead expect `@` or a relative name (for example, `smtp` for `smtp.example.com`). Use DNS-only records for mail hosts, not an HTTP-only CDN proxy. Remove stale AAAA records that point elsewhere.
-
-| Type | Host/address | Value | Purpose |
-| --- | --- | --- | --- |
-| A | `example.com` | `203.0.113.10` | Optional: only if the apex should point here too; do not replace an existing website address |
-| A | `mail.example.com` | `203.0.113.10` | Website and certificate validation |
-| A | `smtp.example.com` | `203.0.113.10` | MX target, SMTP client, and certificate validation |
-| A | `imap.example.com` | `203.0.113.10` | IMAP client and certificate validation |
-| A | `pop.example.com` | `203.0.113.10` | POP3 host and certificate validation |
-| MX | `example.com` | Priority `10`, target `smtp.example.com.` | Inbound delivery; use a hostname, not an IP |
-| TXT (SPF) | `example.com` | `v=spf1 a mx ~all` | PMail's expected default; merge authorized senders into an existing SPF record instead of adding a second one |
-| TXT (DKIM) | `default._domainkey.example.com` | `<full DKIM TXT value shown in Domains>` | Use the actual selector and complete public key |
-| TXT (DMARC) | `_dmarc.example.com` | `v=DMARC1; p=none` | PMail's initial expected record; monitor alignment before tightening policy |
-| PTR | `203.0.113.10` | `smtp.example.com.` | Configure through your IP provider; the target's A record should resolve back to the same IP |
-
-For DKIM, open the domain's DNS records in **Domain management** as an administrator and copy the **expected** DKIM value. Alternatively, use `deploy.sh dns`. This requires `curl`; `jq` or `python3` is optional for formatted records. Without either, the script prints each domain's raw DNS JSON.
-
-Sign in as an administrator, create a token under **Settings → API Token** (for example, name it `dns-check`), and copy the token shown at creation. A regular user's token cannot access the admin domain API. The commands below read the token without echoing it. Both deployment options use the public HTTPS URL explicitly; the script's default local HTTP URL may be unavailable or redirect.
-
-```bash
-read -rsp 'PMail API Token: ' token; printf '\n'
-PMAIL_API_URL=https://mail.example.com PMAIL_API_TOKEN="$token" ./deploy/deploy.sh dns
-unset token
-```
-
-The script reports the expected MX, SPF, DKIM, and DMARC records and whether they match. Check A and PTR separately. Allow time for DNS caches to expire, then verify from outside the server:
-
-```bash
-for host in mail.example.com smtp.example.com imap.example.com pop.example.com; do dig +short A "$host"; done
-dig +short MX example.com
-dig +short TXT example.com
-dig +short TXT default._domainkey.example.com
-dig +short TXT _dmarc.example.com
-dig +short -x 203.0.113.10
-```
-
-### 7. Verify mail delivery and configure clients
-
-Use an **external mailbox** to send a message to `admin@example.com` or the address shown under **Addresses and aliases**. Check the PMail web inbox and reply from the web app. Outbound messages are queued; a queued status is not proof of delivery. Check **Settings → Outbound queue** and confirm that the external mailbox receives the reply. You can verify web send/receive before configuring a mail client.
-
-After the certificate is ready, choose one incoming and one outgoing option below in your client. Use the full mailbox address (such as `admin@example.com`) or the actual PMail account name as the username, and its login password (not an API token). If you changed host port mappings, use the mapped ports. Do not disable certificate verification to work around an error.
-
-| Protocol | Server | Default port | Encryption |
-| --- | --- | --- | --- |
-| IMAP incoming (recommended) | `imap.example.com` | `993` | SSL/TLS (implicit) |
-| IMAP incoming (optional) | `imap.example.com` | `143` | STARTTLS |
-| SMTP outgoing (recommended) | `smtp.example.com` | `465` | SSL/TLS (implicit) |
-| SMTP outgoing (optional) | `smtp.example.com` | `587` | STARTTLS |
-| POP3 incoming (optional) | `pop.example.com` | `995` | SSL/TLS (implicit) |
-
-Enable SMTP authentication in the client. Port `25` is for server-to-server delivery, not client submission.
-
-### 8. Routine operations
-
-**Upgrade the image:** make sure the target tag has been published. The example uses beta.4. You can also set `UPGRADE_VERSION`; `--version` takes precedence when both are set. The default is `latest` only when neither is set. Specify pre-release tags explicitly.
-
-```bash
-./deploy/deploy.sh upgrade --version 3.0.0-beta.4
-```
-
-The script backs up PostgreSQL, pulls the target image, and waits for health checks. If the upgrade fails, it attempts to restore the old image and pre-upgrade database. **The upgrade still exits nonzero even if rollback succeeds.** If the database restore fails, the script reports the error and backup path rather than declaring rollback successful. For source builds, `upgrade` instead builds a project-scoped `pmail-<project>:<tag>` image with a timestamped tag.
-
-**Backup:** the script prints `备份完成：<path>` and saves the dump to `backups/<project>-<UTC timestamp>.dump` in the deployment directory. It backs up PostgreSQL, not `.env` or the `pmail_config` volume (certificates, for example). Back up the external proxy’s configuration and certificates separately. Keep copies somewhere other than this server.
-
-```bash
-./deploy/deploy.sh backup
-```
-
-**Restore:** pauses PMail while restoring the selected database dump. If the database restore fails, the script reports the error and does not restart the service. Back up the current database first. If manually rolling back a version, first make sure `PMAIL_IMAGE` in `.env` points to the matching old image and that the image is available. At the prompt, paste the full path printed by `backup` without quotes or the `备份完成：` prefix.
-
-```bash
-read -r -p 'Full path to the backup dump: ' dump && ./deploy/deploy.sh restore "$dump"
-```
-
-Use `status` and `logs` from [step 4](#4-start-and-check-the-services) and sign in to verify the restored data. Do not restore a v3 dump to upstream v2; see the [upgrade notes](docs/UPGRADE.md).
-
-**Stop:** removes this project's containers and Compose network but preserves named volumes. Run `up` again to restart.
-
-```bash
-./deploy/deploy.sh down
-```
-
-**Uninstall but retain data:** confirm the prompt to remove containers and keep the volumes.
-
-```bash
-./deploy/deploy.sh uninstall
-```
-
-**Uninstall and delete data:** keep an off-server backup first. This command removes the containers before asking whether to delete volumes. Confirming deletes the PostgreSQL and PMail configuration volumes; it does not remove external NPM containers, configuration, or certificates. It does not delete `.env` or `backups/`.
-
-```bash
-./deploy/deploy.sh uninstall --purge
-```
-
-### 9. Troubleshooting
-
-- **Port 25 is blocked:** check the cloud security group and firewall from an external network for inbound traffic. For outbound traffic, try the command below against a reachable receiving MX and ask your provider about restrictions if it fails. `check` probes only `1.1.1.1:25`; one failed probe does not establish a provider block. If outbound `25` is blocked, request an exemption or arrange a separate relay. This guide does not configure a relay.
-
-```bash
-nc -vz -w 5 '<external mailbox provider MX hostname>' 25
-```
-
-- **Certificate issuance failed:** check public DNS, stale AAAA records, where public ports `80` and `443` lead, and the PMail and NPM logs. Option A must deliver port `80` challenges to PMail. In option B, check that the three mail-validation Proxy Hosts do not force HTTPS or intercept `/.well-known/acme-challenge/`, and that NPM manages its own web certificate. Do not switch to mode `3` just to get web HTTPS; mode `3` disables PMail's TLS mail listeners.
-- **Website unreachable:** `PMAIL_WEB_BIND` defaults to `127.0.0.1`. For option A, check the public bind setting, `PMAIL_HTTPS_ENABLED=0`, and the certificate. For option B, check NPM logs and whether it can reach the upstream `PMAIL_WEB_BIND:PMAIL_HOST_HTTP_PORT` specified in `.env`. If running Nginx on the host instead, keep PMail bound to loopback.
-- **Outgoing mail goes to spam:** verify SPF, DKIM and DMARC alignment, PTR/rDNS, and IP reputation. Inspect the message headers at the receiving mailbox. A working website does not validate these records.
-- **Forgot the admin password:** if it has never changed, check the saved `init` output or the bootstrap `PMAIL_ADMIN_PASSWORD` in `.env`. Another signed-in administrator can reset it in **User management**. If every admin is locked out, there is no unauthenticated reset page or `deploy.sh` reset command. Editing the bootstrap password in `.env` and restarting does not reset an existing account. Plan recovery from a suitable backup with known credentials; do not erase the data volumes to reset a password.
-- **External mailbox collection stalls:** check `last_error`, the provider's app password, TLS mode, and SSRF restrictions.
-
-## Features
-
-- PostgreSQL 17 deployment with persistent `pg_data` and `pmail_config` volumes.
-- Multiple local domains, primary addresses, aliases, sender permissions, quotas, and DNS guidance.
-- SMTP/IMAP/POP3 services, outbound queue retries, DSN-style failure handling, and local delivery.
-- Global forwarding, multi-target rules, manual forwarding, SRS and loop protection.
-- External IMAP/POP3 collection with UID/UIDL deduplication and encrypted credentials.
-- API tokens, bcrypt password migration, responsive desktop/tablet/mobile UI, and Chinese/English i18n.
-
-## Configuration
-
-All deployment variables are documented in `.env.example`. Important variables:
-
-| Variable | Meaning |
-|---|---|
-| `PMAIL_PROJECT_NAME` | Docker Compose project name; use a different value for each deployment on one host. |
-| `PMAIL_IMAGE` | Empty/local mode uses the project-scoped `pmail-<project>:local` image; set a registry image such as `dingding229/pmail-pro:3.0.0-beta.3` to pull instead. |
-| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | PostgreSQL bootstrap settings. |
-| `PMAIL_DB_TYPE`, `PMAIL_DB_DSN` | Database type/DSN; Compose normally supplies PostgreSQL. |
-| `PMAIL_DOMAIN`, `PMAIL_DOMAINS`, `PMAIL_WEB_DOMAIN` | Mail and web domains. |
-| `PMAIL_HTTP_PORT`, `PMAIL_HTTPS_PORT` | Container web ports. |
-| `PMAIL_HOST_*_PORT` | Host port mappings for SMTP, POP3, IMAP and web. |
-| `PMAIL_MAIL_BIND`, `PMAIL_WEB_BIND` | Mail/web bind addresses; mail defaults to `0.0.0.0`, web to `127.0.0.1`. |
-| `PMAIL_SSL_TYPE` | `0` ACME HTTP-01, `1` user certificate, `2` ACME DNS-01, `3` reverse-proxy HTTP only. |
-| `PMAIL_HTTPS_ENABLED` | HTTPS listener mode; SSL type 3 keeps the backend HTTP-only. |
-| `PMAIL_LOG_LEVEL` | `debug`, `info`, `warn` or `error`. |
-| `PMAIL_SPAM_FILTER_LEVEL` | SPF/DKIM filtering level 0–3. |
-| `PMAIL_CATCH_ALL` | Whether unknown local recipients go to the administrator. |
-| `PMAIL_ALLOW_USER_ALIAS` | Allow non-admin users to create aliases. |
-| `PMAIL_QUEUE_WORKERS` | Outbound queue concurrency. |
-| `PMAIL_FETCH_WORKERS` | External mailbox collection concurrency. |
-| `PMAIL_FETCH_ALLOW_PRIVATE` | Allow private destinations for controlled test environments only. |
-| `PMAIL_SECRET_KEY` | Encryption/SRS secret; keep stable during upgrades. |
-| `PMAIL_ADMIN_ACCOUNT`, `PMAIL_ADMIN_PASSWORD` | First-run administrator bootstrap. |
-
-The deployment helper also accepts `PMAIL_ENV_FILE`, `PMAIL_API_URL`, and `PMAIL_API_TOKEN`. `PMAIL_QUEUE_WORKERS`, `PMAIL_FETCH_WORKERS`, and `PMAIL_FETCH_ALLOW_PRIVATE` are application environment variables. The base Compose file does not pass them through; use an additional Compose override to pass them into `pmail.environment`. PostgreSQL and optional MySQL test connections use `PMAIL_TEST_PG_DSN` and `PMAIL_TEST_MYSQL_DSN`, respectively.
-
-## Nginx reverse proxy example
-
-Use this alternative if you already manage a web certificate with Nginx on the same host. Initialize with `--reverse-proxy --web-bind 127.0.0.1` in step 3, keep the default upstream `127.0.0.1:8080`, and start with step 4.
-
-In Nginx, use the configuration below with your own certificate paths. Nginx handles public web HTTPS and proxies public HTTP-01 challenges to PMail. Do not expose `8080` or `8443` publicly.
+若用的是宿主机上的普通 Nginx，将 B 路线的 `PMAIL_WEB_BIND` 改为 `127.0.0.1`，保留 `8080` 上游。以下配置只转发邮件域名的挑战请求，网页证书及续期由你管理。替换证书文件路径；若你的网页证书也使用 HTTP-01，请单独为 `mail.example.com` 配置自己的验证处理。
 
 ```nginx
 server {
     listen 80;
-    server_name mail.example.com smtp.example.com imap.example.com pop.example.com;
+    server_name smtp.example.com imap.example.com pop.example.com;
     location ^~ /.well-known/acme-challenge/ {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
     }
-    location / {
-        return 308 https://mail.example.com$request_uri;
-    }
+    location / { return 404; }
+}
+server {
+    listen 80;
+    server_name mail.example.com;
+    location / { return 308 https://mail.example.com$request_uri; }
 }
 server {
     listen 443 ssl;
     server_name mail.example.com;
-    ssl_certificate <path-to-web-fullchain>;
-    ssl_certificate_key <path-to-web-private-key>;
+    ssl_certificate <网页证书链路径>;
+    ssl_certificate_key <网页私钥路径>;
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
@@ -342,44 +168,172 @@ server {
 }
 ```
 
-## Multiple deployments and local images
+## DNS 配置
 
-Run separate deployments with distinct project names, for example `./deploy/deploy.sh init --project pmail-prod` and `./deploy/deploy.sh init --project pmail-staging`. Local images are named `pmail-<project>:local` and are rebuilt by `up`, so projects do not reuse one another's local tag. Set `PMAIL_IMAGE` to a registry image when using a prebuilt image; registry mode pulls instead of building. Container-affecting commands (`up`, `upgrade`, `backup`, `restore`, `dns`, `migrate-*`, `down`, and `uninstall`) verify that the Compose project belongs to the current directory before changing containers.
+在 DNS 服务商处配置下表的记录。名称中的末尾点表示完整域名；有些服务商要求填相对名称，如 `smtp` 或 `@`。邮件主机使用仅 DNS 解析，不要开启只代理网页流量的 CDN；不要保留指向错误机器的 AAAA 记录。
 
-## Prebuilt images (GitHub Actions → Docker Hub)
-
-`.github/workflows/docker.yml` builds `linux/amd64` and `linux/arm64` images and pushes them to Docker Hub. Configure the repository under Settings → Secrets and variables → Actions:
-
-| Kind | Name | Notes |
+| 类型 | 主机或地址 | 值 |
 | --- | --- | --- |
-| Variable | `DOCKERHUB_USERNAME` | Docker Hub user or organization |
-| Variable | `DOCKERHUB_IMAGE` | Optional, defaults to `<DOCKERHUB_USERNAME>/pmail-pro` |
-| Secret | `DOCKERHUB_TOKEN` | Docker Hub personal access token with Read & Write scope |
+| A | `mail.example.com` | `203.0.113.10` |
+| A | `smtp.example.com`、`imap.example.com`、`pop.example.com`（各一条） | `203.0.113.10` |
+| MX | `example.com` | 优先级 `10`，目标 `smtp.example.com.` |
+| TXT（SPF） | `example.com` | `v=spf1 a mx ~all`；若域名已有 SPF，应合并授权来源，不要添加第二条 SPF |
+| TXT（DKIM） | `default._domainkey.example.com` | 在「域名管理」查看该域的 DNS 记录，复制**实际选用的选择器与完整期望值** |
+| TXT（DMARC） | `_dmarc.example.com` | 可先用 `v=DMARC1; p=none` 观察 SPF/DKIM 对齐情况 |
+| PTR | `203.0.113.10` | 请公网 IP 服务商设置为 `smtp.example.com.`，A 记录应能解析回同一地址 |
 
-Triggers:
-- Pushing a `v*` tag (e.g. `v3.0.0`) publishes `3.0.0`, `3.0`, `3`, `latest` and `sha-xxxxxxx`; pre-release tags containing `-` do not move `latest`.
-- Running "PMail Pro Docker image" manually from the Actions tab publishes the branch name (e.g. `feature-v3`), `sha-xxxxxxx` and an optional custom tag.
-
-Set `PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.3` in `.env` to pull it; `./deploy/deploy.sh upgrade --version 3.1.0` switches versions (defaults to `latest`); on failure the script attempts to roll back.
-
-## Migrating old installations
-
-Stop the old single-file deployment, place the SQLite file on the host, and replace `<path-to-pmail.db>` with its path:
+主域名 `example.com` 的 A 记录可指向既有网站，不必为了收信覆盖它。网页启动后再从域名管理取得 DKIM；管理员也可在「设置 → API Token」创建凭据，按 [API 文档](docs/API.md) 调用域名 DNS 接口。Token 明文只在创建时显示，请安全保存。DNS 生效后可查询：
 
 ```bash
-./deploy/deploy.sh migrate-from-sqlite '<path-to-pmail.db>'
+for host in mail.example.com smtp.example.com imap.example.com pop.example.com; do
+  dig +short A "$host"
+done
+dig +short MX example.com
+dig +short TXT example.com
+dig +short TXT default._domainkey.example.com
+dig +short TXT _dmarc.example.com
+dig +short -x 203.0.113.10
 ```
 
-Or, for MySQL, replace `<mysql-dsn>` with the actual DSN (format: `user:password@tcp(<mysql-host>:3306)/pmail?parseTime=True`).
+## 邮件客户端设置
+
+先从外部邮箱发信到 `admin@example.com`（或管理页面显示的实际地址），在 PMail 网页收件箱确认收到并回复。「已排队」不等于送达；在「设置 → 发件队列」查看结果，并确认外部邮箱真正收到回复。
+
+邮件证书就绪后，客户端用完整地址（如 `admin@example.com`）或实际账号登录，密码为该账号的登录密码，不是 API Token。发件需开启 SMTP 认证；不要关闭证书校验。自定义端口时填写宿主机映射的端口。
+
+| 协议 | 地址 | 端口 | 加密方式 |
+| --- | --- | --- | --- |
+| IMAP（推荐） | `imap.example.com` | `993` | 隐式 TLS |
+| IMAP | `imap.example.com` | `143` | STARTTLS |
+| SMTP（推荐） | `smtp.example.com` | `465` | 隐式 TLS |
+| SMTP | `smtp.example.com` | `587` | STARTTLS |
+| POP3 | `pop.example.com` | `995` | 隐式 TLS |
+
+## 升级、备份与恢复
+
+所有命令都在原部署目录执行，使用原来的 `.env` 和 Compose 项目名。以下转储命令适用于本项目的 `postgres` 容器；如果 `PMAIL_DB_DSN` 指向外部数据库，应改用外部数据库的备份工具。
+
+### 备份
+
+在改镜像标签或更新部署配置**之前**执行。数据库转储和同一时刻的 `.env` 保存在 `backups/`。另外备份 `pmail_config` 卷中的配置和证书；外部反代及其证书需单独备份。把机密备份加密后保存到另一台机器。
 
 ```bash
-./deploy/deploy.sh migrate-from-mysql '<mysql-dsn>'
+(
+  set -eu
+  umask 077
+  mkdir -p backups
+  dump="backups/pmail-$(date -u +%Y%m%dT%H%M%SZ).dump"
+  tmp=$(mktemp backups/.pmail-dump.XXXXXXXX)
+  trap 'rm -f -- "$tmp"' EXIT
+  docker compose exec -T postgres sh -ec \
+    'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_dump -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$tmp"
+  cp .env "$dump.env"
+  mv -- "$tmp" "$dump"
+  printf '备份文件：%s\n' "$dump"
+)
 ```
 
-The migration command imports supported legacy tables into PostgreSQL. Verify domains, aliases, DKIM, quotas and queue state before allowing external traffic.
+### 升级与回滚
 
-## Go development
+备份完成后，确认 Docker Hub 已发布目标标签，再更新 `.env` 中的 `PMAIL_IMAGE` 并拉取、启动。不要把 `latest` 当作固定版本。以下命令只需输入目标标签，不含仓库名：
 
-From `server/`, `go test ./...` runs the default suite. Use `go test -tags integration ./...` for integration tests locally or on a server. The full suite requires root (SMTP port 25 and other fixed mail ports must be free) and a **disposable, empty PostgreSQL database** set via `PMAIL_TEST_PG_DSN`. The IMAP fixture creates and drops a private schema, so the database user needs permission to create schemas. Do not point the suite at production. For an optional MySQL full-server run, set `PMAIL_TEST_MYSQL_DSN` and use `go test -tags integration . -args mysql`; CI uses PostgreSQL and does not require MySQL.
+```bash
+(
+  set -eu
+  read -r -p '已发布的目标镜像标签：' tag
+  [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo '镜像标签无效。' >&2; exit 2; }
+  sed -i "s|^PMAIL_IMAGE=.*|PMAIL_IMAGE=dingding229/pmail-pro:$tag|" .env
+  docker compose pull && docker compose up -d
+)
+```
 
-See [README_CN.md](README_CN.md), [docs/API.md](docs/API.md), and [docs/UPGRADE.md](docs/UPGRADE.md).
+用 `docker compose ps`、`docker compose logs --tail=100 pmail` 和实际收发验证升级。**Compose 不会自动回滚。** 如需回滚，从与转储配套的 `.dump.env` 确认升级前的镜像标签，再停止 PMail、切回该标签并拉取旧镜像：
+
+```bash
+(
+  set -eu
+  read -r -p '升级前的镜像标签：' tag
+  [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo '镜像标签无效。' >&2; exit 2; }
+  docker compose stop pmail
+  sed -i "s|^PMAIL_IMAGE=.*|PMAIL_IMAGE=dingding229/pmail-pro:$tag|" .env
+  docker compose pull pmail
+)
+```
+
+如果数据库没有不兼容变更，可执行 `docker compose up -d` 启动旧镜像；否则保持 PMail 停止，先保存当前数据，再按下一节恢复**升级前**的备份并启动。恢复会丢失备份之后的写入。
+
+### 恢复数据库
+
+准备与目标镜像匹配的转储文件。此操作会停止 PMail、将备份中的对象恢复到目标数据库。SQL 恢复失败时，下面的命令不会继续启动 PMail。
+
+```bash
+(
+  set -eu
+  read -r -p '备份文件路径：' dump
+  [[ -r "$dump" ]] || { echo '无法读取备份文件。' >&2; exit 1; }
+  docker compose up -d --wait postgres
+  docker compose stop pmail
+  docker compose exec -T postgres sh -ec \
+    'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error --no-owner --no-privileges' < "$dump"
+  docker compose up -d
+)
+```
+
+恢复后检查服务状态、登录和邮件数据。从上游 SQLite 或 MySQL 部署迁移，请参阅 [v2 到 v3 迁移与兼容说明](docs/UPGRADE.md)。
+
+停止并移除本项目容器、保留数据卷：
+
+```bash
+docker compose down
+```
+
+只有确认已备份并且要**永久删除本项目数据库和配置卷**时，才执行卸载：
+
+```bash
+docker compose down -v
+```
+
+## 配置项
+
+完整模板见 [`.env.example`](.env.example)。已使用的数据库卷不会因为改了初始化选项而重建。
+
+| 配置项 | 说明 |
+| --- | --- |
+| `PMAIL_IMAGE` | PMail 镜像标签，默认 `dingding229/pmail-pro:3.0.0-beta.3` |
+| `PMAIL_PROJECT_NAME` | Compose 项目名，默认 `pmail`；决定命名卷所属项目 |
+| `PMAIL_DOMAIN` / `PMAIL_DOMAINS` / `PMAIL_WEB_DOMAIN` | 主邮件域名、逗号分隔的附加收信域名、网页域名 |
+| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | PostgreSQL 初始化数据库、账号、密码 |
+| `PMAIL_DB_TYPE` / `PMAIL_DB_DSN` | 基础 Compose 固定使用 PostgreSQL；可提供自定义连接串，默认连接项目内的 `postgres` |
+| `PMAIL_ADMIN_ACCOUNT` / `PMAIL_ADMIN_PASSWORD` | 首次启动的管理员引导凭据；不会重置已有账号的密码 |
+| `PMAIL_SECRET_KEY` | 外部邮箱凭据的加密密钥、SRS 密钥等；必须长期保存 |
+| `PMAIL_WEB_BIND` / `PMAIL_MAIL_BIND` | 宿主机网页和邮件绑定地址，分别默认 `127.0.0.1` 与 `0.0.0.0` |
+| `PMAIL_HTTP_PORT` / `PMAIL_HTTPS_PORT` | 容器内网页监听端口，默认 `80/443` |
+| `PMAIL_HOST_*_PORT` | 宿主机端口映射，接入反代时网页通常改用 `8080/8443` |
+| `PMAIL_SSL_TYPE` | `0` ACME HTTP-01、`1` 自有证书、`2` ACME DNS-01、`3` 禁用 PMail TLS（包括加密邮件端口） |
+| `PMAIL_HTTPS_ENABLED` | `0/1` 启用 PMail 网页 HTTPS，`2` 仅网页 HTTP；模式 `3` 强制仅网页 HTTP |
+| `PMAIL_LOG_LEVEL` | `debug`、`info`、`warn` 或 `error` |
+| `PMAIL_SPAM_FILTER_LEVEL` | `0` 至 `3`，分别表示关闭、SPF 与 DKIM 均失败、SPF 失败、DKIM 失败时过滤 |
+| `PMAIL_CATCH_ALL` / `PMAIL_ALLOW_USER_ALIAS` | 未知本地收件人是否交给管理员；是否允许普通用户自助创建别名 |
+| `PMAIL_QUEUE_WORKERS` / `PMAIL_FETCH_WORKERS` | 外发队列和外部邮箱收取并发数；基础 Compose 不透传，需在自定义覆盖文件中传入容器环境 |
+| `PMAIL_FETCH_ALLOW_PRIVATE` | 允许外部邮箱连接私网，仅用于受控环境；基础 Compose 不透传 |
+
+## 常见问题
+
+- **25 端口不通：** 从外部网络确认入站端口，对出站可用 `nc -vz -w 5 '<收件方的 MX 主机>' 25` 排查。联系云服务商确认是否封锁；本教程不配置外发中继。
+- **证书签不出来：** 检查公网 DNS、是否有过时的 AAAA、是否把邮件域名放到了仅支持网页的代理后。A 路线使 PMail 可从公网 `80` 响应 HTTP-01；B 路线检查邮件验证主机及 PMail 日志，不要让 NPM 接管邮件域名的验证路径。
+- **网页无法访问：** 查看 `docker compose ps` 与日志。A 路线核对绑定、证书和 `443`；B 路线核对代理是否能访问 `PMAIL_WEB_BIND:PMAIL_HOST_HTTP_PORT`，不要连 `8443`。
+- **发信进垃圾箱：** 检查 SPF、DKIM、DMARC 对齐、PTR/rDNS 和公网 IP 声誉，参考收件方邮件头定位失败项。
+- **忘记管理员密码：** 如未修改过，可查 `.env` 中的引导密码；否则由另一位可以登录的管理员在「用户管理」重置。修改 `.env` 的引导密码再重启不能重置旧账号。当前没有免登录重置入口，不要通过清空数据库卷来重置。
+- **外部邮箱收取异常：** 看账户的 `last_error`，检查服务商授权码、TLS 模式及私网访问限制。
+
+## 从源码构建与开发
+
+仅开发和自定义镜像需要完整源码。在**源码根目录**准备一份按安装说明填写的 `.env`，不要提交该文件。基础 Compose 文件没有构建段；加载构建覆盖文件，并给本地镜像使用独立标签：
+
+```bash
+PMAIL_IMAGE=pmail-dev:local docker compose -f docker-compose.yml -f docker-compose.build.yml build pmail
+```
+
+CI 的[工作流](.github/workflows/ci.yml)分别检查前后端、执行 Go 的常规与集成测试。在 `server/` 目录使用 `go test -tags integration ./...` 运行集成测试；需要能绑定固定邮件端口的权限和独立、空白的 PostgreSQL 测试库（`PMAIL_TEST_PG_DSN`），该库账号还须能建 schema。可选的 MySQL 主程序集成测试用 `PMAIL_TEST_MYSQL_DSN` 与 `go test -tags integration . -args mysql`，不要使用生产库。
+
+[镜像发布工作流](.github/workflows/docker.yml)构建 `linux/amd64` 和 `linux/arm64` 并推送到 Docker Hub：需配置变量 `DOCKERHUB_USERNAME`、读写权限密钥 `DOCKERHUB_TOKEN`，以及可选变量 `DOCKERHUB_IMAGE`（默认 `<DOCKERHUB_USERNAME>/pmail-pro`）。稳定 `v*` 标签更新 `latest`，预发布标签不更新；也可以手动触发并指定额外标签。

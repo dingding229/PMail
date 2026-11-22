@@ -1,3 +1,5 @@
+name: ${PMAIL_PROJECT_NAME:-pmail}
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -5,7 +7,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-pmail}
       POSTGRES_USER: ${POSTGRES_USER:-pmail}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run deploy/deploy.sh init}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中填写 POSTGRES_PASSWORD}
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -15,9 +17,7 @@ services:
       retries: 12
       start_period: 10s
   pmail:
-    image: ${PMAIL_IMAGE:-pmail-${PMAIL_PROJECT_NAME:-pmail}:local}
-    build:
-      context: .
+    image: ${PMAIL_IMAGE:-dingding229/pmail-pro:3.0.0-beta.3}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "/work/pmail", "healthcheck"]
@@ -31,7 +31,7 @@ services:
     environment:
       PMAIL_DB_TYPE: postgres
       PMAIL_DB_DSN: ${PMAIL_DB_DSN:-postgres://${POSTGRES_USER:-pmail}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pmail}?sslmode=disable}
-      PMAIL_DOMAIN: ${PMAIL_DOMAIN:?set PMAIL_DOMAIN in .env}
+      PMAIL_DOMAIN: ${PMAIL_DOMAIN:?请在 .env 中填写 PMAIL_DOMAIN}
       PMAIL_DOMAINS: ${PMAIL_DOMAINS:-}
       PMAIL_WEB_DOMAIN: ${PMAIL_WEB_DOMAIN:-}
       PMAIL_HTTP_PORT: ${PMAIL_HTTP_PORT:-80}
@@ -55,7 +55,7 @@ services:
       - "${PMAIL_MAIL_BIND:-0.0.0.0}:${PMAIL_HOST_POP3S_PORT:-995}:995"
       - "${PMAIL_MAIL_BIND:-0.0.0.0}:${PMAIL_HOST_IMAP_PORT:-143}:143"
       - "${PMAIL_MAIL_BIND:-0.0.0.0}:${PMAIL_HOST_IMAPS_PORT:-993}:993"
-      # 网页默认绑定回环地址；init --reverse-proxy 绑定宿主机上游地址，使用 8080/8443。
+      # 网页默认绑定回环地址；外部反代可绑定宿主机上游地址，使用 8080/8443。
       # PMAIL_HTTPS_ENABLED=2 时容器内不监听 Web HTTPS，8443 仅保留映射。
       - "${PMAIL_WEB_BIND:-127.0.0.1}:${PMAIL_HOST_HTTP_PORT:-80}:${PMAIL_HTTP_PORT:-80}"
       - "${PMAIL_WEB_BIND:-127.0.0.1}:${PMAIL_HOST_HTTPS_PORT:-443}:${PMAIL_HTTPS_PORT:-443}"
