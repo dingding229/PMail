@@ -55,7 +55,8 @@ services:
       - "${PMAIL_MAIL_BIND:-0.0.0.0}:${PMAIL_HOST_POP3S_PORT:-995}:995"
       - "${PMAIL_MAIL_BIND:-0.0.0.0}:${PMAIL_HOST_IMAP_PORT:-143}:143"
       - "${PMAIL_MAIL_BIND:-0.0.0.0}:${PMAIL_HOST_IMAPS_PORT:-993}:993"
-      # 网页默认只绑定本机；通过反代访问，或显式设置 PMAIL_WEB_BIND=0.0.0.0。
+      # 网页默认绑定回环地址；init --reverse-proxy 绑定宿主机上游地址，使用 8080/8443。
+      # PMAIL_HTTPS_ENABLED=2 时容器内不监听 Web HTTPS，8443 仅保留映射。
       - "${PMAIL_WEB_BIND:-127.0.0.1}:${PMAIL_HOST_HTTP_PORT:-80}:${PMAIL_HTTP_PORT:-80}"
       - "${PMAIL_WEB_BIND:-127.0.0.1}:${PMAIL_HOST_HTTPS_PORT:-443}:${PMAIL_HTTPS_PORT:-443}"
 volumes:

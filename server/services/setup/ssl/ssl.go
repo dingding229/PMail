@@ -88,7 +88,12 @@ func Automatic(cfg *config.Config) bool {
 }
 
 func certificateDomains(cfg *config.Config) []string {
-	domains := []string{cfg.WebDomain}
+	domains := make([]string, 0, 1+3*len(cfg.Domains))
+	// With web HTTPS disabled in HTTP-01 mode, the reverse proxy owns the
+	// web certificate and may handle its challenge path itself.
+	if cfg.SSLType != config.SSLTypeAutoHTTP || cfg.HttpsEnabled != 2 {
+		domains = append(domains, cfg.WebDomain)
+	}
 	for _, domain := range cfg.Domains {
 		domains = append(domains, "smtp."+domain, "pop."+domain, "imap."+domain)
 	}

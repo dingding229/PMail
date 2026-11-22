@@ -7,15 +7,15 @@ PMail Pro 是 [PMail](https://github.com/Jinnrry/PMail) 的增强分支。PMail 
 
 ## 安装教程
 
-本教程在一台新的 Linux 服务器上用 Docker Hub 镜像 `dingding229/pmail-pro:3.0.0-beta.2` 部署 PMail Pro，不在服务器上编译。`example.com`、`mail.example.com`、其 `smtp`/`imap`/`pop` 子域名和 `203.0.113.10` 都是示例；操作前请替换为自己的域名、公网 IP。`<...>` 表示用实际值替换整个占位符（包括尖括号）。后续命令请在同一个 Bash 终端和部署目录中操作。
+本教程在新的 Linux 服务器上使用 Docker Hub 预构建镜像部署 PMail Pro。两条路线都使用 `dingding229/pmail-pro:3.0.0-beta.3`（含外部反代证书修复，不要使用更早的 beta.1/beta.2）。`example.com`、`mail.example.com`、其 `smtp`/`imap`/`pop` 子域名和 `203.0.113.10` 都是示例；操作前请替换为自己的域名、公网 IP。`<...>` 表示用实际值替换整个占位符（包括尖括号）。后续命令请在同一个 Bash 终端和部署目录中操作。
 
 ### 1. 准备工作
 
 - 64 位 Linux（`amd64` / `arm64`），有可用的公网 IP。小型部署建议至少 **2 GB 内存、20 GB 可用磁盘**，按邮件量和备份增长预留空间；这是建议，不是脚本的硬件门槛。
-- 使用能访问 Docker daemon 的账号执行部署命令。如果 `docker version` 提示没有访问权限，可先用 `sudo -i` 进入管理员终端，再从第 2 步开始。安装 **Docker Engine 和 Compose v2**；使用 Caddy 路线需 Compose **2.24.4 或更高**（覆盖文件使用 `!override`）。生产环境优先按 [Docker 官方安装指南](https://docs.docker.com/engine/install/) 为发行版配置软件源并安装 Compose 插件（[合并规则与最低版本](https://docs.docker.com/reference/compose-file/merge/)）。以下是 Ubuntu/Debian 上为全新主机安装所需工具的示例；`jq`/`python3` 可选，只影响 `dns` 的输出格式。
+- 使用能访问 Docker daemon 的账号执行部署命令。如果 `docker version` 提示没有访问权限，可先用 `sudo -i` 进入管理员终端，再从第 2 步开始。安装 **Docker Engine 和 Compose v2**。生产环境优先按 [Docker 官方安装指南](https://docs.docker.com/engine/install/) 为发行版配置软件源并安装 Compose 插件。以下是 Ubuntu/Debian 上为全新主机安装所需工具的示例；`jq`/`python3` 可选，只影响 `dns` 的输出格式。
 
 ```bash
-sudo apt-get update && sudo apt-get install -y ca-certificates curl git dnsutils netcat-openbsd
+sudo apt-get update && sudo apt-get install -y ca-certificates curl git dnsutils netcat-openbsd iproute2 openssl
 ```
 
 若接受官方便捷脚本的限制，也可从 [Docker 官方便捷安装说明](https://docs.docker.com/engine/install/ubuntu/#install-using-the-convenience-script) 下载脚本，检查内容后执行（Docker 不建议将此方式用于生产环境或升级已有 Docker）。
@@ -42,7 +42,7 @@ docker version && docker compose version
 | `465` / `587` | 入站，按需 | SMTP 客户端提交：隐式 TLS / STARTTLS |
 | `993` / `143` | 入站，按需 | IMAP：隐式 TLS / STARTTLS |
 | `995` / `110` | 入站，按需 | POP3：优先使用 `995`（隐式 TLS），不建议公网开放 `110` |
-| `80` / `443` | 入站 | HTTP、ACME 验证 / HTTPS；Caddy 路线由 Caddy 占用 |
+| `80` / `443` | 入站 | HTTP、ACME 验证 / HTTPS；A 路线由 PMail 使用，B 路线由 NPM 使用 |
 
 很多云服务商默认封锁**出站** TCP `25`。本机放行并不能解除云端限制，需向服务商申请解封（通常要提交工单）。还需要一个能修改 DNS 的域名，以及可由 IP 服务商配置 PTR 的公网 IP。**启动前先按[第 6 步](#6-配置-dns)添加 A 记录并确认解析**；证书申请要用到 Web 主机名和 `smtp`、`imap`、`pop` 主机名，即使暂时不用 POP3。
 
@@ -52,18 +52,18 @@ docker version && docker compose version
 git clone --branch feature/v3 --depth 1 https://github.com/dingding229/PMail.git pmail-pro && cd pmail-pro
 ```
 
-浅克隆是为了取得 `deploy/`、`docker-compose.yml`、`docker-compose.caddy.yml` 和 `.env.example`。不需要安装 Go、Node.js 或编译仓库里的源码。不要先把 `.env.example` 复制成 `.env`：`init` 要在新建 `.env` 时生成密码与密钥。
+浅克隆是为了取得 `deploy/`、`docker-compose.yml` 和 `.env.example`。不需要安装 Go、Node.js 或编译仓库里的源码。不要先把 `.env.example` 复制成 `.env`：`init` 要在新建 `.env` 时生成密码与密钥。
 
 ### 3. 初始化
 
-在没有 `.env` 的部署目录中运行：
+在没有 `.env` 的部署目录中运行下面的交互命令。若选择 B 路线，请先把示例镜像标签替换为包含外部反代证书修复的标签：
 
 ```bash
-export PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.2
+export PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.3
 ./deploy/deploy.sh init
 ```
 
-向导按下列顺序提问。首次安装用模式 `0`：A 路线由 PMail 提供公网 Web HTTPS；B 路线由 Caddy 终止 Web HTTPS，PMail 仍为邮件协议申请自己的证书。选择内置 Caddy 后，脚本会强制使用证书模式 `0`。
+向导按下列顺序提问。首次安装用模式 `0`：A 路线由 PMail 提供公网 Web HTTPS；B 路线由外部 Nginx Proxy Manager（NPM）终止 Web HTTPS，PMail 保留 HTTP-01 模式 `0`，为邮件协议申请证书。
 
 | 实际提示 | 如何填写 |
 | --- | --- |
@@ -71,33 +71,35 @@ export PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.2
 | `附加域名（逗号分隔，可留空） []:` | 本教程直接回车，只部署一个邮件域名。 |
 | `Web 域名 [example.com]:` | 输入自己的网页域名，如 `mail.example.com`；直接回车会用主邮件域名。 |
 | `证书模式 0=ACME HTTP-01, 1=自有证书, 2=ACME DNS-01, 3=反代仅 HTTP [3]:` | 本教程输入 `0`。`1` 需要预先配置有效证书；`2` 需要额外配置 DNS-01；`3` 不启用 PMail TLS，不是可同时提供加密邮件客户端服务的选项。 |
-| `是否使用内置 Caddy 反代？[y/N]` | B 路线输入 `y`，不再询问是否开放 Web；A 路线直接回车。 |
-| `是否对公网开放 Web？[y/N]:` | 仅未选 Caddy、也未传 `--web-public` 时询问。A 路线输入 `y`；不开放时默认绑定 `127.0.0.1`。 |
+| `Web 是否由外部反向代理（如 Nginx Proxy Manager）提供？[y/N]` | B 路线输入 `y`，不再询问是否开放 Web；A 路线直接回车。 |
+| `反代上游的宿主机 IPv4 地址 [172.17.0.1]:` | 仅 B 路线询问。Docker 内的 NPM 通常可用默认网桥地址；若 NPM 在宿主机上运行，填 `127.0.0.1`。 |
+| `是否对公网开放 Web？[y/N]:` | 仅不使用反代且未传 `--web-public` 时询问。A 路线输入 `y`；不开放时默认绑定 `127.0.0.1`。 |
 | `管理员账号 [admin]:` | 直接回车使用 `admin`，或输入自选账号。 |
 
 也可以用以下**非交互命令代替**向导，只选一条。A 路线（PMail 直接提供 HTTPS）：
 
 ```bash
-PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.2 ./deploy/deploy.sh init --yes --domain example.com --web-domain mail.example.com --ssl-type 0 --web-public --admin-account admin
+PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.3 ./deploy/deploy.sh init --yes --domain example.com --web-domain mail.example.com --ssl-type 0 --web-public --admin-account admin
 ```
 
-B 路线（推荐，内置 Caddy）：
+B 路线（推荐，外部 NPM）。替换 `<包含本次修复的标签>` 后运行：
 
 ```bash
-PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.2 ./deploy/deploy.sh init --yes --caddy --domain example.com --web-domain mail.example.com --admin-account admin
+PMAIL_IMAGE='dingding229/pmail-pro:<包含本次修复的标签>' \
+  ./deploy/deploy.sh init --yes --reverse-proxy --domain example.com --web-domain mail.example.com --admin-account admin
 ```
 
 `init` 将镜像、域名、证书模式、Web 绑定和管理员信息写入权限为 `600` 的 `.env`。新建时应看到 `初始化完成。最终项目名：pmail`、`管理员账号：admin` 和 `管理员密码（仅此处显示）：…`，随后有 MX、SPF、DKIM、DMARC、PTR 提示。**立即保存这次打印的管理员密码**，并安全备份 `.env`。尤其不要重新生成已有部署的 `PMAIL_SECRET_KEY`（凭据加密/SRS）和 `POSTGRES_PASSWORD`（已有 PostgreSQL 卷不会随 `.env` 改密码）。初始化密码仍保存在 `.env`，但改密后它不代表当前密码。若 `.env` 已存在且已设置镜像，重新 `init` 不会把镜像改成当前 shell 的值，应检查 `.env` 中的 `PMAIL_IMAGE`。
 
 ### 4. 启动与检查
 
-先确认第 6 步中的 A 记录已生效，且第 3 步已选定直接访问或内置 Caddy；然后运行：
+先确认第 6 步中的 A 记录已生效，且第 3 步已选定公网直连或外部反代；然后运行：
 
 ```bash
 ./deploy/deploy.sh check
 ```
 
-成功时脚本打印 `部署前检查通过。`。端口占用和 `25` 探测失败可能只打印提示；启动前仍要处理实际冲突。`check` 检查 Docker、Compose 配置、端口、磁盘和必要的 `.env` 字段，不验证公网 DNS、证书或邮件投递。
+成功时脚本打印 `部署前检查通过。`。端口占用和 `25` 探测失败可能只打印提示；启动前仍要处理实际冲突。反代模式检查 PMail 的宿主机 HTTP 端口（默认 `8080`），不会把 NPM 正常占用公网 `80/443` 当作 PMail 端口冲突。绑定 `172.17.0.1` 但未检测到该地址时，`check` 会报错并提示改用 `--web-bind`。`check` 检查 Docker、Compose 配置、端口、磁盘和必要的 `.env` 字段，不验证公网 DNS、证书或邮件投递。
 
 ```bash
 ./deploy/deploy.sh up
@@ -128,19 +130,36 @@ PMail 稳定性校验：status=running health=healthy restart_count=0
 
 若初始化时选择模式 `0` 并开放 Web，脚本已同时启用 PMail Web HTTPS，无需修改 `.env`。公网 `80` 必须到达 PMail，以完成 HTTP-01；`443` 用于浏览器访问。首次签发时 PMail 可能先只有 Web HTTP 和 SMTP `25`；等待签发完成并重载后，再从浏览器打开 `https://mail.example.com/`。证书未就绪时不要用公网 HTTP 登录。
 
-#### B. 推荐：Caddy 反向代理
+#### B. 推荐：Nginx Proxy Manager 反代
 
-在第 3 步使用 `--caddy` 或在向导选择内置 Caddy，再按第 4 步启动。脚本会把内置覆盖文件写入 `.env` 的 `COMPOSE_FILE`；不需要自建 Compose 覆盖文件或 Caddyfile。`--caddy` 只应用于新建 `.env`，不会切换现有部署。
+在**同一台宿主机**上准备你自己的 [Nginx Proxy Manager（NPM）](https://nginxproxymanager.com/)，由它监听公网 `80/443`。PMail 不会安装或管理 NPM。第 3 步的 `--reverse-proxy` 默认将 PMail 容器内的 HTTP `80` 发布到宿主机 `172.17.0.1:8080`，并设置 `PMAIL_SSL_TYPE=0`、`PMAIL_HTTPS_ENABLED=2`。PMail 不监听容器内的 Web HTTPS `443`；宿主机 `8443` 仅保留映射，**不要用作 NPM 上游或向公网放行**。
 
-公网 `80`/`443` 由 Caddy 使用；PMail 保留邮件端口，仅在容器网络提供 Web HTTP。Caddy 通过 `443` 为 Web 签发证书，并把 `80` 上的 HTTP-01 请求转给 PMail，供邮件证书签发和续期。**如配置了附加邮件域名（`PMAIL_DOMAINS`）**，要在 `deploy/Caddyfile` 的 `http://` 站点列表手动追加它们的 `smtp`、`imap`、`pop` 主机名并配置 DNS；如果 Caddy 已在运行，修改后需重载其配置。公网防火墙仅放行使用的邮件端口，尤其不要无故开放 `110`。
-
-等待 Caddy 签发 Web 证书，从浏览器打开 `https://mail.example.com/`。如需查看 Caddy 日志（自选项目名时替换 `-p` 的值）：
+如果 NPM 在宿主机直接运行，初始化时加 `--web-bind 127.0.0.1`，并将以下上游地址换成 `127.0.0.1`。如果 NPM 跑在 Docker 内且网桥地址不同，先查看宿主机的网桥 IPv4（不带 `/` 后面的掩码），再用 `--web-bind <ip>` 指定 NPM 容器能访问的宿主机地址，不能填 NPM 容器自己的 IP。若 `8080` 已占用，用 `--web-port <port>` 换一个空闲端口，并在 NPM 中使用同一端口。
 
 ```bash
-docker compose --env-file .env -p pmail logs --tail=100 caddy
+ip -4 addr show docker0
 ```
 
-已经有 Nginx 时，可改用下文的 [Nginx 反代示例](#nginx-反代示例)，而不是运行两套反代。
+`init` 不会切换现有 `.env`。已有部署先备份，再按本节对应设置调整已有配置，不要删除 `.env` 或数据卷。
+
+1. **Web Proxy Host：** 在 NPM 的 **Hosts → Proxy Hosts** 创建 `mail.example.com`。Details 中填写 **Scheme** `http`、**Forward Hostname / IP** `172.17.0.1`、**Forward Port** `8080`；开启 **Websockets Support** 和 **Block Common Exploits**。在 **SSL** 中为该 Web 主机申请 **Let's Encrypt** 证书，开启 **Force SSL** 和 **HTTP/2 Support**。
+2. **邮件验证 Proxy Hosts：** 分别创建 `smtp.example.com`、`imap.example.com`、`pop.example.com`，同样转到 `http://172.17.0.1:8080`。**不要在 NPM 中为这些主机申请或选择证书，不要开启 Force SSL**，也不要给验证路径加访问限制。公网 `80` 上的 `/.well-known/acme-challenge/` 请求应保留原路径交给 PMail，供邮件证书签发及续期。附加邮件域名同样需要这三个主机的 DNS 和 Proxy Host。SMTP、IMAP 和 POP3 的协议流量仍直达 PMail 的邮件端口，不经这些 HTTP Proxy Host。
+
+为避免这些不启用 HTTPS 的邮件主机暴露明文 Web 登录页，可在每个**邮件验证** Proxy Host 的 **Advanced** 添加下面的规则，只允许 HTTP-01 验证路径：
+
+```nginx
+if ($uri !~ "^/[.]well-known/acme-challenge/[^/]+$") {
+    return 404;
+}
+```
+
+NPM 签好 Web 证书后，从浏览器打开 `https://mail.example.com/`。邮件证书与 Web 证书独立：在 PMail 日志中查找 `TLS certificate is ready or replaced; reloading listeners`，待重载完成后，若已开放 SMTP `465`，可以查看该端口实际出示的证书：
+
+```bash
+openssl s_client -connect smtp.example.com:465 -servername smtp.example.com -showcerts </dev/null
+```
+
+使用普通 Nginx 而不是 NPM 时，参见下文 [Nginx 反代示例](#nginx-反代示例)。
 
 **首次登录（两条路线相同）：**使用 `init` 打印的管理员账号与密码。进入「管理 → 域名管理」，确认 `example.com` 是主邮件域名；如需核对登录地址，在「设置 → 地址与别名」查看实际主地址。Web 主机 `mail.example.com` 不会因为用于网页而自动成为另一个收信域名。
 
@@ -200,15 +219,15 @@ dig +short -x 203.0.113.10
 
 ### 8. 日常运维
 
-**升级镜像：**请先确认目标 tag 已发布。下面以 beta.3 为例。也可设置 `UPGRADE_VERSION` 环境变量；同时指定时 `--version` 优先，两者都不指定才用 `latest`。预发布版本应明确传 tag。
+**升级镜像：**请先确认目标 tag 已发布。下面以 beta.4 为例。也可设置 `UPGRADE_VERSION` 环境变量；同时指定时 `--version` 优先，两者都不指定才用 `latest`。预发布版本应明确传 tag。
 
 ```bash
-./deploy/deploy.sh upgrade --version 3.0.0-beta.3
+./deploy/deploy.sh upgrade --version 3.0.0-beta.4
 ```
 
 脚本先备份 PostgreSQL，再拉取目标镜像并等待健康检查。失败时会尝试恢复旧镜像和升级前的数据库，**即使回滚成功，升级仍返回非零**。数据库恢复失败时，脚本会报错并打印备份路径，不会宣称回滚成功。自编译模式则使用带项目名和时间戳的 `pmail-<project>:<tag>` 镜像，不走仓库镜像拉取分支。
 
-**备份：**脚本会打印 `备份完成：<路径>`，文件在部署目录的 `backups/<project>-<UTC 时间戳>.dump`。这是 PostgreSQL 转储，不包含 `.env` 或 `pmail_config` 配置卷（证书等）；Caddy 路线还应另行备份本地覆盖配置与 Caddy 卷。把备份安全复制到另一处。
+**备份：**脚本会打印 `备份完成：<路径>`，文件在部署目录的 `backups/<project>-<UTC 时间戳>.dump`。这是 PostgreSQL 转储，不包含 `.env` 或 `pmail_config` 配置卷（证书等）；外部反代的配置和证书需另行备份。把备份安全复制到另一处。
 
 ```bash
 ./deploy/deploy.sh backup
@@ -234,7 +253,7 @@ read -r -p '备份文件的完整路径：' dump && ./deploy/deploy.sh restore "
 ./deploy/deploy.sh uninstall
 ```
 
-**彻底卸载：**先做离机备份。此命令先停止并移除容器，然后在删除卷前询问确认；确认后删除 PostgreSQL 和 PMail 配置卷，Caddy 路线还会删除该项目的 Caddy 卷。`.env` 和 `backups/` 不会被这个命令删除。
+**彻底卸载：**先做离机备份。此命令先停止并移除容器，然后在删除卷前询问确认；确认后删除 PostgreSQL 和 PMail 配置卷，不会删除外部 NPM 的容器、配置或证书。`.env` 和 `backups/` 不会被这个命令删除。
 
 ```bash
 ./deploy/deploy.sh uninstall --purge
@@ -248,8 +267,8 @@ read -r -p '备份文件的完整路径：' dump && ./deploy/deploy.sh restore "
 nc -vz -w 5 '<外部邮箱域名的 MX 主机>' 25
 ```
 
-- **证书申请失败：**检查相应主机名的公网 DNS、过时的 AAAA、`80`/`443` 的实际入口，以及 PMail/Caddy 日志。A 路线的 PMail 必须收到 `/.well-known/acme-challenge/` 请求；B 路线由 Caddy 转发它，且 Caddy 的 Web 证书验证需要公网 `443`。不要只为给浏览器签证书而改为模式 `3`，否则 PMail 不会开启 TLS 邮件端口。
-- **网页打不开：**默认 `PMAIL_WEB_BIND=127.0.0.1`。A 路线核对公网绑定、`PMAIL_HTTPS_ENABLED=0` 与证书；B 路线核对 `COMPOSE_FILE`、Caddy 日志和反代上游。主机本地 Nginx 反代则应保留 PMail 的回环绑定。
+- **证书申请失败：**检查相应主机名的公网 DNS、过时的 AAAA、`80`/`443` 的实际入口，以及 PMail 和 NPM 日志。A 路线由 PMail 在公网 `80` 响应验证；B 路线确认三个邮件验证 Proxy Host 不强制 HTTPS、不中断 `/.well-known/acme-challenge/` 请求，且 Web 证书由 NPM 单独管理。不要只为给浏览器签证书而改为模式 `3`，否则 PMail 不会开启 TLS 邮件端口。
+- **网页打不开：**默认 `PMAIL_WEB_BIND=127.0.0.1`。A 路线核对公网绑定、`PMAIL_HTTPS_ENABLED=0` 与证书；B 路线核对 NPM 日志，以及上游是否可访问 `.env` 中的 `PMAIL_WEB_BIND:PMAIL_HOST_HTTP_PORT`。主机本地 Nginx 反代则应保留 PMail 的回环绑定。
 - **发信进垃圾箱：**核对 SPF、DKIM、DMARC 对齐和 PTR/rDNS，检查发信 IP 声誉和外部邮箱的邮件头。仅 Web 可访问不代表这些记录正确。
 - **忘记管理员密码：**若仍是初始密码，查安全保存的 `init` 输出或 `.env` 的 `PMAIL_ADMIN_PASSWORD`。如果已修改过，可用另一名可登录的管理员在「用户管理」重置。所有管理员都无法登录时，当前没有免登录的重置页面或 `deploy.sh` 重置命令；修改 `.env` 的初始密码再重启不会重置已存在账号。请按已知凭据的备份制定恢复方案，不要通过清空数据卷“重置”。
 - **外部邮箱收取卡住：**查看 `last_error`，检查服务商授权码、TLS 模式与 SSRF 限制。
@@ -270,7 +289,7 @@ nc -vz -w 5 '<外部邮箱域名的 MX 主机>' 25
 | 变量 | 含义 |
 |---|---|
 | `PMAIL_PROJECT_NAME` | Compose 项目名；同一主机的每个部署必须使用不同名称。 |
-| `PMAIL_IMAGE` | 留空时按项目使用 `pmail-<project>:local` 并本地构建；填写 `dingding229/pmail-pro:3.0.0-beta.2` 等仓库镜像时直接拉取。 |
+| `PMAIL_IMAGE` | 留空时按项目使用 `pmail-<project>:local` 并本地构建；填写 `dingding229/pmail-pro:3.0.0-beta.3` 等仓库镜像时直接拉取。 |
 | `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` | PostgreSQL 初始化参数。 |
 | `PMAIL_DB_TYPE`、`PMAIL_DB_DSN` | 数据库类型和 DSN。 |
 | `PMAIL_DOMAIN`、`PMAIL_DOMAINS`、`PMAIL_WEB_DOMAIN` | 邮件域名和 Web 域名。 |
@@ -293,11 +312,7 @@ nc -vz -w 5 '<外部邮箱域名的 MX 主机>' 25
 
 ## Nginx 反代示例
 
-适用于已经能管理 Web 证书的同机 Nginx，不要同时加载 Caddy 覆盖文件。从第 3 步用模式 `0`、不开放 Web 初始化，保留 `PMAIL_WEB_BIND=127.0.0.1` 和 `PMAIL_HTTPS_ENABLED=2`，并把 PMail 的宿主机 Web 端口改为回环地址上的 `8080`/`8443`。然后按第 4 步启动。
-
-```bash
-sed -i 's/^PMAIL_HOST_HTTP_PORT=.*/PMAIL_HOST_HTTP_PORT=8080/; s/^PMAIL_HOST_HTTPS_PORT=.*/PMAIL_HOST_HTTPS_PORT=8443/' .env
-```
+适用于已经能管理 Web 证书的同机 Nginx。在第 3 步用 `--reverse-proxy --web-bind 127.0.0.1` 初始化，保持默认上游 `127.0.0.1:8080`，然后按第 4 步启动。
 
 在 Nginx 中使用以下配置，替换证书路径占位符。公网 HTTP-01 请求转给 PMail，Web HTTPS 由 Nginx 负责；不用在公网开放 `8080` 或 `8443`。
 
@@ -329,7 +344,7 @@ server {
 
 ## 多实例与本地镜像
 
-同一主机部署多个实例时必须使用不同项目名，例如 `./deploy/deploy.sh init --project pmail-prod` 和 `./deploy/deploy.sh init --project pmail-staging`。本地镜像按项目命名为 `pmail-<project>:local`，每次 `up` 都会按缓存重新构建，不会跨项目复用。设置 `PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.2` 可切换到预构建镜像模式；该模式会拉取镜像而不本地构建。 所有涉及容器的命令（`up`、`upgrade`、`backup`、`restore`、`dns`、`migrate-*`、`down`、`uninstall`）执行前都会校验 Compose 项目是否归属于当前目录，避免误操作其他目录的容器。
+同一主机部署多个实例时必须使用不同项目名，例如 `./deploy/deploy.sh init --project pmail-prod` 和 `./deploy/deploy.sh init --project pmail-staging`。本地镜像按项目命名为 `pmail-<project>:local`，每次 `up` 都会按缓存重新构建，不会跨项目复用。设置 `PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.3` 可切换到预构建镜像模式；该模式会拉取镜像而不本地构建。 所有涉及容器的命令（`up`、`upgrade`、`backup`、`restore`、`dns`、`migrate-*`、`down`、`uninstall`）执行前都会校验 Compose 项目是否归属于当前目录，避免误操作其他目录的容器。
 
 ## 预构建镜像（GitHub Actions → Docker Hub）
 
@@ -345,7 +360,7 @@ server {
 - 推送 `v*` tag（如 `git tag v3.0.0 && git push origin v3.0.0`）：生成 `3.0.0`、`3.0`、`3`、`latest`、`sha-xxxxxxx`；带 `-` 的预发布 tag（如 `v3.0.0-rc1`）不更新 `latest`。
 - Actions 页面手动运行 “PMail Pro Docker image”（可选任意分支）：生成分支名 tag（如 `feature-v3`）、`sha-xxxxxxx`，以及可选的自定义 tag。
 
-部署时在 `.env` 中设置 `PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.2`，`deploy.sh up` 会直接拉取；`./deploy/deploy.sh upgrade --version 3.1.0` 切换到新版本（不填默认 `latest`），启动失败时尝试自动回滚。
+部署时在 `.env` 中设置 `PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.3`，`deploy.sh up` 会直接拉取；`./deploy/deploy.sh upgrade --version 3.1.0` 切换到新版本（不填默认 `latest`），启动失败时尝试自动回滚。
 
 ## 旧版迁移
 

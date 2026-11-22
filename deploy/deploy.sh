@@ -8,8 +8,10 @@ YES=false
 PURGE=false
 FILL_MISSING=false
 UPGRADE_VERSION="${UPGRADE_VERSION:-}"
-INIT_CADDY=false
+INIT_REVERSE_PROXY=false
 INIT_WEB_PUBLIC=false
+INIT_WEB_BIND=""
+INIT_WEB_PORT=""
 OLD_CONFIG=""
 FORCE_PROJECT=false
 
@@ -39,7 +41,9 @@ usage() {
   --domains <list>             附加域名，逗号分隔
   --web-domain <name>          Web 域名
   --ssl-type <0|1|2|3>         证书模式
-  --caddy                      init 时启用内置 Caddy 反代（新建 .env）
+  --reverse-proxy              init 时使用外部反向代理（新建 .env）
+  --web-bind <ip>              反代上游的宿主机 IPv4 地址（默认 172.17.0.1）
+  --web-port <port>            反代上游的宿主机 HTTP 端口（默认 8080）
   --web-public                 直接公开 Web；SSL 模式 0/1/2 同时启用 Web HTTPS
   --admin-account <name>       管理员账号
   --admin-password <password>  管理员密码
@@ -87,7 +91,12 @@ parse_options() {
             --domains) INIT_DOMAINS="$2"; shift 2 ;;
             --web-domain) INIT_WEB_DOMAIN="$2"; shift 2 ;;
             --ssl-type) INIT_SSL_TYPE="$2"; shift 2 ;;
-            --caddy) INIT_CADDY=true; shift ;;
+            --reverse-proxy) INIT_REVERSE_PROXY=true; shift ;;
+            --web-bind|--web-port)
+                [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { echo "$1 缺少参数。" >&2; exit 2; }
+                if [[ "$1" == --web-bind ]]; then INIT_WEB_BIND="$2"; else INIT_WEB_PORT="$2"; fi
+                shift 2
+                ;;
             --web-public) INIT_WEB_PUBLIC=true; shift ;;
             --admin-account) INIT_ADMIN_ACCOUNT="$2"; shift 2 ;;
             --admin-password) INIT_ADMIN_PASSWORD="$2"; shift 2 ;;
@@ -101,6 +110,14 @@ parse_options() {
 load_project() {
     if [[ ! -f "$env_file" ]]; then
         echo "未找到 $env_file，请先运行 deploy/deploy.sh init。" >&2
+        exit 1
+    fi
+    if grep -Eq '^[[:space:]]*(export[[:space:]]+)?COMPOSE_FILE[[:space:]]*=[^#]*docker-compose\.caddy\.yml' "$env_file"; then
+        echo "docker-compose.caddy.yml 已移除，请删除 $env_file 中引用它的 COMPOSE_FILE 行，再重试。" >&2
+        exit 1
+    fi
+    if [[ "${COMPOSE_FILE:-}" == *docker-compose.caddy.yml* ]]; then
+        echo "docker-compose.caddy.yml 已移除，请取消 shell 中引用它的 COMPOSE_FILE 环境变量，再重试。" >&2
         exit 1
     fi
     if [[ -z "$project_name" ]]; then
@@ -154,10 +171,22 @@ compose() {
     docker compose --project-directory "$root_dir" --env-file "$env_file" -p "$project_name" "$@"
 }
 
+valid_ipv4() {
+    local octet
+    [[ "$1" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+    for octet in "${BASH_REMATCH[@]:1}"; do
+        (( 10#$octet <= 255 )) || return 1
+    done
+}
+
+valid_port() {
+    [[ "$1" =~ ^[1-9][0-9]{0,4}$ ]] && (( $1 <= 65535 ))
+}
+
 init_env() {
     if [[ -e "$env_file" ]]; then
-        if [[ "$INIT_CADDY" == true ]]; then
-            echo "已有 .env：--caddy 仅在新建 .env 时启用反代，未修改现有部署模式。" >&2
+        if [[ "$INIT_REVERSE_PROXY" == true || -n "$INIT_WEB_BIND" || -n "$INIT_WEB_PORT" ]]; then
+            echo "已有 .env：反代初始化选项仅用于新建配置，未修改现有部署模式。" >&2
         fi
         local existing_project
         existing_project="$(sed -n 's/^PMAIL_PROJECT_NAME=//p' "$env_file" | tail -n 1)"
@@ -182,6 +211,7 @@ init_env() {
         return 0
     fi
     local domain domains web_domain ssl_type web_bind https_enabled=2 admin_account admin_password db_password secret_key value
+    local web_http_port=80 web_https_port=443
     domain="${INIT_DOMAIN:-${PMAIL_DOMAIN:-}}"
     domains="${INIT_DOMAINS:-${PMAIL_DOMAINS:-}}"
     web_domain="${INIT_WEB_DOMAIN:-${PMAIL_WEB_DOMAIN:-}}"
@@ -198,13 +228,18 @@ init_env() {
         web_domain="${value:-${web_domain:-$domain}}"
         read -r -p "证书模式 0=ACME HTTP-01, 1=自有证书, 2=ACME DNS-01, 3=反代仅 HTTP [$ssl_type]: " value
         ssl_type="${value:-$ssl_type}"
-        if [[ "$INIT_CADDY" != true ]]; then
-            read -r -p "是否使用内置 Caddy 反代？[y/N] " value
+        if [[ "$INIT_REVERSE_PROXY" != true ]]; then
+            read -r -p "Web 是否由外部反向代理（如 Nginx Proxy Manager）提供？[y/N] " value
             if [[ "$value" =~ ^[Yy]$ ]]; then
-                INIT_CADDY=true
+                INIT_REVERSE_PROXY=true
             fi
         fi
-        if [[ "$INIT_CADDY" != true && "$INIT_WEB_PUBLIC" != true ]]; then
+        if [[ "$INIT_REVERSE_PROXY" == true ]]; then
+            if [[ -z "$INIT_WEB_BIND" ]]; then
+                read -r -p "反代上游的宿主机 IPv4 地址 [172.17.0.1]: " value
+                INIT_WEB_BIND="${value:-172.17.0.1}"
+            fi
+        elif [[ "$INIT_WEB_PUBLIC" != true ]]; then
             read -r -p "是否对公网开放 Web？[y/N]: " value
             if [[ "$value" =~ ^[Yy]$ ]]; then
                 INIT_WEB_PUBLIC=true
@@ -217,10 +252,20 @@ init_env() {
     fi
     [[ -n "$domain" ]] || { echo "主邮件域名不能为空。" >&2; exit 2; }
     [[ "$ssl_type" =~ ^[0-3]$ ]] || { echo "SSL 类型必须为 0、1、2 或 3。" >&2; exit 2; }
-    if [[ "$INIT_CADDY" == true ]]; then
-        web_bind="0.0.0.0"
+    if [[ "$INIT_REVERSE_PROXY" == true ]]; then
+        web_bind="${INIT_WEB_BIND:-172.17.0.1}"
+        web_http_port="${INIT_WEB_PORT:-8080}"
+        web_https_port=8443
         ssl_type=0
         web_domain="${web_domain:-$domain}"
+        valid_ipv4 "$web_bind" || { echo "--web-bind 必须是有效的 IPv4 地址。" >&2; return 2; }
+        if ! valid_port "$web_http_port" || [[ "$web_http_port" == 80 || "$web_http_port" == 443 || "$web_http_port" == "$web_https_port" ]]; then
+            echo "--web-port 必须是 1–65535 中的有效端口，且不能与 80、443 或 8443 冲突。" >&2
+            return 2
+        fi
+    elif [[ -n "$INIT_WEB_BIND" || -n "$INIT_WEB_PORT" ]]; then
+        echo "--web-bind 和 --web-port 仅适用于 --reverse-proxy。" >&2
+        return 2
     elif [[ "$INIT_WEB_PUBLIC" == true ]]; then
         web_bind="0.0.0.0"
         if [[ "$ssl_type" != 3 ]]; then
@@ -240,9 +285,8 @@ init_env() {
     set_env_value PMAIL_SSL_TYPE "$ssl_type"
     set_env_value PMAIL_WEB_BIND "$web_bind"
     set_env_value PMAIL_HTTPS_ENABLED "$https_enabled"
-    if [[ "$INIT_CADDY" == true ]]; then
-        set_env_value COMPOSE_FILE "docker-compose.yml:docker-compose.caddy.yml"
-    fi
+    set_env_value PMAIL_HOST_HTTP_PORT "$web_http_port"
+    set_env_value PMAIL_HOST_HTTPS_PORT "$web_https_port"
     set_env_value PMAIL_ADMIN_ACCOUNT "$admin_account"
     set_env_value PMAIL_ADMIN_PASSWORD "$admin_password"
     set_env_value POSTGRES_PASSWORD "$db_password"
@@ -256,21 +300,46 @@ init_env() {
 INFO
 }
 
+compose_env_value() {
+    local key="$1" fallback="$2" value
+    value="$(awk -v key="$key" 'index($0, key "=") == 1 { print substr($0, length(key) + 2); exit }')"
+    printf '%s\n' "${value:-$fallback}"
+}
+
+check_default_bridge_bind() {
+    if command -v ip >/dev/null; then
+        if ip -o -4 addr show | awk '{ split($4, addr, "/"); if (addr[1] == "172.17.0.1") found=1 } END { exit !found }'; then
+            return 0
+        fi
+    elif docker network inspect bridge --format '{{range .IPAM.Config}}{{println .Gateway}}{{end}}' 2>/dev/null | grep -Fx '172.17.0.1' >/dev/null; then
+        return 0
+    fi
+    echo "宿主机未检测到 172.17.0.1。请用 ip -4 addr show docker0 确认网桥地址；初始化时改用 --web-bind <ip>，已有 .env 则更新 PMAIL_WEB_BIND。" >&2
+    return 1
+}
+
 check() {
     load_project
     command -v docker >/dev/null || { echo "缺少 docker。" >&2; exit 1; }
     docker version >/dev/null
     docker compose version >/dev/null
     compose config --quiet
-    local required ports port
-    required="25 465 587 110 995 143 993 80 443"
-    ports="$(grep -E '^(PMAIL_HOST_(SMTP|SMTPS|SUBMISSION|POP3|POP3S|IMAP|IMAPS|HTTP|HTTPS)_PORT)=' "$env_file" | cut -d= -f2 | tr '\n' ' ')"
-    for port in $ports $required; do
-        [[ "$port" =~ ^[0-9]+$ ]] || continue
-        if command -v ss >/dev/null && ss -ltn "sport = :$port" | grep -q LISTEN; then
-            echo "端口 $port 已被占用（可能是本项目容器）。"
-        fi
-    done
+    local compose_env web_bind setting port
+    compose_env="$(compose config --environment)"
+    web_bind="$(compose_env_value PMAIL_WEB_BIND 127.0.0.1 <<< "$compose_env")"
+    if [[ "$web_bind" == 172.17.0.1 ]]; then
+        check_default_bridge_bind || return 1
+    fi
+    if command -v ss >/dev/null; then
+        for setting in SMTP:25 SMTPS:465 SUBMISSION:587 POP3:110 POP3S:995 IMAP:143 IMAPS:993 HTTP:80 HTTPS:443; do
+            port="$(compose_env_value "PMAIL_HOST_${setting%:*}_PORT" "${setting#*:}" <<< "$compose_env")"
+            if valid_port "$port" && ss -H -ltn "sport = :$port" | grep . >/dev/null; then
+                echo "端口 $port 已被占用（可能是本项目容器）。"
+            fi
+        done
+    else
+        echo "提示：未安装 ss，无法检查宿主机端口占用；请安装 iproute2。"
+    fi
     df -Pk "$root_dir" | awk 'NR==2 { if ($4 < 1048576) { print "磁盘可用空间少于 1GiB。"; exit 1 } }'
     if command -v nc >/dev/null; then
         if nc -z -w 3 1.1.1.1 25; then
@@ -358,7 +427,7 @@ rollback_upgrade() {
     compose down
     compose up -d --wait postgres
     restore_database "$backup_file" || return $?
-    # Bring the entire configured stack back, including Caddy when enabled.
+    # Bring the entire configured stack back.
     if ! compose up -d --wait; then
         echo "回滚后服务仍不健康，请人工处理。" >&2
         compose logs --tail=50 pmail || true
@@ -662,7 +731,7 @@ uninstall() {
     compose down
     if [[ "$PURGE" == true ]]; then
         if [[ "$YES" != true ]]; then
-            read -r -p "确认删除项目数据卷（pg_data、pmail_config，以及启用时的 Caddy 卷），数据不可恢复？[y/N]: " value
+            read -r -p "确认删除项目数据卷（pg_data、pmail_config），数据不可恢复？[y/N]: " value
             [[ "$value" =~ ^[Yy]$ ]] || exit 0
         fi
         compose down -v

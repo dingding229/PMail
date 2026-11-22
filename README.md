@@ -7,15 +7,15 @@ PMail Pro is an enhanced fork of [PMail](https://github.com/Jinnrry/PMail). PMai
 
 ## Installation guide
 
-This guide installs PMail Pro on a fresh Linux server using the Docker Hub image `dingding229/pmail-pro:3.0.0-beta.2`. Nothing is compiled on the server. Replace the example names `example.com`, `mail.example.com`, their `smtp`/`imap`/`pop` hostnames, and `203.0.113.10` with your own domain names and public IP. Replace an entire `<...>` placeholder, including the angle brackets. Run the deployment steps in the same Bash terminal and deployment directory.
+This guide installs PMail Pro on a fresh Linux server using a prebuilt Docker Hub image. Both options use `dingding229/pmail-pro:3.0.0-beta.3`, which contains the external-proxy certificate fix; do not use the older beta.1/beta.2 images. Replace the example names `example.com`, `mail.example.com`, their `smtp`/`imap`/`pop` hostnames, and `203.0.113.10` with your own domain names and public IP. Replace an entire `<...>` placeholder, including the angle brackets. Run the deployment steps in the same Bash terminal and deployment directory.
 
 ### 1. Prerequisites
 
 - 64-bit Linux (`amd64` or `arm64`) and a usable public IP. For a small installation, start with at least **2 GB RAM and 20 GB free disk** and allow room for mail and backups. These are recommendations, not script requirements.
-- Run the deployment commands as an account that can access the Docker daemon. If `docker version` reports a permission error, you can open an administrator shell with `sudo -i` and continue from step 2. Install **Docker Engine and Compose v2**. The Caddy option requires Compose **2.24.4 or newer** for [`!override`](https://docs.docker.com/reference/compose-file/merge/). For production, prefer the package repository and Compose plugin in the [official Docker installation guide](https://docs.docker.com/engine/install/). On a fresh Ubuntu/Debian server, install the following host tools. `jq` and `python3` are optional; they format the `dns` output.
+- Run the deployment commands as an account that can access the Docker daemon. If `docker version` reports a permission error, you can open an administrator shell with `sudo -i` and continue from step 2. Install **Docker Engine and Compose v2**. For production, prefer the package repository and Compose plugin in the [official Docker installation guide](https://docs.docker.com/engine/install/). On a fresh Ubuntu/Debian server, install the following host tools. `jq` and `python3` are optional; they format the `dns` output.
 
 ```bash
-sudo apt-get update && sudo apt-get install -y ca-certificates curl git dnsutils netcat-openbsd
+sudo apt-get update && sudo apt-get install -y ca-certificates curl git dnsutils netcat-openbsd iproute2 openssl
 ```
 
 If you opt for the [official Docker convenience script](https://docs.docker.com/engine/install/ubuntu/#install-using-the-convenience-script), review it before running it. Docker does not recommend this method for production installations or upgrades of an existing Engine.
@@ -42,7 +42,7 @@ Allow the required **TCP** ports in your cloud security group and host firewall.
 | `465` / `587` | Inbound, optional | SMTP client submission: implicit TLS / STARTTLS |
 | `993` / `143` | Inbound, optional | IMAP: implicit TLS / STARTTLS |
 | `995` / `110` | Inbound, optional | POP3: prefer `995` (implicit TLS); avoid publicly exposing `110` |
-| `80` / `443` | Inbound | HTTP and ACME validation / HTTPS; Caddy owns these ports in option B |
+| `80` / `443` | Inbound | HTTP and ACME validation / HTTPS; PMail uses these ports in option A, NPM in option B |
 
 Many cloud providers block outbound TCP `25` by default. Opening it in your own firewall does not remove the provider's block; ask the provider to lift it, usually through a support ticket. You also need a domain whose DNS you can edit and a public IP for which the IP provider can set PTR. **Publish and check the A records in [step 6](#6-configure-dns) before starting**. Certificate issuance uses the web name and the `smtp`, `imap`, and `pop` names, even if you do not plan to use POP3.
 
@@ -52,18 +52,18 @@ Many cloud providers block outbound TCP `25` by default. Opening it in your own 
 git clone --branch feature/v3 --depth 1 https://github.com/dingding229/PMail.git pmail-pro && cd pmail-pro
 ```
 
-The shallow clone provides `deploy/`, `docker-compose.yml`, `docker-compose.caddy.yml`, and `.env.example`. You do not need Go, Node.js, or a source build. Do not copy `.env.example` to `.env` first: `init` generates the passwords and keys when it creates `.env`.
+The shallow clone provides `deploy/`, `docker-compose.yml`, and `.env.example`. You do not need Go, Node.js, or a source build. Do not copy `.env.example` to `.env` first: `init` generates the passwords and keys when it creates `.env`.
 
 ### 3. Initialize
 
-In a deployment directory that does not yet contain `.env`, run:
+Run the following in a directory that does not yet contain `.env`. For option B, first replace the example image tag with one that includes the external-proxy certificate fix:
 
 ```bash
-export PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.2
+export PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.3
 ./deploy/deploy.sh init
 ```
 
-The wizard asks these questions in order. Use certificate mode `0` for this guide. In option A, PMail serves public web HTTPS. In option B, Caddy terminates web HTTPS and PMail still obtains its own certificate for the mail protocols. Selecting built-in Caddy forces certificate mode `0`.
+The wizard asks these questions in order. Use certificate mode `0` for this guide. In option A, PMail serves public web HTTPS. In option B, an external Nginx Proxy Manager (NPM) terminates web HTTPS. PMail uses HTTP-01 (mode `0`) for the mail certificate.
 
 | Prompt as printed | What to enter |
 | --- | --- |
@@ -71,33 +71,35 @@ The wizard asks these questions in order. Use certificate mode `0` for this guid
 | `附加域名（逗号分隔，可留空） []:` | Additional comma-separated domains. Press Enter; this guide configures one mail domain. |
 | `Web 域名 [example.com]:` | The website hostname, such as `mail.example.com`. If left blank, it defaults to the mail domain. |
 | `证书模式 0=ACME HTTP-01, 1=自有证书, 2=ACME DNS-01, 3=反代仅 HTTP [3]:` | Enter `0`. Mode `1` requires an existing certificate, `2` requires additional DNS-01 setup, and `3` disables TLS in PMail, including the TLS mail listeners. |
-| `是否使用内置 Caddy 反代？[y/N]` | Enter `y` for option B; the wizard skips the public Web question. Press Enter for option A. |
-| `是否对公网开放 Web？[y/N]:` | Shown only when Caddy is not selected and `--web-public` was not passed. Enter `y` for option A; otherwise Web binds to `127.0.0.1` by default. |
+| `Web 是否由外部反向代理（如 Nginx Proxy Manager）提供？[y/N]` | Enter `y` for option B; the wizard skips the public Web question. Press Enter for option A. |
+| `反代上游的宿主机 IPv4 地址 [172.17.0.1]:` | Shown only in option B. Docker-based NPM can usually use the bridge address; for NPM running on the host, enter `127.0.0.1`. |
+| `是否对公网开放 Web？[y/N]:` | Shown only without an external proxy and without `--web-public`. Enter `y` for option A; otherwise Web binds to `127.0.0.1` by default. |
 | `管理员账号 [admin]:` | Press Enter for `admin`, or choose a different account name. |
 
 Alternatively, **choose one of these non-interactive commands** instead of the wizard. Option A (PMail serves HTTPS directly):
 
 ```bash
-PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.2 ./deploy/deploy.sh init --yes --domain example.com --web-domain mail.example.com --ssl-type 0 --web-public --admin-account admin
+PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.3 ./deploy/deploy.sh init --yes --domain example.com --web-domain mail.example.com --ssl-type 0 --web-public --admin-account admin
 ```
 
-Option B (recommended, built-in Caddy):
+Option B (recommended, external NPM). Replace `<tag-containing-this-fix>` before running:
 
 ```bash
-PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.2 ./deploy/deploy.sh init --yes --caddy --domain example.com --web-domain mail.example.com --admin-account admin
+PMAIL_IMAGE='dingding229/pmail-pro:<tag-containing-this-fix>' \
+  ./deploy/deploy.sh init --yes --reverse-proxy --domain example.com --web-domain mail.example.com --admin-account admin
 ```
 
 `init` writes the image, domains, certificate mode, web bind address, and administrator settings to `.env` with permissions `600`. On a fresh setup, look for `初始化完成。最终项目名：pmail` (project initialized), `管理员账号：admin`, and `管理员密码（仅此处显示）：…` (admin password), followed by DNS guidance. **Save the password shown at this point** and back up `.env` securely. In particular, do not regenerate `PMAIL_SECRET_KEY` (credential encryption/SRS) or `POSTGRES_PASSWORD` for an existing installation (the PostgreSQL volume does not change its password when `.env` changes). The bootstrap password stays in `.env`, but it is not the current password once the account password has been changed. If an existing `.env` already sets an image, rerunning `init` will not replace it with the shell value; check `PMAIL_IMAGE` in `.env`.
 
 ### 4. Start and check the services
 
-Confirm the A records in step 6 resolve and that you selected direct public access or built-in Caddy in step 3. Then run:
+Confirm the A records in step 6 resolve and that you selected direct public access or an external reverse proxy in step 3. Then run:
 
 ```bash
 ./deploy/deploy.sh check
 ```
 
-On success the script prints `部署前检查通过。` (preflight checks passed). An occupied port or a failed outbound `25` probe may only produce a warning; resolve real port conflicts before proceeding. `check` checks Docker, Compose configuration, ports, disk, and the required `.env` fields, not public DNS, TLS issuance, or mail delivery.
+On success the script prints `部署前检查通过。` (preflight checks passed). An occupied port or a failed outbound `25` probe may only produce a warning; resolve real port conflicts before proceeding. In proxy mode, the script checks PMail’s mapped host HTTP port (`8080` by default); it does not report NPM’s normal use of public `80/443` as a PMail port conflict. If the configured `172.17.0.1` address does not exist, `check` fails and points to `--web-bind`. `check` checks Docker, Compose configuration, ports, disk, and the required `.env` fields, not public DNS, TLS issuance, or mail delivery.
 
 ```bash
 ./deploy/deploy.sh up
@@ -128,19 +130,36 @@ A healthy container does not mean that HTTPS certificates have already been issu
 
 If you selected mode `0` and public web access during initialization, the script has already enabled PMail web HTTPS. No `.env` edit is needed. Public TCP `80` must reach PMail for HTTP-01; browsers use `443`. Initially, only web HTTP and SMTP `25` may be available. Wait for issuance and the service reload, then open `https://mail.example.com/`. Do not log in over public, unencrypted HTTP while waiting for the certificate.
 
-#### B. Recommended: Caddy reverse proxy
+#### B. Recommended: Nginx Proxy Manager reverse proxy
 
-Use `--caddy` or select built-in Caddy in the wizard in step 3, then start with step 4. The script records the built-in override in `.env` as `COMPOSE_FILE`. There is no need to create another Compose override or Caddyfile. `--caddy` applies only when creating `.env`, not when switching an existing deployment.
+Run your own [Nginx Proxy Manager (NPM)](https://nginxproxymanager.com/) on the **same host**, listening on public `80/443`. PMail does not install or manage NPM. By default, `--reverse-proxy` in step 3 publishes PMail’s HTTP port `80` on `172.17.0.1:8080` on the host and sets `PMAIL_SSL_TYPE=0` and `PMAIL_HTTPS_ENABLED=2`. PMail does not listen on its container web HTTPS port `443` in this mode. Host port `8443` is mapped but unused; **do not use it as the NPM upstream or open it to the public**.
 
-Caddy owns public `80`/`443`; PMail retains its mail ports and serves web HTTP only inside the container network. Caddy obtains its web certificate over `443` and forwards HTTP-01 requests on `80` to PMail for mail certificate issuance and renewal. **For additional mail domains in `PMAIL_DOMAINS`**, manually add their `smtp`, `imap`, and `pop` names to the `http://` site list in `deploy/Caddyfile` and configure DNS. Reload Caddy after editing if it is already running. Allow only the mail ports you use at the public firewall; in particular, do not expose port `110` unless you need it.
-
-After Caddy has obtained its web certificate, open `https://mail.example.com/`. To inspect its logs (substitute your project name after `-p` if customized):
+If NPM runs directly on the host, add `--web-bind 127.0.0.1` at initialization and use `127.0.0.1` as the upstream below. If NPM runs in Docker and the bridge address differs, look up the host’s bridge IPv4 (omit the mask after `/`), then use `--web-bind <ip>` for an address reachable from the NPM container, not the container’s own IP. If `8080` is taken, pick a free port using `--web-port <port>` and use that same port in NPM.
 
 ```bash
-docker compose --env-file .env -p pmail logs --tail=100 caddy
+ip -4 addr show docker0
 ```
 
-If you already use Nginx, see the [Nginx reverse proxy example](#nginx-reverse-proxy-example) instead of running both proxies.
+`init` does not switch an existing `.env`. Back up an existing deployment before adjusting its settings; do not delete `.env` or the data volumes.
+
+1. **Web Proxy Host:** In NPM, create `mail.example.com` under **Hosts → Proxy Hosts**. Set **Scheme** to `http`, **Forward Hostname / IP** to `172.17.0.1`, and **Forward Port** to `8080`. Enable **Websockets Support** and **Block Common Exploits**. In **SSL**, request a **Let's Encrypt** certificate for this web host, and enable **Force SSL** and **HTTP/2 Support**.
+2. **Mail-validation Proxy Hosts:** Create separate hosts for `smtp.example.com`, `imap.example.com`, and `pop.example.com`, all forwarding to `http://172.17.0.1:8080`. **Do not request or select a certificate in NPM for these hosts, and do not enable Force SSL.** Do not restrict access to the validation path. Requests for `/.well-known/acme-challenge/` on public `80` must reach PMail unchanged for issuance and renewal of its mail certificate. Set up the same three DNS records and Proxy Hosts for each additional mail domain. SMTP, IMAP, and POP3 traffic itself still goes directly to PMail’s mail ports, not through these HTTP proxy hosts.
+
+To avoid exposing a plaintext web login on the mail-validation hostnames, you can add the following to **Advanced** on each **mail-validation** Proxy Host to allow only HTTP-01 requests:
+
+```nginx
+if ($uri !~ "^/[.]well-known/acme-challenge/[^/]+$") {
+    return 404;
+}
+```
+
+Once NPM has issued the web certificate, open `https://mail.example.com/`. The mail certificate is separate. Look for `TLS certificate is ready or replaced; reloading listeners` in the PMail logs. After the reload, if SMTP `465` is open, inspect the certificate actually presented there:
+
+```bash
+openssl s_client -connect smtp.example.com:465 -servername smtp.example.com -showcerts </dev/null
+```
+
+For plain Nginx instead of NPM, see the [Nginx reverse proxy example](#nginx-reverse-proxy-example).
 
 **First login, for either option:** use the administrator account and password printed by `init`. In **Admin → Domain management**, confirm that `example.com` is the primary mail domain. To confirm the actual mailbox address, check **Settings → Addresses and aliases**. Using `mail.example.com` for the website does not automatically make it a second mail domain.
 
@@ -200,15 +219,15 @@ Enable SMTP authentication in the client. Port `25` is for server-to-server deli
 
 ### 8. Routine operations
 
-**Upgrade the image:** make sure the target tag has been published. The example uses beta.3. You can also set `UPGRADE_VERSION`; `--version` takes precedence when both are set. The default is `latest` only when neither is set. Specify pre-release tags explicitly.
+**Upgrade the image:** make sure the target tag has been published. The example uses beta.4. You can also set `UPGRADE_VERSION`; `--version` takes precedence when both are set. The default is `latest` only when neither is set. Specify pre-release tags explicitly.
 
 ```bash
-./deploy/deploy.sh upgrade --version 3.0.0-beta.3
+./deploy/deploy.sh upgrade --version 3.0.0-beta.4
 ```
 
 The script backs up PostgreSQL, pulls the target image, and waits for health checks. If the upgrade fails, it attempts to restore the old image and pre-upgrade database. **The upgrade still exits nonzero even if rollback succeeds.** If the database restore fails, the script reports the error and backup path rather than declaring rollback successful. For source builds, `upgrade` instead builds a project-scoped `pmail-<project>:<tag>` image with a timestamped tag.
 
-**Backup:** the script prints `备份完成：<path>` and saves the dump to `backups/<project>-<UTC timestamp>.dump` in the deployment directory. It backs up PostgreSQL, not `.env` or the `pmail_config` volume (certificates, for example). With Caddy, back up the local override files and Caddy volumes separately. Keep copies somewhere other than this server.
+**Backup:** the script prints `备份完成：<path>` and saves the dump to `backups/<project>-<UTC timestamp>.dump` in the deployment directory. It backs up PostgreSQL, not `.env` or the `pmail_config` volume (certificates, for example). Back up the external proxy’s configuration and certificates separately. Keep copies somewhere other than this server.
 
 ```bash
 ./deploy/deploy.sh backup
@@ -234,7 +253,7 @@ Use `status` and `logs` from [step 4](#4-start-and-check-the-services) and sign 
 ./deploy/deploy.sh uninstall
 ```
 
-**Uninstall and delete data:** keep an off-server backup first. This command removes the containers before asking whether to delete volumes. Confirming deletes the PostgreSQL and PMail configuration volumes, plus the project's Caddy volumes if applicable. It does not delete `.env` or `backups/`.
+**Uninstall and delete data:** keep an off-server backup first. This command removes the containers before asking whether to delete volumes. Confirming deletes the PostgreSQL and PMail configuration volumes; it does not remove external NPM containers, configuration, or certificates. It does not delete `.env` or `backups/`.
 
 ```bash
 ./deploy/deploy.sh uninstall --purge
@@ -248,8 +267,8 @@ Use `status` and `logs` from [step 4](#4-start-and-check-the-services) and sign 
 nc -vz -w 5 '<external mailbox provider MX hostname>' 25
 ```
 
-- **Certificate issuance failed:** check public DNS, stale AAAA records, where public ports `80` and `443` lead, and PMail/Caddy logs. Option A must deliver `/.well-known/acme-challenge/` to PMail. In option B, Caddy proxies that path to PMail and needs public `443` for its own certificate validation. Do not switch to mode `3` just to get web HTTPS; mode `3` disables PMail's TLS mail listeners.
-- **Website unreachable:** `PMAIL_WEB_BIND` defaults to `127.0.0.1`. For option A, check the public bind setting, `PMAIL_HTTPS_ENABLED=0`, and the certificate. For option B, check `COMPOSE_FILE`, Caddy logs, and the upstream. If running Nginx on the host instead, keep PMail bound to loopback.
+- **Certificate issuance failed:** check public DNS, stale AAAA records, where public ports `80` and `443` lead, and the PMail and NPM logs. Option A must deliver port `80` challenges to PMail. In option B, check that the three mail-validation Proxy Hosts do not force HTTPS or intercept `/.well-known/acme-challenge/`, and that NPM manages its own web certificate. Do not switch to mode `3` just to get web HTTPS; mode `3` disables PMail's TLS mail listeners.
+- **Website unreachable:** `PMAIL_WEB_BIND` defaults to `127.0.0.1`. For option A, check the public bind setting, `PMAIL_HTTPS_ENABLED=0`, and the certificate. For option B, check NPM logs and whether it can reach the upstream `PMAIL_WEB_BIND:PMAIL_HOST_HTTP_PORT` specified in `.env`. If running Nginx on the host instead, keep PMail bound to loopback.
 - **Outgoing mail goes to spam:** verify SPF, DKIM and DMARC alignment, PTR/rDNS, and IP reputation. Inspect the message headers at the receiving mailbox. A working website does not validate these records.
 - **Forgot the admin password:** if it has never changed, check the saved `init` output or the bootstrap `PMAIL_ADMIN_PASSWORD` in `.env`. Another signed-in administrator can reset it in **User management**. If every admin is locked out, there is no unauthenticated reset page or `deploy.sh` reset command. Editing the bootstrap password in `.env` and restarting does not reset an existing account. Plan recovery from a suitable backup with known credentials; do not erase the data volumes to reset a password.
 - **External mailbox collection stalls:** check `last_error`, the provider's app password, TLS mode, and SSRF restrictions.
@@ -270,7 +289,7 @@ All deployment variables are documented in `.env.example`. Important variables:
 | Variable | Meaning |
 |---|---|
 | `PMAIL_PROJECT_NAME` | Docker Compose project name; use a different value for each deployment on one host. |
-| `PMAIL_IMAGE` | Empty/local mode uses the project-scoped `pmail-<project>:local` image; set a registry image such as `dingding229/pmail-pro:3.0.0-beta.2` to pull instead. |
+| `PMAIL_IMAGE` | Empty/local mode uses the project-scoped `pmail-<project>:local` image; set a registry image such as `dingding229/pmail-pro:3.0.0-beta.3` to pull instead. |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | PostgreSQL bootstrap settings. |
 | `PMAIL_DB_TYPE`, `PMAIL_DB_DSN` | Database type/DSN; Compose normally supplies PostgreSQL. |
 | `PMAIL_DOMAIN`, `PMAIL_DOMAINS`, `PMAIL_WEB_DOMAIN` | Mail and web domains. |
@@ -293,11 +312,7 @@ The deployment helper also accepts `PMAIL_ENV_FILE`, `PMAIL_API_URL`, and `PMAIL
 
 ## Nginx reverse proxy example
 
-Use this alternative if you already manage a web certificate with Nginx on the same host. Do not enable the Caddy override as well. Initialize in certificate mode `0` without public web binding in step 3. Keep `PMAIL_WEB_BIND=127.0.0.1` and `PMAIL_HTTPS_ENABLED=2`, and move PMail's mapped web ports to loopback `8080` and `8443`. Then start with step 4.
-
-```bash
-sed -i 's/^PMAIL_HOST_HTTP_PORT=.*/PMAIL_HOST_HTTP_PORT=8080/; s/^PMAIL_HOST_HTTPS_PORT=.*/PMAIL_HOST_HTTPS_PORT=8443/' .env
-```
+Use this alternative if you already manage a web certificate with Nginx on the same host. Initialize with `--reverse-proxy --web-bind 127.0.0.1` in step 3, keep the default upstream `127.0.0.1:8080`, and start with step 4.
 
 In Nginx, use the configuration below with your own certificate paths. Nginx handles public web HTTPS and proxies public HTTP-01 challenges to PMail. Do not expose `8080` or `8443` publicly.
 
@@ -345,7 +360,7 @@ Triggers:
 - Pushing a `v*` tag (e.g. `v3.0.0`) publishes `3.0.0`, `3.0`, `3`, `latest` and `sha-xxxxxxx`; pre-release tags containing `-` do not move `latest`.
 - Running "PMail Pro Docker image" manually from the Actions tab publishes the branch name (e.g. `feature-v3`), `sha-xxxxxxx` and an optional custom tag.
 
-Set `PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.2` in `.env` to pull it; `./deploy/deploy.sh upgrade --version 3.1.0` switches versions (defaults to `latest`); on failure the script attempts to roll back.
+Set `PMAIL_IMAGE=dingding229/pmail-pro:3.0.0-beta.3` in `.env` to pull it; `./deploy/deploy.sh upgrade --version 3.1.0` switches versions (defaults to `latest`); on failure the script attempts to roll back.
 
 ## Migrating old installations
 
