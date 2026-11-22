@@ -4,12 +4,14 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/utils/context"
+	log "github.com/sirupsen/logrus"
 )
 
 func DomainList(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
-	if !adminOnly(ctx, w) || !readRequest(w, r, new(struct{}), true) {
+	if !adminOnly(ctx, w) || !readRequest(ctx, w, r, new(struct{}), true) {
 		return
 	}
 	success(w, domain.List())
@@ -19,7 +21,7 @@ func DomainCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		Name string `json:"name"`
 	}
-	if !adminOnly(ctx, w) || !readRequest(w, r, &body, false) {
+	if !adminOnly(ctx, w) || !readRequest(ctx, w, r, &body, false) {
 		return
 	}
 	item, err := domain.Create(body.Name)
@@ -34,7 +36,7 @@ func domainAction(ctx *context.Context, w http.ResponseWriter, r *http.Request, 
 	var body struct {
 		ID int `json:"id"`
 	}
-	if !adminOnly(ctx, w) || !readRequest(w, r, &body, false) {
+	if !adminOnly(ctx, w) || !readRequest(ctx, w, r, &body, false) {
 		return
 	}
 	if body.ID <= 0 {
@@ -57,7 +59,7 @@ func DomainDNS(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ID int `json:"id"`
 	}
-	if !adminOnly(ctx, w) || !readRequest(w, r, &body, true) {
+	if !adminOnly(ctx, w) || !readRequest(ctx, w, r, &body, true) {
 		return
 	}
 	if r.Method == http.MethodGet {
@@ -71,6 +73,12 @@ func DomainDNS(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		serviceError(ctx, w, err)
 		return
+	}
+	for i := range records {
+		if records[i].LookupError != "" {
+			log.WithContext(ctx).Debugf("DNS lookup %s %s: %s", records[i].Name, records[i].Type, records[i].LookupError)
+			records[i].LookupError = i18n.T(ctx, "dns_lookup_error")
+		}
 	}
 	success(w, records)
 }

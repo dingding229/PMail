@@ -1,9 +1,8 @@
 package controllers
 
 import (
-	"encoding/json"
-	"io"
 	"net/http"
+	"strings"
 
 	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/dto/response"
@@ -17,9 +16,9 @@ import (
 
 func GetUserGroupList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	defaultGroup := []*models.Group{
-		{ID: models.INBOX, Name: i18n.GetText(ctx.Lang, "inbox"), FullPath: "/"},     // 收件箱
-		{ID: models.Junk, Name: i18n.GetText(ctx.Lang, "junk"), FullPath: "/"},       //垃圾邮件
-		{ID: models.Deleted, Name: i18n.GetText(ctx.Lang, "deleted"), FullPath: "/"}, // 已删除
+		{ID: models.INBOX, Name: i18n.T(ctx, "inbox"), FullPath: "/"},     // 收件箱
+		{ID: models.Junk, Name: i18n.T(ctx, "junk"), FullPath: "/"},       //垃圾邮件
+		{ID: models.Deleted, Name: i18n.T(ctx, "deleted"), FullPath: "/"}, // 已删除
 	}
 
 	infos := group.GetGroupList(ctx)
@@ -31,23 +30,23 @@ func GetUserGroup(ctx *context.Context, w http.ResponseWriter, req *http.Request
 
 	retData := []*group.GroupItem{
 		{
-			Label: i18n.GetText(ctx.Lang, "inbox"),
+			Label: i18n.T(ctx, "inbox"),
 			Tag:   dto.SearchTag{Type: 0, Status: -1, GroupId: 0}.ToString(),
 		},
 		{
-			Label: i18n.GetText(ctx.Lang, "outbox"),
+			Label: i18n.T(ctx, "outbox"),
 			Tag:   dto.SearchTag{Type: 1, Status: -1}.ToString(),
 		},
 		{
-			Label: i18n.GetText(ctx.Lang, "sketch"),
+			Label: i18n.T(ctx, "sketch"),
 			Tag:   dto.SearchTag{Type: 0, Status: 4}.ToString(),
 		},
 		{
-			Label: i18n.GetText(ctx.Lang, "junk"),
+			Label: i18n.T(ctx, "junk"),
 			Tag:   dto.SearchTag{Type: -1, Status: 5}.ToString(),
 		},
 		{
-			Label: i18n.GetText(ctx.Lang, "deleted"),
+			Label: i18n.T(ctx, "deleted"),
 			Tag:   dto.SearchTag{Type: -1, Status: 3}.ToString(),
 		},
 	}
@@ -63,20 +62,19 @@ type addGroupRequest struct {
 }
 
 func AddGroup(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
-	var reqData *addGroupRequest
-	reqBytes, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.WithContext(ctx).Errorf("%+v", err)
+	var reqData addGroupRequest
+	if !readRequest(ctx, w, req, &reqData, false) {
+		return
 	}
-	err = json.Unmarshal(reqBytes, &reqData)
-	if err != nil {
-		log.WithContext(ctx).Errorf("%+v", err)
+	if strings.TrimSpace(reqData.Name) == "" || reqData.ParentId < 0 {
+		response.Localized(ctx, response.ParamsError, "group_create_failed").FPrint(w)
+		return
 	}
-
 	newGroup, err := group.CreateGroup(ctx, reqData.Name, reqData.ParentId)
 
 	if err != nil {
-		response.NewErrorResponse(response.ServerError, "DBError", err.Error()).FPrint(w)
+		log.WithContext(ctx).Errorf("AddGroup: %v", err)
+		response.Localized(ctx, response.ServerError, "group_create_failed").FPrint(w)
 		return
 	}
 
@@ -88,19 +86,19 @@ type delGroupRequest struct {
 }
 
 func DelGroup(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
-	var reqData *delGroupRequest
-	reqBytes, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.WithContext(ctx).Errorf("%+v", err)
+	var reqData delGroupRequest
+	if !readRequest(ctx, w, req, &reqData, false) {
+		return
 	}
-	err = json.Unmarshal(reqBytes, &reqData)
-	if err != nil {
-		log.WithContext(ctx).Errorf("%+v", err)
+	if reqData.Id <= 0 {
+		response.Localized(ctx, response.ParamsError, "group_delete_failed").FPrint(w)
+		return
 	}
 	succ, err := group.DelGroup(ctx, reqData.Id)
 
 	if err != nil {
-		response.NewErrorResponse(response.ServerError, "DBError", err.Error()).FPrint(w)
+		log.WithContext(ctx).Errorf("DelGroup: %v", err)
+		response.Localized(ctx, response.ServerError, "group_delete_failed").FPrint(w)
 		return
 	}
 	response.NewSuccessResponse(succ).FPrint(w)

@@ -13,5 +13,6 @@ server/plugins
 server/config/*.json
 server/config/*.db*
 server/config/secret.key
+server/config/registration_key
 server/config/dkim
 server/config/ssl

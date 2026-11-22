@@ -124,7 +124,7 @@ func BootstrapCredentials() (account, password string, ok bool) {
 		account = "admin"
 	}
 	password = os.Getenv("PMAIL_ADMIN_PASSWORD")
-	ok = Instance.DbDSN != "" && strings.TrimSpace(os.Getenv("PMAIL_DOMAIN")) != ""
+	ok = Instance.DbDSN != "" && Instance.Domain != ""
 	return
 }
 

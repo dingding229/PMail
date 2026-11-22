@@ -5,14 +5,11 @@ import (
 	"net/http"
 
 	"github.com/Jinnrry/pmail/config"
-	"github.com/Jinnrry/pmail/db"
-	"github.com/Jinnrry/pmail/dto/response"
-	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/registration"
 	"github.com/Jinnrry/pmail/utils/context"
 )
-
-const bootstrapVersion = "4.0.0-dev"
 
 type bootstrapFeatures struct {
 	RegisterKey bool `json:"register_key"`
@@ -28,29 +25,28 @@ type bootstrapResponse struct {
 	Features     bootstrapFeatures `json:"features"`
 }
 
-func Bootstrap(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
-	result := bootstrapResponse{
-		Version:      bootstrapVersion,
-		NeedRegister: true, // The legacy setup listener may not have a database yet.
-		LoggedIn:     ctx.UserID > 0,
-		DefaultLang:  config.DefaultLang(),
-		WebDomain:    config.Instance.WebDomain,
-		Domains:      []string{},
-		Features:     bootstrapFeatures{RegisterKey: true},
+func Bootstrap(version string) HandlerFunc {
+	if version == "" {
+		version = "dev"
 	}
-	if db.Instance != nil {
-		hasUser, err := db.Instance.Context(r.Context()).Exist(&models.User{})
+	return func(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
+		pending, err := registration.Pending(r.Context())
 		if err != nil {
 			serviceError(ctx, w, err)
 			return
 		}
-		result.NeedRegister = !hasUser
-	} else if config.IsInit {
-		apiError(w, http.StatusServiceUnavailable, response.ServerError, "Database unavailable")
-		return
+		result := bootstrapResponse{
+			Version:      version,
+			NeedRegister: pending,
+			LoggedIn:     ctx.UserID > 0,
+			DefaultLang:  i18n.Default(),
+			WebDomain:    config.Instance.WebDomain,
+			Domains:      []string{},
+			Features:     bootstrapFeatures{RegisterKey: true},
+		}
+		if result.LoggedIn {
+			result.Domains = domain.Names()
+		}
+		_ = json.NewEncoder(w).Encode(result)
 	}
-	if result.LoggedIn {
-		result.Domains = domain.Names()
-	}
-	_ = json.NewEncoder(w).Encode(result)
 }

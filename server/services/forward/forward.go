@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/mail"
 	"strings"
 	"time"
@@ -27,9 +26,10 @@ import (
 )
 
 var (
-	ErrInvalidTarget = errors.New("invalid forwarding target")
-	ErrSelfTarget    = errors.New("loop forwarding to self: forwarding target cannot be one of your own addresses")
-	ErrInvalidSRS    = errors.New("invalid SRS address")
+	ErrTooManyTargets = errors.New("at most 10 forwarding targets are allowed")
+	ErrInvalidTarget  = errors.New("invalid forwarding target")
+	ErrSelfTarget     = errors.New("loop forwarding to self: forwarding target cannot be one of your own addresses")
+	ErrInvalidSRS     = errors.New("invalid SRS address")
 )
 
 func Get(userID int) (models.ForwardSetting, []string, error) {
@@ -89,7 +89,7 @@ func Targets(raw string) []string {
 
 func ValidateTargets(userID int, targets []string) ([]string, error) {
 	if len(targets) > 10 {
-		return nil, fmt.Errorf("at most 10 forwarding targets are allowed")
+		return nil, ErrTooManyTargets
 	}
 	self := map[string]bool{}
 	addresses, err := ownAddresses(userID)

@@ -46,7 +46,7 @@ usage() {
   --web-port <port>            反代上游的宿主机 HTTP 端口（默认 8080）
   --web-public                 直接公开 Web；SSL 模式 0/1/2 同时启用 Web HTTPS
   --admin-account <name>       管理员账号
-  --admin-password <password>  管理员密码
+  --admin-password <password>  可选：直接创建管理员；不指定则使用首次注册密钥
   --purge                      uninstall 时删除数据卷
   --fill-missing               init 时补齐镜像选项，保留现有凭据配置
   --version <tag>              upgrade 使用的镜像 tag（预构建镜像模式）
@@ -287,7 +287,6 @@ init_env() {
     web_domain="${web_domain:-mail.$domain}"
     db_password="$(random_hex 24)"
     secret_key="$(random_hex 32)"
-    [[ -n "$admin_password" ]] || admin_password="$(random_hex 24)"
     cp "$root_dir/.env.example" "$env_file"
     chmod 600 "$env_file"
     set_env_value PMAIL_PROJECT_NAME "$project_name"
@@ -306,11 +305,14 @@ init_env() {
     set_env_value PMAIL_SECRET_KEY "$secret_key"
     cat <<INFO
 初始化完成。最终项目名：$project_name
-管理员账号：$admin_account
-管理员密码（仅此处显示）：$admin_password
-请立即保存密码，并配置以下 DNS：
+请配置以下 DNS：
   MX、SPF、DKIM、DMARC；邮件服务器公网 IP 还应配置 PTR/rDNS。
 INFO
+    if [[ -n "$admin_password" ]]; then
+        printf '首次启动将使用你提供的密码创建管理员 %s。已有用户不会被修改。\n' "$admin_account"
+    else
+        printf '启动后使用 `docker compose logs pmail | grep 注册密钥`，打开 https://%s/ 完成首次注册。\n' "$web_domain"
+    fi
 }
 
 compose_env_value() {

@@ -6,7 +6,11 @@ import (
 	"strings"
 
 	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/dto/response"
+	"github.com/Jinnrry/pmail/i18n"
+	"github.com/Jinnrry/pmail/services/registration"
 	"github.com/Jinnrry/pmail/session"
+	log "github.com/sirupsen/logrus"
 )
 
 func inNamespace(path, prefix string) bool {
@@ -22,6 +26,21 @@ func apiSessions(next http.Handler) http.Handler {
 	withSession := session.Instance.LoadAndSave(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if apiOrAttachment(r.URL.Path) && r.URL.Path != "/api/ping" {
+			if r.URL.Path != "/api/bootstrap" && r.URL.Path != "/api/register" {
+				pending, err := registration.Pending(r.Context())
+				if err != nil || pending {
+					w.Header().Set("Content-Type", "application/json")
+					w.Header().Set("Cache-Control", "no-store")
+					ctx := i18n.ForRequest(r)
+					if err != nil {
+						log.WithContext(ctx).Errorf("Read registration state: %v", err)
+						response.Localized(ctx, response.ServerError, "internal_error").FPrintStatus(w, http.StatusInternalServerError)
+					} else {
+						response.Localized(ctx, response.NoAccessPrivileges, "registration_required").FPrintStatus(w, http.StatusForbidden)
+					}
+					return
+				}
+			}
 			withSession.ServeHTTP(w, r)
 			return
 		}
@@ -42,7 +61,7 @@ func webMiddleware(next http.Handler) http.Handler {
 		for name, value := range map[string]string{
 			"X-Content-Type-Options": "nosniff",
 			"Referrer-Policy":        "same-origin",
-			"X-Frame-Options":        "DENY",
+			"X-Frame-Options":        "SAMEORIGIN",
 		} {
 			if w.Header().Get(name) == "" {
 				w.Header().Set(name, value)
@@ -59,7 +78,7 @@ func webMiddleware(next http.Handler) http.Handler {
 		if preflight {
 			w.Header().Add("Vary", "Access-Control-Request-Method, Access-Control-Request-Headers")
 			if !origins[origin] || !allowedCORSRequest(preflightMethod, r.Header.Get("Access-Control-Request-Headers")) {
-				http.Error(w, "CORS preflight denied", http.StatusForbidden)
+				http.Error(w, i18n.T(i18n.ForRequest(r), "cors_denied"), http.StatusForbidden)
 				return
 			}
 		}
@@ -70,7 +89,7 @@ func webMiddleware(next http.Handler) http.Handler {
 		}
 		if preflight {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Lang, Token, X-PMail-Lang, Range")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept-Language, Lang, Token, X-PMail-Lang, Range")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -84,7 +103,7 @@ func allowedCORSRequest(method, headers string) bool {
 	}
 	for header := range strings.SplitSeq(headers, ",") {
 		switch strings.ToLower(strings.TrimSpace(header)) {
-		case "", "authorization", "content-type", "lang", "token", "x-pmail-lang", "range":
+		case "", "authorization", "content-type", "accept-language", "lang", "token", "x-pmail-lang", "range":
 		default:
 			return false
 		}

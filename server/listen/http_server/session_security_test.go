@@ -46,7 +46,7 @@ func newAuthFixture(t *testing.T) *authFixture {
 	oldDB, oldSession, oldInit := db.Instance, session.Instance, config.IsInit
 	db.Instance, session.Instance, config.IsInit = engine, scs.New(), true
 	mux := http.NewServeMux()
-	router(mux)
+	router(mux, "dev")
 	mux.HandleFunc("/test/legacy", func(w http.ResponseWriter, r *http.Request) {
 		data, _ := json.Marshal(f.admin)
 		session.Instance.Put(r.Context(), "user", string(data))

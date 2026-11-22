@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"errors"
+	log "github.com/sirupsen/logrus"
 	"net/http"
 
 	"github.com/Jinnrry/pmail/services/forward"
@@ -9,7 +11,7 @@ import (
 
 func ForwardGet(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
-		apiError(w, http.StatusMethodNotAllowed, 100, "Method not allowed")
+		apiError(ctx, w, http.StatusMethodNotAllowed, 100, "method_not_allowed")
 		return
 	}
 	setting, targets, err := forward.Get(ctx.UserID)
@@ -26,7 +28,7 @@ func ForwardSet(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		Targets  []string `json:"targets"`
 		KeepCopy *bool    `json:"keep_copy"`
 	}
-	if !readRequest(w, r, &body, false) {
+	if !readRequest(ctx, w, r, &body, false) {
 		return
 	}
 	keep := true
@@ -35,8 +37,22 @@ func ForwardSet(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	}
 	setting, err := forward.Set(ctx.UserID, body.Enabled, body.Targets, keep)
 	if err != nil {
-		apiError(w, http.StatusBadRequest, 100, err.Error())
+		log.WithContext(ctx).Warnf("Set forwarding settings: %v", err)
+		apiError(ctx, w, http.StatusBadRequest, 100, forwardErrorKey(err))
 		return
 	}
 	success(w, setting)
+}
+
+func forwardErrorKey(err error) string {
+	switch {
+	case errors.Is(err, forward.ErrInvalidTarget):
+		return "forward_invalid_target"
+	case errors.Is(err, forward.ErrSelfTarget):
+		return "forward_self_target"
+	case errors.Is(err, forward.ErrTooManyTargets):
+		return "forward_too_many_targets"
+	default:
+		return "forward_settings_failed"
+	}
 }

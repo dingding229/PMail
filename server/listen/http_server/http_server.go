@@ -24,11 +24,12 @@ func HttpStop() {
 	}
 }
 
-func router(mux *http.ServeMux) {
+func router(mux *http.ServeMux, version string) {
 	mux.HandleFunc("/", staticWeb())
 	mux.HandleFunc("GET "+acmePrefix+"{token}", controllers.AcmeChallenge)
 	mux.HandleFunc("/api/ping", controllers.Ping)
-	mux.HandleFunc("GET /api/bootstrap", contextIterceptor(controllers.Bootstrap))
+	mux.HandleFunc("GET /api/bootstrap", contextIterceptor(controllers.Bootstrap(version)))
+	mux.HandleFunc("POST /api/register", contextIterceptor(controllers.Register))
 	mux.HandleFunc("/api/login", contextIterceptor(controllers.Login))
 	mux.HandleFunc("/api/logout", contextIterceptor(controllers.Logout))
 	mux.HandleFunc("/api/group", contextIterceptor(controllers.GetUserGroup))
@@ -89,7 +90,7 @@ func router(mux *http.ServeMux) {
 	mux.HandleFunc("/api/token/delete", contextIterceptor(controllers.TokenDelete))
 }
 
-func HttpStart(httpsReady bool) {
+func HttpStart(httpsReady bool, version string) {
 	mux := http.NewServeMux()
 	port := config.Instance.HttpPort
 	if port == 0 {
@@ -103,7 +104,7 @@ func HttpStart(httpsReady bool) {
 		mux.HandleFunc("/", controllers.Interceptor)
 	} else {
 		// Serve HTTP directly rather than redirecting to an unavailable HTTPS listener.
-		router(mux)
+		router(mux, version)
 		handler = apiSessions(mux)
 	}
 	server := &http.Server{

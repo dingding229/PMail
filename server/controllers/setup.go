@@ -1,29 +1,27 @@
 package controllers
 
 import (
-	"encoding/json"
+	"errors"
+	"net/http"
+	"os"
+
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/dto/response"
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/services/setup"
 	"github.com/Jinnrry/pmail/services/setup/ssl"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cast"
-	"io"
-	"net/http"
-	"os"
 )
 
 func AcmeChallenge(w http.ResponseWriter, r *http.Request) {
 	log.Infof("AcmeChallenge: %s", r.URL.Path)
 	instance := ssl.GetHttpChallengeInstance()
-	token := r.PathValue("token")
-	auth, exist := instance.Lookup(token)
-	if exist {
+	if auth, exist := instance.Lookup(r.PathValue("token")); exist {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Write([]byte(auth))
+		_, _ = w.Write([]byte(auth))
 	} else {
-		http.NotFound(w, r)
+		http.Error(w, i18n.T(i18n.ForRequest(r), "not_found"), http.StatusNotFound)
 	}
 }
 
@@ -33,154 +31,103 @@ type sslResponse struct {
 }
 
 func Setup(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
-	reqBytes, err := io.ReadAll(req.Body)
-	if err != nil {
-		response.NewSuccessResponse("").FPrint(w)
+	var data map[string]string
+	if !readRequest(ctx, w, req, &data, false) {
 		return
 	}
-
-	var reqData map[string]string
-	err = json.Unmarshal(reqBytes, &reqData)
-	if err != nil {
-		response.NewErrorResponse(response.ServerError, "", err.Error()).FPrint(w)
-		return
+	fail := func(key string, err error) {
+		log.WithContext(ctx).Errorf("Legacy setup %s/%s failed: %v", data["step"], data["action"], err)
+		response.Localized(ctx, response.ServerError, key).FPrint(w)
 	}
-
-	if reqData["step"] == "database" && reqData["action"] == "get" {
+	ack := func() { success(w, i18n.T(ctx, "succ")) }
+	switch data["step"] + "/" + data["action"] {
+	case "database/get":
 		dbType, dbDSN, err := setup.GetDatabaseSettings(ctx)
 		if err != nil {
-			response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
+			fail("setup_db_failed", err)
 			return
 		}
-
-		response.NewSuccessResponse(map[string]string{
-			"db_type": dbType,
-			"db_dsn":  dbDSN,
-		}).FPrint(w)
-		return
-	}
-
-	if reqData["step"] == "database" && reqData["action"] == "set" {
-		err := setup.SetDatabaseSettings(ctx, cast.ToString(reqData["db_type"]), cast.ToString(reqData["db_dsn"]))
+		success(w, map[string]string{"db_type": dbType, "db_dsn": dbDSN})
+	case "database/set":
+		if err := setup.SetDatabaseSettings(ctx, data["db_type"], data["db_dsn"]); err == nil {
+			ack()
+		} else if errors.Is(err, setup.ErrDbType) {
+			response.Localized(ctx, response.ParamsError, "setup_db_type").FPrint(w)
+		} else if errors.Is(err, setup.ErrDbDSN) {
+			response.Localized(ctx, response.ParamsError, "setup_db_dsn").FPrint(w)
+		} else {
+			fail("setup_db_failed", err)
+		}
+	case "password/get":
+		account, err := setup.GetAdminAccount()
 		if err != nil {
-			response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
+			fail("setup_db_failed", err)
 			return
 		}
-
-		response.NewSuccessResponse("Succ").FPrint(w)
-		return
-	}
-
-	if reqData["step"] == "password" && reqData["action"] == "get" {
-		ok, err := setup.GetAdminPassword(ctx)
-		if err != nil {
-			response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
-			return
-		}
-		response.NewSuccessResponse(ok).FPrint(w)
-		return
-	}
-
-	if reqData["step"] == "password" && reqData["action"] == "set" {
-		err := setup.SetAdminPassword(ctx, cast.ToString(reqData["account"]), cast.ToString(reqData["password"]))
-		if err != nil {
-			response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
-			return
-		}
-		response.NewSuccessResponse("Succ").FPrint(w)
-		return
-	}
-
-	if reqData["step"] == "domain" && reqData["action"] == "get" {
+		success(w, account)
+	case "password/set", "account/set":
+		apiError(ctx, w, http.StatusForbidden, response.NoAccessPrivileges, "setup_password_removed")
+	case "domain/get":
 		smtpDomain, webDomain, domains, err := setup.GetDomainSettings()
 		if err != nil {
-			response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
+			fail("setup_domain_failed", err)
 			return
 		}
-		response.NewSuccessResponse(map[string]any{
-			"smtp_domain": smtpDomain,
-			"web_domain":  webDomain,
-			"domains":     domains,
-		}).FPrint(w)
-		return
-	}
-
-	if reqData["step"] == "domain" && reqData["action"] == "set" {
-		err := setup.SetDomainSettings(cast.ToString(reqData["smtp_domain"]), cast.ToString(reqData["web_domain"]), reqData["multi_domain"])
+		success(w, map[string]any{"smtp_domain": smtpDomain, "web_domain": webDomain, "domains": domains})
+	case "domain/set":
+		if err := setup.SetDomainSettings(data["smtp_domain"], data["web_domain"], data["multi_domain"]); err == nil {
+			ack()
+		} else if errors.Is(err, setup.ErrDomainRequired) {
+			response.Localized(ctx, response.ParamsError, "setup_domain_required").FPrint(w)
+		} else if errors.Is(err, setup.ErrWebDomainRequired) {
+			response.Localized(ctx, response.ParamsError, "setup_web_domain_required").FPrint(w)
+		} else {
+			fail("setup_domain_failed", err)
+		}
+	case "dns/get":
+		records, err := setup.GetDNSSettings(ctx)
 		if err != nil {
-			response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
+			fail("setup_dns_failed", err)
 			return
 		}
-		response.NewSuccessResponse("Succ").FPrint(w)
-		return
-	}
-
-	if reqData["step"] == "dns" && reqData["action"] == "get" {
-		dnsInfos, err := setup.GetDNSSettings(ctx)
-		if err != nil {
-			response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
-			return
-		}
-		response.NewSuccessResponse(dnsInfos).FPrint(w)
-		return
-	}
-
-	if reqData["step"] == "ssl" && reqData["action"] == "get" {
-		sslType := ssl.GetSSL()
-		res := sslResponse{
-			Type: sslType,
-			Port: config.Instance.GetSetupPort(),
-		}
-		response.NewSuccessResponse(res).FPrint(w)
-		return
-	}
-
-	if reqData["step"] == "ssl" && reqData["action"] == "getParams" {
-		dnsChallenge := ssl.GetDnsChallengeInstance()
-
-		response.NewSuccessResponse(dnsChallenge.GetDNSSettings(ctx)).FPrint(w)
-		return
-	}
-
-	if reqData["step"] == "ssl" && reqData["action"] == "set" {
-
-		if reqData["ssl_type"] == config.SSLTypeUser {
-			keyPath := reqData["key_path"]
-			crtPath := reqData["crt_path"]
-
-			_, err := os.Stat(cast.ToString(keyPath))
-			if err != nil {
-				response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
-				return
+		success(w, records)
+	case "ssl/get":
+		success(w, sslResponse{Type: ssl.GetSSL(), Port: config.Instance.GetSetupPort()})
+	case "ssl/getParams":
+		success(w, ssl.GetDnsChallengeInstance().GetDNSSettings(ctx))
+	case "ssl/set":
+		sslType, keyPath, crtPath := data["ssl_type"], data["key_path"], data["crt_path"]
+		if sslType == config.SSLTypeUser {
+			for _, path := range []string{keyPath, crtPath} {
+				if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+					response.Localized(ctx, response.ParamsError, "setup_ssl_file").FPrint(w)
+					return
+				}
 			}
-
-			_, err = os.Stat(cast.ToString(crtPath))
-			if err != nil {
-				response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
+		}
+		if err := ssl.SetSSL(sslType, keyPath, crtPath); err != nil {
+			if errors.Is(err, ssl.ErrInvalidType) {
+				response.Localized(ctx, response.ParamsError, "setup_ssl_type").FPrint(w)
+			} else if errors.Is(err, ssl.ErrDomainRequired) {
+				response.Localized(ctx, response.ParamsError, "setup_ssl_domain").FPrint(w)
+			} else {
+				fail("setup_ssl_failed", err)
+			}
+			return
+		}
+		if sslType == config.SSLTypeAutoHTTP || sslType == config.SSLTypeAutoDNS {
+			if err := ssl.GenSSL(false); err != nil {
+				fail("setup_ssl_failed", err)
 				return
 			}
 		}
-
-		err = ssl.SetSSL(cast.ToString(reqData["ssl_type"]), cast.ToString(reqData["key_path"]), cast.ToString(reqData["crt_path"]))
-		if err != nil {
-			response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
-			return
-		}
-
-		if reqData["ssl_type"] == config.SSLTypeAutoHTTP || reqData["ssl_type"] == config.SSLTypeAutoDNS {
-			err = ssl.GenSSL(false)
-			if err != nil {
-				response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
-				return
+		ack()
+		if sslType == config.SSLTypeUser || sslType == config.SSLTypeDisabled {
+			if err := setup.Finish(); err != nil {
+				log.WithContext(ctx).Errorf("Finish legacy setup: %v", err)
 			}
 		}
-
-		response.NewSuccessResponse("Succ").FPrint(w)
-
-		if reqData["ssl_type"] == config.SSLTypeUser || reqData["ssl_type"] == config.SSLTypeDisabled {
-			setup.Finish()
-		}
-		return
+	default:
+		response.Localized(ctx, response.ParamsError, "setup_invalid_step").FPrint(w)
 	}
-
 }

@@ -18,7 +18,7 @@ import (
 // 项目初始化引导用的服务，初始化引导结束后即退出
 var setupServer *http.Server
 
-func SetupStart() {
+func SetupStart(version string) {
 	mux := http.NewServeMux()
 	var setupRequests sync.Mutex
 	serializeSetup := func(handler http.HandlerFunc) http.HandlerFunc {
@@ -31,7 +31,9 @@ func SetupStart() {
 	}
 	mux.HandleFunc("/", staticWeb())
 	mux.HandleFunc("POST /api/setup", serializeSetup(contextIterceptor(controllers.Setup)))
-	mux.HandleFunc("GET /api/bootstrap", serializeSetup(contextIterceptor(controllers.Bootstrap)))
+	mux.HandleFunc("/api/ping", controllers.Ping)
+	mux.HandleFunc("POST /api/register", serializeSetup(contextIterceptor(controllers.Register)))
+	mux.HandleFunc("GET /api/bootstrap", serializeSetup(contextIterceptor(controllers.Bootstrap(version))))
 	mux.HandleFunc("GET "+acmePrefix+"{token}", controllers.AcmeChallenge)
 
 	HttpPort := config.Instance.HttpPort

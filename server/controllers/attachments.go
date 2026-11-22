@@ -13,11 +13,11 @@ import (
 )
 
 func GetAttachments(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
-	serveAttachment(w, r, lookupAttachment(ctx, r, false), false)
+	serveAttachment(ctx, w, r, lookupAttachment(ctx, r, false), false)
 }
 
 func Download(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
-	serveAttachment(w, r, lookupAttachment(ctx, r, true), true)
+	serveAttachment(ctx, w, r, lookupAttachment(ctx, r, true), true)
 }
 
 func lookupAttachment(ctx *context.Context, r *http.Request, download bool) *parsemail.Attachment {
@@ -47,13 +47,13 @@ func attachmentByIndex(ctx *context.Context, mail, index string) *parsemail.Atta
 	return attachments.GetAttachmentsByIndex(ctx, emailID, attachmentIndex)
 }
 
-func serveAttachment(w http.ResponseWriter, r *http.Request, attachment *parsemail.Attachment, download bool) {
+func serveAttachment(ctx *context.Context, w http.ResponseWriter, r *http.Request, attachment *parsemail.Attachment, download bool) {
 	w.Header().Set("Cache-Control", "private, no-store")
 	if !download {
 		w.Header().Set("Content-Security-Policy", "sandbox")
 	}
 	if attachment == nil || len(attachment.Content) == 0 {
-		response.NewErrorResponse(response.ParamsError, "", "").FPrint(w)
+		response.Localized(ctx, response.ParamsError, "attachment_not_found").FPrint(w)
 		return
 	}
 	contentType, inline := attachments.InlineContentType(attachment.ContentType)

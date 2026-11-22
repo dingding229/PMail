@@ -77,10 +77,69 @@ func ensureSearchableSecretDir(dir string) error {
 	return nil
 }
 
-// InitialAdminPassword is called only if the bootstrap account does not exist.
-// Persist before inserting the account so a failed bootstrap can be retried.
-func InitialAdminPassword() (string, error) {
-	return loadOrCreateSecret(filepath.Join(ROOT_PATH, "config", "initial_admin_password"), "", 24)
+// Exactly 32 symbols: removing O/I/0/1 leaves five unbiased bits per
+// character, for 80 bits of entropy in sixteen characters.
+const registrationAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+func registrationKeyPath() string { return filepath.Join(ROOT_PATH, "config", "registration_key") }
+
+func EnsureRegistrationKey() (string, error) {
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", err
+	}
+	var key strings.Builder
+	for i, b := range random {
+		if i > 0 && i%4 == 0 {
+			key.WriteByte('-')
+		}
+		key.WriteByte(registrationAlphabet[b&31])
+	}
+	value, err := loadOrCreateSecret(registrationKeyPath(), key.String(), 0)
+	if err != nil {
+		return "", err
+	}
+	value, err = validateRegistrationKey(value)
+	if err != nil {
+		return "", err
+	}
+	if err := os.Chmod(registrationKeyPath(), 0600); err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func ReadRegistrationKey() (string, error) {
+	value, err := readSecret(registrationKeyPath())
+	if err != nil {
+		return "", err
+	}
+	return validateRegistrationKey(value)
+}
+
+func validateRegistrationKey(value string) (string, error) {
+	if len(value) == 19 {
+		valid := true
+		for i := range len(value) {
+			if i%5 == 4 {
+				valid = valid && value[i] == '-'
+			} else {
+				valid = valid && strings.ContainsRune(registrationAlphabet, rune(value[i]))
+			}
+		}
+		if valid {
+			return value, nil
+		}
+	}
+	return "", fmt.Errorf("invalid registration key format in %s", registrationKeyPath())
+}
+
+func RemoveRegistrationKey() error {
+	err := os.Remove(registrationKeyPath())
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 func readSecret(path string) (string, error) {

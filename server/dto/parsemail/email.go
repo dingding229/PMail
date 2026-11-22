@@ -71,15 +71,15 @@ func NewEmailAuthentication(spfPassed, dkimPassed bool) *EmailAuthentication {
 
 // Email is the type used for email messages
 type Email struct {
-	ReplyTo        []*User
-	From           *User
-	To             []*User
-	Bcc            []*User
-	Cc             []*User
-	Subject        string
-	Text           []byte // Plaintext message (optional)
-	HTML           []byte // Html message (optional)
-	Sender         *User  // override From as SMTP envelope sender (optional)
+	ReplyTo []*User
+	From    *User
+	To      []*User
+	Bcc     []*User
+	Cc      []*User
+	Subject string
+	Text    []byte // Plaintext message (optional)
+	HTML    []byte // Html message (optional)
+	Sender  *User  // override From as SMTP envelope sender (optional)
 	// Headers contains custom transport headers that must survive generated mail.
 	Headers        textproto.MIMEHeader
 	Attachments    []*Attachment

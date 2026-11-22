@@ -14,6 +14,7 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/dto/response"
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/detail"
@@ -36,17 +37,17 @@ type forwardRequest struct {
 func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	var body forwardRequest
 	if err := json.NewDecoder(io.LimitReader(req.Body, 64<<10)).Decode(&body); err != nil || body.EmailID <= 0 {
-		response.NewErrorResponse(response.ParamsError, "invalid forward request", "").FPrint(w)
+		response.Localized(ctx, response.ParamsError, "invalid_json").FPrint(w)
 		return
 	}
 	original, err := detail.GetEmailDetail(ctx, body.EmailID, false)
 	if err != nil {
-		response.NewErrorResponse(response.NoAccessPrivileges, "not authorized", "").FPrintStatus(w, http.StatusForbidden)
+		response.Localized(ctx, response.NoAccessPrivileges, "mail_not_found").FPrintStatus(w, http.StatusForbidden)
 		return
 	}
 	fromAddress, err := address.SendAddress(ctx.UserID, body.FromAddress)
 	if err != nil && !ctx.IsAdmin {
-		response.NewErrorResponse(response.NoAccessPrivileges, "forbidden sender address", "").FPrintStatus(w, http.StatusForbidden)
+		response.Localized(ctx, response.NoAccessPrivileges, "mail_sender_forbidden").FPrintStatus(w, http.StatusForbidden)
 		return
 	}
 	if fromAddress == "" {
@@ -55,18 +56,18 @@ func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request
 	if fromAddress == "" {
 		fromAddress, err = address.SendAddress(ctx.UserID, "")
 		if err != nil {
-			response.NewErrorResponse(response.ParamsError, "sender address is required", "").FPrint(w)
+			response.Localized(ctx, response.ParamsError, "mail_sender_required").FPrint(w)
 			return
 		}
 	}
 	to, err := forwardUsers(body.To)
 	if err != nil || len(to) == 0 {
-		response.NewErrorResponse(response.ParamsError, "at least one recipient is required", "").FPrint(w)
+		response.Localized(ctx, response.ParamsError, "mail_recipient_required").FPrint(w)
 		return
 	}
 	cc, err := forwardUsers(body.Cc)
 	if err != nil {
-		response.NewErrorResponse(response.ParamsError, "invalid cc recipient", "").FPrint(w)
+		response.Localized(ctx, response.ParamsError, "mail_cc_invalid").FPrint(w)
 		return
 	}
 	orig := parsemail.NewEmailFromModel(original.Email)
@@ -81,7 +82,7 @@ func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request
 		CreateTime: time.Now(), Status: consts.EmailStatusDeliveryPending, MsgID: e.MsgID,
 	}
 	if err := persistOutboundParent(&modelEmail, ctx.UserID); err != nil {
-		response.NewErrorResponse(response.ServerError, "cannot save forwarded message", "").FPrint(w)
+		response.Localized(ctx, response.ServerError, "mail_persist_failed").FPrint(w)
 		return
 	}
 	e.MessageId = int64(modelEmail.Id)
@@ -98,7 +99,7 @@ func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request
 			queued++
 		} else if ok && err != nil {
 			item["status"] = "failed"
-			item["error"] = err.Error()
+			item["error"] = i18n.Delivery(ctx, "delivery_detail", err.Error())
 		} else {
 			delivered++
 		}
@@ -125,7 +126,7 @@ func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request
 	}
 	result := map[string]any{"status": statusText, "recipients": out}
 	if delivered+queued == 0 {
-		response.NewErrorResponse(response.ServerError, "forward delivery failed", result).FPrint(w)
+		response.NewErrorResponse(response.ServerError, i18n.T(ctx, "forward_failed"), result).FPrint(w)
 		return
 	}
 	response.NewSuccessResponse(result).FPrint(w)

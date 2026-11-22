@@ -9,6 +9,7 @@ import (
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/listen/cron_server"
 	"github.com/Jinnrry/pmail/listen/http_server"
 	"github.com/Jinnrry/pmail/listen/imap_server"
@@ -18,20 +19,21 @@ import (
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/queue"
+	"github.com/Jinnrry/pmail/services/registration"
 	"github.com/Jinnrry/pmail/services/setup"
 	"github.com/Jinnrry/pmail/services/setup/ssl"
+	"github.com/Jinnrry/pmail/services/user"
 	"github.com/Jinnrry/pmail/session"
 	"github.com/Jinnrry/pmail/signal"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/send"
 	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cast"
 )
 
 func Init(serverVersion string) {
-	account, password, bootstrap := config.BootstrapCredentials()
+	_, _, bootstrap := config.BootstrapCredentials()
 	if !config.IsInit && !bootstrap {
-		go http_server.SetupStart()
+		go http_server.SetupStart(serverVersion)
 		<-signal.InitChan
 		http_server.SetupStop()
 		if err := config.Init(); err != nil {
@@ -39,16 +41,15 @@ func Init(serverVersion string) {
 		}
 	}
 
-	preserveUsers := bootstrap
 	for {
 		if config.Instance.DbDSN == "" {
 			log.Fatal("Database DSN must be configured; check config.json and PMAIL_* settings")
 		}
-		if err := db.InitStartup(serverVersion, preserveUsers); err != nil {
+		if err := db.InitStartup(serverVersion, true); err != nil {
 			panic(err)
 		}
-		if bootstrap && !config.IsInit {
-			if err := setup.AutoInitialize(account, password); err != nil {
+		if !config.IsInit {
+			if err := setup.AutoInitialize(); err != nil {
 				panic(err)
 			}
 		}
@@ -56,6 +57,10 @@ func Init(serverVersion string) {
 			panic(err)
 		}
 		if err := address.Backfill(); err != nil {
+			panic(err)
+		}
+		account, password, _ := config.BootstrapCredentials()
+		if err := registration.Prepare(stdcontext.Background(), account, password); err != nil {
 			panic(err)
 		}
 		parsemail.Init()
@@ -99,14 +104,24 @@ func Init(serverVersion string) {
 				log.Errorf("cannot create delivery failure notice for user %d: %v", row.UserID, err)
 				return
 			}
-			text := "Your message to " + row.RcptTo + " could not be delivered after " + cast.ToString(row.Attempts) + " attempts.\n\n" + row.LastError
+			recipient, err := user.Get(row.UserID)
+			if err != nil {
+				log.Errorf("cannot resolve delivery notification user %d: %v", row.UserID, err)
+				return
+			}
+			deliveryCtx.Lang = recipient.Lang
+			key := "bounce_send_body"
 			if row.Kind == queue.KindForward {
-				text = "转发到 " + row.RcptTo + " 失败。投递在 " + cast.ToString(row.Attempts) + " 次尝试后仍未成功。\n\n" + row.LastError
+				key = "bounce_forward_body"
+			}
+			text := i18n.T(deliveryCtx, key, row.RcptTo, row.Attempts)
+			if detail := i18n.Delivery(deliveryCtx, "delivery_detail", row.LastError); detail != "" {
+				text += "\n\n" + detail
 			}
 			bounce := &parsemail.Email{
 				From:    &parsemail.User{EmailAddress: "mailer-daemon@" + domain.DefaultName()},
 				To:      []*parsemail.User{{EmailAddress: primary.Address}},
-				Subject: "Delivery Status Notification (Failure)",
+				Subject: i18n.T(deliveryCtx, "bounce_subject"),
 				Headers: textproto.MIMEHeader{"Auto-Submitted": {"auto-replied"}, "X-PMail-DSN": {"1"}},
 				Text:    []byte(text),
 			}
@@ -123,14 +138,15 @@ func Init(serverVersion string) {
 			}
 		}
 
-		httpsReady := cert != nil && http_server.HttpsStart(*cert)
+		httpsReady := cert != nil && http_server.HttpsStart(*cert, serverVersion)
 		// Bind HTTP before starting the scheduler so HTTP-01 can answer immediately.
-		http_server.HttpStart(httpsReady)
+		http_server.HttpStart(httpsReady, serverVersion)
 		smtp_server.Start(cert)
 		if cert != nil {
 			startTLSListeners(*cert)
 		}
 		ctx, stopScheduler := stdcontext.WithCancel(stdcontext.Background())
+		registration.StartNotices(ctx, cfg.WebDomain)
 		cron_server.Start(ctx, cfg, cert)
 
 		restart := false

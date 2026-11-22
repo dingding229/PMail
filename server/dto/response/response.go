@@ -3,6 +3,9 @@ package response
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/Jinnrry/pmail/i18n"
+	"github.com/Jinnrry/pmail/utils/context"
 )
 
 const (
@@ -38,4 +41,8 @@ func NewErrorResponse(errorNo int, errorMsg string, data any) *Response {
 		ErrorMsg: errorMsg,
 		Data:     data,
 	}
+}
+
+func Localized(ctx *context.Context, errorNo int, key string, args ...any) *Response {
+	return NewErrorResponse(errorNo, i18n.T(ctx, key, args...), "")
 }

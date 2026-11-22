@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/Jinnrry/pmail/db"
+	"github.com/Jinnrry/pmail/dto/response"
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/user"
@@ -29,7 +31,7 @@ func (b userRequest) Name() string {
 
 func CreateUser(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var b userRequest
-	if !adminOnly(ctx, w) || !readRequest(w, r, &b, false) {
+	if !adminOnly(ctx, w) || !readRequest(ctx, w, r, &b, false) {
 		return
 	}
 	var disabled int
@@ -50,7 +52,7 @@ func CreateUser(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 
 func EditUser(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var b userRequest
-	if !adminOnly(ctx, w) || !readRequest(w, r, &b, false) {
+	if !adminOnly(ctx, w) || !readRequest(ctx, w, r, &b, false) {
 		return
 	}
 	u, err := user.Edit(user.Patch{ID: b.ID, Account: b.Account, Name: b.Name(), Password: b.Password, Disabled: b.Disabled, QuotaMB: b.QuotaMB})
@@ -66,7 +68,7 @@ func UserList(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		Page int `json:"current_page"`
 		Size int `json:"page_size"`
 	}
-	if !adminOnly(ctx, w) || !readRequest(w, r, &b, true) {
+	if !adminOnly(ctx, w) || !readRequest(ctx, w, r, &b, true) {
 		return
 	}
 	if b.Page == 0 {
@@ -100,17 +102,33 @@ func Info(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 func UserMe(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		DisplayName *string `json:"display_name"`
+		Lang        *string `json:"lang"`
 	}
-	if !readRequest(w, r, &b, true) {
+	if !readRequest(ctx, w, r, &b, true) {
 		return
 	}
-	u, err := user.Get(ctx.UserID)
-	if err == nil && b.DisplayName != nil {
+	patch := user.Patch{ID: ctx.UserID}
+	if b.DisplayName != nil {
 		if !user.ValidName(*b.DisplayName) {
-			serviceError(ctx, w, user.ErrInvalid)
+			apiError(ctx, w, http.StatusBadRequest, response.ParamsError, "invalid_display_name")
 			return
 		}
-		u, err = user.Edit(user.Patch{ID: ctx.UserID, Name: *b.DisplayName})
+		patch.Name = *b.DisplayName
+	}
+	if b.Lang != nil {
+		lang, ok := i18n.Preference(*b.Lang)
+		if !ok {
+			apiError(ctx, w, http.StatusBadRequest, response.ParamsError, "invalid_language")
+			return
+		}
+		patch.Lang = &lang
+	}
+	var u models.User
+	var err error
+	if b.DisplayName != nil || b.Lang != nil {
+		u, err = user.Edit(patch)
+	} else {
+		u, err = user.Get(ctx.UserID)
 	}
 	if err != nil {
 		serviceError(ctx, w, err)
@@ -126,7 +144,7 @@ func UserMe(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 
 func UserResetPassword(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var b userRequest
-	if !adminOnly(ctx, w) || !readRequest(w, r, &b, false) {
+	if !adminOnly(ctx, w) || !readRequest(ctx, w, r, &b, false) {
 		return
 	}
 	if b.ID <= 0 || b.Password == "" {
@@ -141,7 +159,7 @@ func UserResetPassword(ctx *context.Context, w http.ResponseWriter, r *http.Requ
 }
 func UserSetQuota(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var b userRequest
-	if !adminOnly(ctx, w) || !readRequest(w, r, &b, false) {
+	if !adminOnly(ctx, w) || !readRequest(ctx, w, r, &b, false) {
 		return
 	}
 	if b.ID <= 0 || b.QuotaMB == nil {
@@ -156,7 +174,7 @@ func UserSetQuota(ctx *context.Context, w http.ResponseWriter, r *http.Request) 
 }
 func UserDelete(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var b userRequest
-	if !adminOnly(ctx, w) || !readRequest(w, r, &b, false) {
+	if !adminOnly(ctx, w) || !readRequest(ctx, w, r, &b, false) {
 		return
 	}
 	if b.ID <= 0 {

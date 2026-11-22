@@ -96,6 +96,16 @@ func Seed(tx *xorm.Session, user models.User) error {
 	return nil
 }
 
+// SeedPrimary adds just the default address of a newly registered user.
+// The caller owns the transaction and holds MailboxRegistry.
+func SeedPrimary(tx *xorm.Session, user models.User) error {
+	d := domain.Default()
+	if d.ID == 0 {
+		return domain.ErrNotFound
+	}
+	return insert(tx, &models.MailboxAddress{LocalPart: user.Account, DomainID: d.ID, UserID: user.ID, IsPrimary: true, CanSend: true})
+}
+
 func ToView(row models.MailboxAddress) View {
 	d, _ := domain.GetByID(row.DomainID)
 	return View{MailboxAddress: row, Domain: d.Name, Address: row.LocalPart + "@" + d.Name}

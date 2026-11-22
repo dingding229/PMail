@@ -50,19 +50,24 @@ func GetSSL() string {
 	return cfg.SSLType
 }
 
+var (
+	ErrInvalidType    = errors.New("invalid TLS mode")
+	ErrDomainRequired = errors.New("domain required before automatic TLS")
+)
+
 func SetSSL(sslType, priKey, crtKey string) error {
 	cfg, err := config.ReadConfig()
 	if err != nil {
-		panic(err)
+		return err
 	}
 	if sslType == config.SSLTypeAutoHTTP || sslType == config.SSLTypeUser || sslType == config.SSLTypeAutoDNS || sslType == config.SSLTypeDisabled {
 		cfg.SSLType = sslType
 	} else {
-		return errors.New("SSL Type Error!")
+		return ErrInvalidType
 	}
 
 	if cfg.SSLType != config.SSLTypeUser && cfg.SSLType != config.SSLTypeDisabled && strings.TrimSpace(cfg.Domain) == "" {
-		return errors.New("Domain must be configured before automatic SSL certificate setup")
+		return ErrDomainRequired
 	}
 
 	if cfg.SSLType == config.SSLTypeUser {

@@ -65,11 +65,11 @@ func Authenticate(login, secret, remote string) (models.User, error) {
 		identity = "id:" + strconv.Itoa(user.ID)
 	}
 	key := ipOf(remote) + "|" + identity
-	if !reserve(key) {
+	if !reserve(key, failureWindow) {
 		return models.User{}, ErrLocked
 	}
 	outcome := 0 // Internal errors don't count as failed credential attempts.
-	defer func() { complete(key, outcome) }()
+	defer func() { complete(key, outcome, failureWindow) }()
 	for i := 0; i < 2; i++ {
 		if !found || user.Disabled != 0 {
 			outcome = -1
@@ -119,7 +119,24 @@ func Authenticate(login, secret, remote string) (models.User, error) {
 	return models.User{}, ErrCredentials
 }
 
-func reserve(key string) bool {
+// ReserveRegistration uses a dedicated per-IP bucket in the login limiter.
+// The completion callback must be called exactly once with a matching outcome.
+func ReserveRegistration(remote string) (func(failed bool), bool) {
+	const window = 10 * time.Minute
+	key := ipOf(remote) + "|first-registration"
+	if !reserve(key, window) {
+		return nil, false
+	}
+	return func(failed bool) {
+		outcome := 0
+		if failed {
+			outcome = -1
+		}
+		complete(key, outcome, window)
+	}, true
+}
+
+func reserve(key string, window time.Duration) bool {
 	attempts.Lock()
 	defer attempts.Unlock()
 	now := time.Now()
@@ -131,7 +148,7 @@ func reserve(key string) bool {
 	}
 	state := attempts.entries[key]
 	if state.pending == 0 && !now.Before(state.expires) {
-		state = failureState{expires: now.Add(failureWindow)}
+		state = failureState{expires: now.Add(window)}
 	}
 	if state.failures+state.pending >= failureThreshold {
 		return false
@@ -174,7 +191,7 @@ func evictOldest() {
 	}
 }
 
-func complete(key string, outcome int) {
+func complete(key string, outcome int, window time.Duration) {
 	attempts.Lock()
 	defer attempts.Unlock()
 	state := attempts.entries[key]
@@ -187,9 +204,9 @@ func complete(key string, outcome int) {
 	} else if outcome < 0 {
 		state.failures++
 		ipState.failures++
-		ipState.expires = time.Now().Add(failureWindow)
+		ipState.expires = time.Now().Add(window)
 		if state.failures >= failureThreshold {
-			state.expires = time.Now().Add(failureWindow)
+			state.expires = time.Now().Add(window)
 		}
 	}
 	if state.pending == 0 && state.failures == 0 {

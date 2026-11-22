@@ -3,11 +3,11 @@ info:
   title: PMail Pro HTTP API
   version: 4.0.0-dev
   description: |-
-    C1 runtime contract. Cookie, Bearer token, and the legacy Token header are alternative credentials; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource; any admin override is stated per operation.
+    C2 runtime contract. Cookie, Bearer token, and the legacy Token header are alternative credentials; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource; any admin override is stated per operation.
 
     JSON responses use {errorNo, errorMsg, data} unless stated otherwise. Legacy failures can return HTTP 200. x-error-codes lists application codes by HTTP status. Don't infer success from HTTP status alone. Unregistered API URLs and unsupported attachment subpaths never return SPA HTML. The legacy setup endpoint is available only on the setup listener; when HTTPS is active the plain HTTP listener serves ping and ACME directly and redirects other requests to HTTPS. Listed GET/POST variants are supported contracts; incidental verbs accepted by some older handlers are not part of the contract.
 
-    x-status: planned means not available in C1; the in-place planned POST DNS replacement is nested under x-planned-replacement. With development CORS enabled, allowlisted origins can send credentialed requests and preflight API/attachment paths. Cookie SameSite behavior is unchanged.
+    x-status: planned means not available in C2; the in-place planned POST DNS replacement is nested under x-planned-replacement. With development CORS enabled, allowlisted origins can send credentialed requests and preflight API/attachment paths. Cookie SameSite behavior is unchanged. Localized errors use the saved user language when set, otherwise X-PMail-Lang, Accept-Language, then PMAIL_DEFAULT_LANG. During pending first registration, only bootstrap, register, ping and ACME are available; other API and attachment requests respond HTTP 403.
 servers:
 - {url: /}
 security:
@@ -52,16 +52,17 @@ paths:
       tags: [Bootstrap]
       summary: Discover UI initialization state
       x-permission: public
-      description: No login is required. A valid cookie or API token supplies the login state and domain names. Registration
-        and the registration key endpoint are not implemented in C1.
+      description: No login is required. A valid cookie or API token supplies the login state and domain names. Uses the
+        same pending state as POST /api/register.
       security:
       - {}
       - {Session: []}
       - {BearerToken: []}
       - {LegacyToken: []}
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [500], '500': [500], '503': [500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [500], '500': [500]}
       responses:
         '200':
           description: Unwrapped JSON object on success; a legacy JSON error envelope may still be returned.
@@ -75,20 +76,20 @@ paths:
             Cache-Control:
               schema: {const: no-store}
         '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/Unavailable'}
     head:
       tags: [Bootstrap]
       x-permission: public
-      description: No login is required. A valid cookie or API token supplies the login state and domain names. Registration
-        and the registration key endpoint are not implemented in C1.
+      description: No login is required. A valid cookie or API token supplies the login state and domain names. Uses the
+        same pending state as POST /api/register.
       security:
       - {}
       - {Session: []}
       - {BearerToken: []}
       - {LegacyToken: []}
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [500], '500': [500], '503': [500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [500], '500': [500]}
       operationId: bootstrapHead
       summary: Discover UI initialization state (headers only)
       responses:
@@ -98,7 +99,6 @@ paths:
             Cache-Control:
               schema: {const: no-store}
         '500': {description: Error (no body).}
-        '503': {description: Error (no body).}
   /api/login:
     post:
       operationId: login
@@ -107,13 +107,14 @@ paths:
       x-permission: public
       security: []
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/Credentials'}
-      x-error-codes: {'200': [100, 402, 500], '400': [100], '405': [100], '429': [100], '500': [500]}
+      x-error-codes: {'200': [100, 402, 500], '400': [100], '403': [405], '405': [100], '429': [100], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -128,6 +129,7 @@ paths:
               description: Session cookie set/renewed, or cleared on logout/password change.
               schema: {type: string}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
@@ -138,8 +140,9 @@ paths:
       summary: Destroy the browser session
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500], '500': [500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -153,6 +156,7 @@ paths:
             Set-Cookie:
               description: Session cookie set/renewed, or cleared on logout/password change.
               schema: {type: string}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/setup:
     post:
@@ -160,17 +164,18 @@ paths:
       tags: [Bootstrap]
       summary: Read or write a legacy setup step
       x-permission: public
-      description: Available on the legacy uninitialized listener only; not a general configuration API. A non-matching
-        step/action pair is not supported.
+      description: 'Available only on the legacy configuration listener. Legacy password/set and account/set always return
+        403: first administrator creation belongs to /api/register.'
       security: []
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/SetupRequest'}
-      x-error-codes: {'200': [402, 500]}
+      x-error-codes: {'200': [100, 402, 500], '400': [100], '403': [405], '405': [100]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -179,26 +184,35 @@ paths:
               schema:
                 oneOf:
                 - {$ref: '#/components/schemas/SetupResultSuccess'}
-                - {$ref: '#/components/schemas/Error402500'}
+                - {$ref: '#/components/schemas/Error100402500'}
         '404':
           description: No such route or challenge token.
           content:
             text/plain:
               schema: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
   /api/register:
     post:
       operationId: register
       tags: [Auth]
       summary: Create the first administrator with a one-time key
       x-permission: public
-      description: Planned for C2. Establishes the same browser session as login.
-      x-status: planned
+      description: Available only while pending first registration. A wrong key or already initialized server returns
+        HTTP 403. Bad account, password or JSON returns HTTP 400. Five failed attempts per peer IP in ten minutes trigger
+        HTTP 429 with Retry-After. A successful registration consumes the key and establishes the same browser session
+        as login.
       security: []
+      parameters:
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/RegisterRequest'}
+      x-error-codes: {'400': [100], '403': [405], '429': [100], '500': [500]}
       responses:
         '200':
           description: Success.
@@ -209,6 +223,20 @@ paths:
             Set-Cookie:
               description: Session cookie set/renewed, or cleared on logout/password change.
               schema: {type: string}
+            Cache-Control:
+              schema: {const: no-store}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '429':
+          description: Authentication or registration rate limit reached.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error100EmptyData'}
+          headers:
+            Retry-After:
+              schema: {type: integer}
+              description: Seconds before retrying.
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/group:
     get:
       operationId: groupTreeGet
@@ -216,8 +244,9 @@ paths:
       summary: Get nested groups and built-in mailbox navigation tags
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -227,14 +256,16 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/GroupNodeListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
     post:
       operationId: groupTreePost
       tags: [Groups]
       summary: Get nested groups and built-in mailbox navigation tags
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -244,6 +275,7 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/GroupNodeListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/group/list:
     get:
       operationId: groupListGet
@@ -252,8 +284,9 @@ paths:
       x-permission: user
       description: Includes inbox, junk and deleted defaults plus custom groups.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -263,6 +296,7 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/GroupListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
     post:
       operationId: groupListPost
       tags: [Groups]
@@ -270,8 +304,9 @@ paths:
       x-permission: user
       description: Includes inbox, junk and deleted defaults plus custom groups.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -281,6 +316,7 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/GroupListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/group/add:
     post:
       operationId: createGroup
@@ -288,13 +324,14 @@ paths:
       summary: Create a mailbox group
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/CreateGroupRequest'}
-      x-error-codes: {'200': [402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '400': [100], '403': [405], '405': [100]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -303,7 +340,10 @@ paths:
               schema:
                 oneOf:
                 - {$ref: '#/components/schemas/IntegerValueSuccess'}
-                - {$ref: '#/components/schemas/Error402403500'}
+                - {$ref: '#/components/schemas/Error100402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
   /api/group/del:
     post:
       operationId: deleteGroup
@@ -311,13 +351,14 @@ paths:
       summary: Delete a group owned by the caller
       x-permission: owner
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/IdRequest'}
-      x-error-codes: {'200': [402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '400': [100], '403': [405], '405': [100]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -326,7 +367,10 @@ paths:
               schema:
                 oneOf:
                 - {$ref: '#/components/schemas/BooleanValueSuccess'}
-                - {$ref: '#/components/schemas/Error402403500'}
+                - {$ref: '#/components/schemas/Error100402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
   /api/email/list:
     post:
       operationId: listMail
@@ -334,13 +378,14 @@ paths:
       summary: List or search messages
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: false
         content:
           application/json:
             schema: {$ref: '#/components/schemas/MailListRequest'}
-      x-error-codes: {'200': [402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -349,7 +394,8 @@ paths:
               schema:
                 oneOf:
                 - {$ref: '#/components/schemas/MailPageSuccess'}
-                - {$ref: '#/components/schemas/Error402403500'}
+                - {$ref: '#/components/schemas/Error100402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/email/detail:
     post:
       operationId: mailDetail
@@ -359,13 +405,14 @@ paths:
       description: Mailbox members or admins only. The legacy handler reports inaccessible mail as errorNo 500. See MailListItem
         for the per-user read marker.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/IdRequest'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -375,6 +422,7 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/EmailDetailSuccess'}
                 - {$ref: '#/components/schemas/Error100402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/email/del:
     post:
       operationId: deleteMail
@@ -383,13 +431,14 @@ paths:
       x-permission: owner
       description: Without forcedDel, moves mail to Deleted; forcedDel removes its mailbox links.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/DeleteMessagesRequest'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -397,8 +446,9 @@ paths:
             application/json:
               schema:
                 oneOf:
-                - {$ref: '#/components/schemas/SuccessLiteralSuccess'}
+                - {$ref: '#/components/schemas/StringValueSuccess'}
                 - {$ref: '#/components/schemas/Error100402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/email/read:
     post:
       operationId: readMail
@@ -406,13 +456,14 @@ paths:
       summary: Mark messages read
       x-permission: owner
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/MessageIdsRequest'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -420,8 +471,9 @@ paths:
             application/json:
               schema:
                 oneOf:
-                - {$ref: '#/components/schemas/SuccessLiteralSuccess'}
+                - {$ref: '#/components/schemas/StringValueSuccess'}
                 - {$ref: '#/components/schemas/Error100402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/email/move:
     post:
       operationId: moveMail
@@ -429,13 +481,14 @@ paths:
       summary: Move messages to a built-in or custom mailbox group
       x-permission: owner
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/MoveMessagesRequest'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -443,8 +496,9 @@ paths:
             application/json:
               schema:
                 oneOf:
-                - {$ref: '#/components/schemas/SuccessLiteralSuccess'}
+                - {$ref: '#/components/schemas/StringValueSuccess'}
                 - {$ref: '#/components/schemas/Error100402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/email/send:
     post:
       operationId: sendMail
@@ -454,7 +508,8 @@ paths:
       description: Select an authorized sending address (or omit it for the primary address). A complete delivery failure
         returns errorNo 500 with the delivery result when it is available.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -480,7 +535,8 @@ paths:
       description: Mailbox members or admins only. A complete delivery failure returns errorNo 500 with the per-recipient
         result when available.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -504,8 +560,9 @@ paths:
       summary: Read the current account’s forwarding settings
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500], '405': [100], '500': [500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405], '405': [100], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -515,6 +572,7 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/ForwardSettingsViewSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '500': {$ref: '#/components/responses/InternalError'}
     post:
@@ -523,8 +581,9 @@ paths:
       summary: Read the current account’s forwarding settings
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500], '405': [100], '500': [500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405], '405': [100], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -534,6 +593,7 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/ForwardSettingsViewSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/forward/set:
@@ -543,13 +603,14 @@ paths:
       summary: Set the current account’s forwarding settings
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/ForwardSettingsRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '405': [100]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -560,6 +621,7 @@ paths:
                 - {$ref: '#/components/schemas/ForwardSettingSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
   /api/rule/get:
     get:
@@ -568,8 +630,9 @@ paths:
       summary: List rules in descending sort order
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -579,14 +642,16 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/RuleNullableListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
     post:
       operationId: listRulesPost
       tags: [Rules]
       summary: List rules in descending sort order
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -596,6 +661,7 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/RuleNullableListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/rule/add:
     post:
       operationId: addRule
@@ -604,13 +670,14 @@ paths:
       x-permission: owner
       description: Both paths use the same upsert; positive id updates, while omitted or zero id inserts.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/RuleRequest'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '400': [100], '403': [405], '405': [100]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -618,8 +685,11 @@ paths:
             application/json:
               schema:
                 oneOf:
-                - {$ref: '#/components/schemas/SuccLiteralSuccess'}
+                - {$ref: '#/components/schemas/StringValueSuccess'}
                 - {$ref: '#/components/schemas/Error100402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
   /api/rule/update:
     post:
       operationId: updateRule
@@ -628,13 +698,14 @@ paths:
       x-permission: owner
       description: Both paths use the same upsert; positive id updates, while omitted or zero id inserts.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/RuleRequest'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '400': [100], '403': [405], '405': [100]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -642,8 +713,11 @@ paths:
             application/json:
               schema:
                 oneOf:
-                - {$ref: '#/components/schemas/SuccLiteralSuccess'}
+                - {$ref: '#/components/schemas/StringValueSuccess'}
                 - {$ref: '#/components/schemas/Error100402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
   /api/rule/del:
     post:
       operationId: deleteRule
@@ -651,13 +725,14 @@ paths:
       summary: Delete a rule owned by the caller
       x-permission: owner
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/IdRequest'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '400': [100], '403': [405], '405': [100]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -665,8 +740,11 @@ paths:
             application/json:
               schema:
                 oneOf:
-                - {$ref: '#/components/schemas/SuccLiteralSuccess'}
+                - {$ref: '#/components/schemas/StringValueSuccess'}
                 - {$ref: '#/components/schemas/Error100402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
   /api/queue/list:
     get:
       operationId: listQueueGet
@@ -674,8 +752,9 @@ paths:
       summary: List queued deliveries (all users for an administrator)
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500], '500': [500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -685,6 +764,7 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/QueueItemNullableListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
     post:
       operationId: listQueuePost
@@ -692,8 +772,9 @@ paths:
       summary: List queued deliveries (all users for an administrator)
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500], '500': [500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -703,6 +784,7 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/QueueItemNullableListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/queue/retry:
     post:
@@ -712,13 +794,14 @@ paths:
       x-permission: owner
       description: Queue item owner or admin. An invisible item is reported as not found.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/IdRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '404': [100], '405': [100], '500': [500]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -729,6 +812,7 @@ paths:
                 - {$ref: '#/components/schemas/NullValueSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '500': {$ref: '#/components/responses/InternalError'}
@@ -740,13 +824,14 @@ paths:
       x-permission: owner
       description: Queue item owner or admin. An invisible item is reported as not found.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/IdRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '404': [100], '405': [100], '500': [500]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -757,6 +842,7 @@ paths:
                 - {$ref: '#/components/schemas/NullValueSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '500': {$ref: '#/components/responses/InternalError'}
@@ -767,8 +853,9 @@ paths:
       summary: List external mailboxes (all users for an administrator)
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500], '500': [500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -778,6 +865,7 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/ExternalAccountNullableListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
     post:
       operationId: listExternalPost
@@ -785,8 +873,9 @@ paths:
       summary: List external mailboxes (all users for an administrator)
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500], '500': [500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -796,6 +885,7 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/ExternalAccountNullableListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/external/create:
     post:
@@ -804,13 +894,14 @@ paths:
       summary: Add an external mailbox to the current account
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/ExternalCreateRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '405': [100]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -821,6 +912,7 @@ paths:
                 - {$ref: '#/components/schemas/ExternalAccountSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
   /api/external/update:
     post:
@@ -831,13 +923,14 @@ paths:
       description: Mailbox owner or admin. Send the complete editable form; not every omitted field preserves the stored
         value.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/ExternalUpdateRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '405': [100]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -848,6 +941,7 @@ paths:
                 - {$ref: '#/components/schemas/ExternalAccountSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
   /api/external/delete:
     post:
@@ -857,13 +951,14 @@ paths:
       x-permission: owner
       description: Mailbox owner or admin.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/IdRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '404': [100], '405': [100]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -874,8 +969,10 @@ paths:
                 - {$ref: '#/components/schemas/NullValueSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/external/test:
     post:
       operationId: testExternal
@@ -883,13 +980,14 @@ paths:
       summary: Test external mail settings without saving
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/ExternalTestRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '405': [100]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -900,6 +998,7 @@ paths:
                 - {$ref: '#/components/schemas/ExternalTestResultSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
   /api/external/sync_now:
     post:
@@ -909,13 +1008,15 @@ paths:
       x-permission: owner
       description: Mailbox owner or admin. A started result does not mean the sync has completed.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/IdRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '404': [100], '405': [100], '409': [100]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -926,9 +1027,11 @@ paths:
                 - {$ref: '#/components/schemas/ExternalSyncResultSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/external/presets:
     get:
       operationId: externalPresets
@@ -936,8 +1039,9 @@ paths:
       summary: List external provider connection presets
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -947,6 +1051,7 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/ExternalPresetListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/settings/modify_password:
     post:
       operationId: legacyChangePassword
@@ -954,14 +1059,15 @@ paths:
       summary: Change the current account password and destroy the browser session
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/ChangePasswordRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '401': [403], '404': [100], '405': [100], '409': [100], '500': [
-          500]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '401': [403], '403': [405], '404': [100], '405': [100], '409': [
+          100], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -977,6 +1083,7 @@ paths:
               schema: {type: string}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '409': {$ref: '#/components/responses/Conflict'}
@@ -988,14 +1095,15 @@ paths:
       summary: Change the current account password and destroy the browser session
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/ChangePasswordRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '401': [403], '404': [100], '405': [100], '409': [100], '500': [
-          500]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '401': [403], '403': [405], '404': [100], '405': [100], '409': [
+          100], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -1011,6 +1119,7 @@ paths:
               schema: {type: string}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '409': {$ref: '#/components/responses/Conflict'}
@@ -1022,8 +1131,9 @@ paths:
       summary: Get lightweight login and domain information
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -1033,14 +1143,16 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/UserInfoSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
     post:
       operationId: userInfoPost
       tags: [Users]
       summary: Get lightweight login and domain information
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -1050,16 +1162,19 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/UserInfoSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/user/me:
     get:
       operationId: currentUserGet
       tags: [Users]
       summary: Read the current profile or update its display name
       x-permission: user
-      description: With POST, supply display_name to update it; GET and an empty POST are read-only.
+      description: With POST, supply display_name and/or lang to update user preferences; GET and an empty POST are read-only.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '404': [100], '405': [100], '409': [100], '500': [500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -1070,6 +1185,7 @@ paths:
                 - {$ref: '#/components/schemas/CurrentUserSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '409': {$ref: '#/components/responses/Conflict'}
@@ -1079,15 +1195,17 @@ paths:
       tags: [Users]
       summary: Read the current profile or update its display name
       x-permission: user
-      description: With POST, supply display_name to update it; GET and an empty POST are read-only.
+      description: With POST, supply display_name and/or lang to update user preferences; GET and an empty POST are read-only.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: false
         content:
           application/json:
             schema: {$ref: '#/components/schemas/EditMeRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '404': [100], '405': [100], '409': [100], '500': [500]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -1098,6 +1216,7 @@ paths:
                 - {$ref: '#/components/schemas/CurrentUserSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '409': {$ref: '#/components/responses/Conflict'}
@@ -1110,7 +1229,8 @@ paths:
       x-permission: admin
       description: To paginate, send a POST body; GET returns the first page with the default size.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100], '500': [500]}
       responses:
         '200':
@@ -1132,7 +1252,8 @@ paths:
       x-permission: admin
       description: To paginate, send a POST body; GET returns the first page with the default size.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: false
         content:
@@ -1159,7 +1280,8 @@ paths:
       summary: Create a mailbox account
       x-permission: admin
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -1189,7 +1311,8 @@ paths:
       summary: Edit a mailbox account
       x-permission: admin
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -1219,7 +1342,8 @@ paths:
       summary: Reset a mailbox account password
       x-permission: admin
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -1249,7 +1373,8 @@ paths:
       summary: Set a mailbox storage quota
       x-permission: admin
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -1279,7 +1404,8 @@ paths:
       summary: Disable a mailbox account without deleting its mail
       x-permission: admin
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -1309,7 +1435,8 @@ paths:
       summary: List a user’s addresses
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AddressUserId'}
       x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '500': [500]}
       responses:
@@ -1332,7 +1459,8 @@ paths:
       summary: List a user’s addresses
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: false
         content:
@@ -1362,7 +1490,8 @@ paths:
       description: Admins can manage any user. Ordinary users can create their own aliases only when PMAIL_ALLOW_USER_ALIAS
         is enabled.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -1393,7 +1522,8 @@ paths:
       x-permission: owner
       description: Address owner or admin.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -1424,7 +1554,8 @@ paths:
       x-permission: owner
       description: Address owner or admin.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -1455,7 +1586,8 @@ paths:
       x-permission: owner
       description: Address owner or admin.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -1485,7 +1617,8 @@ paths:
       summary: List mail domains
       x-permission: admin
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100]}
       responses:
         '200':
@@ -1505,7 +1638,8 @@ paths:
       summary: List mail domains
       x-permission: admin
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100]}
       responses:
         '200':
@@ -1526,7 +1660,8 @@ paths:
       summary: Add a mail domain
       x-permission: admin
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -1554,7 +1689,8 @@ paths:
       summary: Delete a non-default domain with no assigned addresses
       x-permission: admin
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -1584,7 +1720,8 @@ paths:
       summary: Set the default mail domain
       x-permission: admin
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -1612,7 +1749,8 @@ paths:
       summary: Check the current MX/SPF/DKIM/DMARC records
       x-permission: admin
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/DnsDomainId'}
       x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '500': [500]}
       responses:
@@ -1634,10 +1772,11 @@ paths:
       tags: [Domains]
       summary: Check the current MX/SPF/DKIM/DMARC records
       x-permission: admin
-      description: C1 currently returns a list of legacy records. C3 will replace the POST contract in place (see x-planned-replacement).
+      description: C2 currently returns a list of legacy records. C3 will replace the POST contract in place (see x-planned-replacement).
         The planned response is not yet returned.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
@@ -1685,7 +1824,8 @@ paths:
       x-permission: admin
       x-status: planned
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/DnsDomainId'}
       x-error-codes: {'400': [100], '403': [405], '404': [100], '500': [500]}
       responses:
@@ -1709,8 +1849,9 @@ paths:
       summary: List tokens belonging to the current account
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500], '500': [500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -1720,6 +1861,7 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/TokenNullableListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
     post:
       operationId: listTokensPost
@@ -1727,8 +1869,9 @@ paths:
       summary: List tokens belonging to the current account
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
-      x-error-codes: {'200': [402, 403, 500], '500': [500]}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -1738,6 +1881,7 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/TokenNullableListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/token/create:
     post:
@@ -1746,13 +1890,14 @@ paths:
       summary: Issue an API token for the current account
       x-permission: user
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/CreateTokenRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '405': [100], '500': [500]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -1763,6 +1908,7 @@ paths:
                 - {$ref: '#/components/schemas/TokenCreatedSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/token/delete:
@@ -1773,13 +1919,14 @@ paths:
       x-permission: owner
       description: Token owner or admin. Deleting a missing or non-visible ID may succeed without removing anything.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/IdRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '405': [100], '500': [500]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -1790,6 +1937,7 @@ paths:
                 - {$ref: '#/components/schemas/NullValueSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/attachments/{id}:
@@ -1801,9 +1949,10 @@ paths:
       description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
         serves mail HTML or SVG inline.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -1830,15 +1979,17 @@ paths:
               schema: {type: string, format: binary}
             image/x-icon:
               schema: {type: string, format: binary}
+        '403': {$ref: '#/components/responses/Forbidden'}
     head:
       tags: [Attachments]
       x-permission: owner
       description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
         serves mail HTML or SVG inline.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       operationId: inlineAttachmentHead
       summary: Retrieve an attachment (only whitelisted image types are inline) (headers only)
       responses:
@@ -1850,6 +2001,7 @@ paths:
               schema: {type: string}
             Cache-Control:
               schema: {const: 'private, no-store'}
+        '403': {description: Error (no body).}
   /api/attachments/download/{id}:
     get:
       operationId: downloadAttachment
@@ -1859,9 +2011,10 @@ paths:
       description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
         serves mail HTML or SVG inline.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -1876,15 +2029,17 @@ paths:
               schema: {$ref: '#/components/schemas/Error100402403500'}
             application/octet-stream:
               schema: {type: string, format: binary}
+        '403': {$ref: '#/components/responses/Forbidden'}
     head:
       tags: [Attachments]
       x-permission: owner
       description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
         serves mail HTML or SVG inline.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       operationId: downloadAttachmentHead
       summary: Download an attachment as application/octet-stream (headers only)
       responses:
@@ -1896,6 +2051,7 @@ paths:
               schema: {type: string}
             Cache-Control:
               schema: {const: 'private, no-store'}
+        '403': {description: Error (no body).}
   /attachments/{emailId}/{cid}:
     get:
       operationId: legacyInlineAttachmentGet
@@ -1905,10 +2061,11 @@ paths:
       description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
         serves mail HTML or SVG inline.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentCid'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -1935,6 +2092,7 @@ paths:
               schema: {type: string, format: binary}
             image/x-icon:
               schema: {type: string, format: binary}
+        '403': {$ref: '#/components/responses/Forbidden'}
       deprecated: true
     post:
       operationId: legacyInlineAttachmentPost
@@ -1944,10 +2102,11 @@ paths:
       description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
         serves mail HTML or SVG inline.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentCid'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -1974,6 +2133,7 @@ paths:
               schema: {type: string, format: binary}
             image/x-icon:
               schema: {type: string, format: binary}
+        '403': {$ref: '#/components/responses/Forbidden'}
       deprecated: true
     head:
       tags: [Attachments]
@@ -1981,10 +2141,11 @@ paths:
       description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
         serves mail HTML or SVG inline.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentCid'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       operationId: legacyInlineAttachmentGetHead
       summary: Retrieve an attachment (only whitelisted image types are inline) (headers only)
       responses:
@@ -1996,6 +2157,7 @@ paths:
               schema: {type: string}
             Cache-Control:
               schema: {const: 'private, no-store'}
+        '403': {description: Error (no body).}
       deprecated: true
   /attachments/download/{emailId}/{index}:
     get:
@@ -2006,10 +2168,11 @@ paths:
       description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
         serves mail HTML or SVG inline.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentIndex'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -2024,6 +2187,7 @@ paths:
               schema: {$ref: '#/components/schemas/Error100402403500'}
             application/octet-stream:
               schema: {type: string, format: binary}
+        '403': {$ref: '#/components/responses/Forbidden'}
       deprecated: true
     head:
       tags: [Attachments]
@@ -2031,10 +2195,11 @@ paths:
       description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
         serves mail HTML or SVG inline.
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentIndex'}
-      x-error-codes: {'200': [100, 402, 403, 500]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       operationId: legacyDownloadAttachmentHead
       summary: Download an attachment as application/octet-stream (headers only)
       responses:
@@ -2046,6 +2211,7 @@ paths:
               schema: {type: string}
             Cache-Control:
               schema: {const: 'private, no-store'}
+        '403': {description: Error (no body).}
       deprecated: true
   /api/attachments/preview/{id}:
     get:
@@ -2056,7 +2222,8 @@ paths:
       description: Signed-in mailbox owner or admin. Planned for C3.
       x-status: planned
       parameters:
-      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
       responses:
         '200':
@@ -2101,12 +2268,20 @@ components:
     BearerToken: {type: http, scheme: bearer}
     LegacyToken: {type: apiKey, in: header, name: Token}
   parameters:
-    Lang:
-      name: Lang
+    PMailLang:
+      name: X-PMail-Lang
       in: header
       required: false
       schema: {type: string}
-      description: Legacy response language header; defaults to en. The v4 bootstrap default_lang setting is for UI initialization.
+      description: Preferred response language, before Accept-Language. A saved user preference takes precedence after
+        authentication.
+    AcceptLanguage:
+      name: Accept-Language
+      in: header
+      required: false
+      schema: {type: string}
+      description: Fallback response language; Chinese variants use Simplified Chinese. Defaults to the configured PMAIL_DEFAULT_LANG
+        if both language headers are absent.
     AttachmentId:
       name: id
       in: path
@@ -2161,7 +2336,7 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error403EmptyData'}
     Forbidden:
-      description: Insufficient permission.
+      description: Insufficient permission, first registration required, or first registration is not available.
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error405EmptyData'}
@@ -2182,7 +2357,7 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error100EmptyData'}
     TooManyRequests:
-      description: Login rate limit reached.
+      description: Authentication or registration rate limit reached.
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error100EmptyData'}
@@ -2298,11 +2473,14 @@ components:
       type: object
       required: [version, need_register, logged_in, default_lang, web_domain, domains, features]
       properties:
-        version: {type: string, const: 4.0.0-dev}
+        version:
+          type: string
+          examples: [dev]
+          description: Server build version injected by ldflags; dev if unset.
         need_register:
           type: boolean
-          description: True if no user exists (also true before the legacy setup listener has a DB). Disabled users still
-            count.
+          description: True only while configured, with zero users and no explicit PMAIL_ADMIN_PASSWORD. Disabled users
+            count as existing users. False on the legacy configuration listener before registration is ready.
         logged_in: {type: boolean}
         default_lang: {type: string, default: zh-CN}
         web_domain: {type: string}
@@ -2314,18 +2492,15 @@ components:
           type: object
           required: [register_key]
           properties:
-            register_key:
-              type: boolean
-              description: True advertises the v4 registration-key capability; POST /api/register itself is still planned
-                in C1.
+            register_key: {type: boolean, description: True when the server supports one-time first administrator registration.}
     RegisterRequest:
       type: object
       required: [registration_key, account, password]
       properties:
-        registration_key: {type: string, writeOnly: true}
-        account: {type: string}
-        password: {type: string, format: password, writeOnly: true}
-        display_name: {type: string}
+        registration_key: {type: string, writeOnly: true, pattern: '^[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){3}$'}
+        account: {type: string, maxLength: 20, description: Mailbox username without a domain; normalized to lowercase.}
+        password: {type: string, format: password, writeOnly: true, minLength: 8}
+        display_name: {type: string, maxLength: 50}
     ChangePasswordRequest:
       type: object
       required: [old_password]
@@ -2732,7 +2907,8 @@ components:
         next_retry_at: {type: string, format: date-time}
         status:
           enum: [pending, sending, sent, failed]
-        last_error: {type: string}
+        last_error: {type: string, description: Localized explanation; opaque third-party diagnostics may be appended
+            verbatim.}
         created: {type: string, format: date-time}
         updated: {type: string, format: date-time}
       required: [id, kind, user_id, mail_from, rcpt_to, attempts, max_attempts, next_retry_at, status, last_error, created,
@@ -2795,7 +2971,8 @@ components:
         last_success_at:
           type: [string, 'null']
           format: date-time
-        last_error: {type: string}
+        last_error: {type: string, description: Localized synchronization error category; empty when there is no last
+            error.}
         created: {type: string, format: date-time}
         updated: {type: string, format: date-time}
     ExternalCreateRequest:
@@ -2872,7 +3049,7 @@ components:
       required: [status, message]
       properties:
         status: {const: started}
-        message: {const: external sync started}
+        message: {type: string}
     Domain:
       type: object
       required: [id, name, is_default, dkim_selector, created, updated]
@@ -2989,13 +3166,16 @@ components:
         can_send: {type: boolean}
     User:
       type: object
-      required: [id, account, name, disabled, is_admin, quota_mb, created, last_login_at]
+      required: [id, account, name, disabled, is_admin, lang, quota_mb, created, last_login_at]
       properties:
         id: {type: integer}
         account: {type: string}
         name: {type: string}
         disabled: {type: integer, enum: [0, 1]}
         is_admin: {type: integer, enum: [0, 1]}
+        lang:
+          enum: ['', zh-CN, en]
+          description: Saved language preference; an empty string means no explicit preference.
         quota_mb: {type: integer, description: 0 means no quota.}
         created: {type: string, format: date-time}
         last_login_at:
@@ -3003,13 +3183,17 @@ components:
           format: date-time
     CurrentUser:
       type: object
-      required: [id, account, name, disabled, is_admin, quota_mb, created, last_login_at, display_name, addresses, used_bytes]
+      required: [id, account, name, disabled, is_admin, lang, quota_mb, created, last_login_at, display_name, addresses,
+        used_bytes]
       properties:
         id: {type: integer}
         account: {type: string}
         name: {type: string}
         disabled: {type: integer, enum: [0, 1]}
         is_admin: {type: integer, enum: [0, 1]}
+        lang:
+          enum: ['', zh-CN, en]
+          description: Saved language preference; an empty string means no explicit preference.
         quota_mb: {type: integer, description: 0 means no quota.}
         created: {type: string, format: date-time}
         last_login_at:
@@ -3062,6 +3246,11 @@ components:
       type: object
       properties:
         display_name: {type: string, minLength: 1, maxLength: 50}
+        lang:
+          type: string
+          examples: [zh-CN, en, '']
+          description: Set the saved preference. Chinese and English regional variants normalize to zh-CN/en; empty clears
+            the preference.
     ResetPasswordRequest:
       type: object
       required: [id, password]
@@ -3123,13 +3312,6 @@ components:
           step: {const: password}
           action: {const: get}
       - type: object
-        required: [step, action, account, password]
-        properties:
-          step: {const: password}
-          action: {const: set}
-          account: {type: string}
-          password: {type: string, format: password, writeOnly: true}
-      - type: object
         required: [step, action]
         properties:
           step: {const: domain}
@@ -3179,7 +3361,8 @@ components:
     SetupResult:
       anyOf:
       - type: string
-        description: Succ for a successful set; password/get returns the configured account name or an empty string.
+        description: Localized acknowledgement for a successful set; password/get returns the configured account name
+          or an empty string.
       - type: object
         required: [db_type, db_dsn]
         properties:
@@ -3263,14 +3446,6 @@ components:
           errorNo: {const: 0}
           errorMsg: {const: ''}
           data: {$ref: '#/components/schemas/SetupResult'}
-    Error402500:
-      allOf:
-      - {$ref: '#/components/schemas/Envelope'}
-      - type: object
-        properties:
-          errorNo: {enum: [402, 500]}
-          errorMsg: {type: string}
-          data: {}
     CurrentUserSuccess:
       allOf:
       - {$ref: '#/components/schemas/Envelope'}
@@ -3307,6 +3482,14 @@ components:
           errorNo: {const: 0}
           errorMsg: {const: ''}
           data: {type: integer}
+    Error100402403500:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {enum: [100, 402, 403, 500]}
+          errorMsg: {type: string}
+          data: {}
     BooleanValueSuccess:
       allOf:
       - {$ref: '#/components/schemas/Envelope'}
@@ -3331,22 +3514,6 @@ components:
           errorNo: {const: 0}
           errorMsg: {const: ''}
           data: {$ref: '#/components/schemas/EmailDetail'}
-    Error100402403500:
-      allOf:
-      - {$ref: '#/components/schemas/Envelope'}
-      - type: object
-        properties:
-          errorNo: {enum: [100, 402, 403, 500]}
-          errorMsg: {type: string}
-          data: {}
-    SuccessLiteralSuccess:
-      allOf:
-      - {$ref: '#/components/schemas/Envelope'}
-      - type: object
-        properties:
-          errorNo: {const: 0}
-          errorMsg: {const: ''}
-          data: {const: success}
     DeliveryResultSuccess:
       allOf:
       - {$ref: '#/components/schemas/Envelope'}
@@ -3392,14 +3559,6 @@ components:
           data:
             type: [array, 'null']
             items: {$ref: '#/components/schemas/Rule'}
-    SuccLiteralSuccess:
-      allOf:
-      - {$ref: '#/components/schemas/Envelope'}
-      - type: object
-        properties:
-          errorNo: {const: 0}
-          errorMsg: {const: ''}
-          data: {const: succ}
     QueueItemNullableListSuccess:
       allOf:
       - {$ref: '#/components/schemas/Envelope'}

@@ -35,7 +35,7 @@ func addressTarget(ctx *context.Context, w http.ResponseWriter, id int) (int, bo
 
 func AddressList(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var body addressRequest
-	if !readRequest(w, r, &body, true) {
+	if !readRequest(ctx, w, r, &body, true) {
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Query().Has("user_id") {
@@ -68,7 +68,7 @@ func AddressCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var body addressRequest
-	if !readRequest(w, r, &body, false) {
+	if !readRequest(ctx, w, r, &body, false) {
 		return
 	}
 	id, ok := addressTarget(ctx, w, body.UserID)
@@ -90,7 +90,7 @@ func AddressCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request)
 
 func addressAction(ctx *context.Context, w http.ResponseWriter, r *http.Request, fn func(addressRequest) error) {
 	var body addressRequest
-	if !readRequest(w, r, &body, false) {
+	if !readRequest(ctx, w, r, &body, false) {
 		return
 	}
 	if body.ID <= 0 {

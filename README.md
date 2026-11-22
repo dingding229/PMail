@@ -62,25 +62,21 @@ curl -fsSL https://raw.githubusercontent.com/dingding229/PMail/master/docker-com
 docker compose up -d
 ```
 
-### 3. 查看初始密码并登录
+### 3. 获取注册密钥并创建管理员
+
+此步骤适用于 v4 镜像。开发分支切换到 v4 网页前，请使用包含注册页的 v4 构建或按 [API 契约](docs/openapi.yaml) 联调。已有用户的升级部署直接登录，不会重新注册。
 
 ```bash
-docker compose logs pmail | grep '首次管理员账号'
+docker compose logs pmail | grep 注册密钥
 ```
 
-初次创建管理员时会打印 `首次管理员账号：admin，密码：…（请登录后修改）`。如果这行日志已轮转或容器已重建，请读取配置卷里的初始密码文件（显式设置 `PMAIL_ADMIN_PASSWORD` 的部署不生成此文件）：
-
-```bash
-docker compose exec pmail cat /work/config/initial_admin_password
-```
+打开 `https://mail.example.com/`，在注册页输入日志中的注册密钥、自选账号和至少 8 个字符的密码。成功后密钥作废并自动登录。未注册时每次启动以及每 10 分钟会重新打印同一密钥。请限制访问 Docker、日志和备份，不要在公网 HTTP 上输入密钥或密码。如果显式设置了 `PMAIL_ADMIN_PASSWORD`，首次启动会直接创建管理员，使用 `PMAIL_ADMIN_ACCOUNT`（默认 `admin`）与已配置密码登录。
 
 ```bash
 docker compose ps -a
 ```
 
-`init-secrets` 应显示正常退出（退出码 `0`），`postgres` 和 `pmail` 应为 `healthy`。这不代表公网 DNS、邮件端口或证书已就绪。可用 `docker compose logs -f pmail` 查看启动和证书签发日志，`Ctrl+C` 仅退出日志跟踪。反代路线先完成下一节，再访问 `https://mail.example.com/`；直连路线等 PMail 签发网页证书后再访问。不要在公网 HTTP 上输入密码。
-
-用管理员账号登录后立即修改初始密码；日志中的旧密码不会更新。可用 `docker compose exec pmail rm -f /work/config/initial_admin_password` 移除已失效的明文文件。限制访问 Docker、日志和备份。在「管理 → 域名管理」核对主邮件域名，在「设置 → 地址与别名」确认实际邮箱地址。网页域名不会自动成为收信域名。
+`init-secrets` 应正常退出（退出码 `0`），`postgres` 和 `pmail` 应为 `healthy`。这不代表公网 DNS、邮件端口或证书已就绪。反代路线先完成下一节；直连路线等 PMail 签发网页证书后再访问。登录后在「管理 → 域名管理」核对主邮件域名，在「设置 → 地址与别名」确认实际地址。网页域名不会自动成为收信域名。
 
 多实例需各用不同的 `PMAIL_PROJECT_NAME` 和宿主机端口。接管已有部署时须保留原项目名、`.env` 和数据卷，不要重新初始化。
 
@@ -289,7 +285,7 @@ docker compose down -v
 | `PMAIL_DOMAIN` / `PMAIL_DOMAINS` / `PMAIL_WEB_DOMAIN` | 主邮件域名（必填）、逗号分隔的附加收信域名、网页域名（默认 `mail.<主域名>`） |
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | 数据库、账号默认 `pmail`；密码默认随机生成到 `secrets` 卷，已有部署可保留显式值 |
 | `PMAIL_DB_TYPE` / `PMAIL_DB_DSN` | 基础 Compose 固定使用 PostgreSQL；显式连接串优先，默认使用 `PMAIL_DB_PASSWORD_FILE` 指向的凭据文件连接项目内的 `postgres:5432` |
-| `PMAIL_ADMIN_ACCOUNT` / `PMAIL_ADMIN_PASSWORD` | 首次启动的管理员账号（默认 `admin`）与密码（默认随机生成）；不会重置已有账号的密码 |
+| `PMAIL_ADMIN_ACCOUNT` / `PMAIL_ADMIN_PASSWORD` | 仅当数据库没有用户且显式设置密码时直接创建管理员（账号默认 `admin`）；未设置密码则使用首次注册密钥，已有用户不受影响 |
 | `PMAIL_SECRET_KEY` | 外部邮箱凭据的加密密钥、SRS 密钥等；留空时生成 `pmail_config` 卷内的 `secret.key`，必须与数据一并保留 |
 | `PMAIL_WEB_MODE` | `proxy` 默认仅提供网页 HTTP；公网直连使用覆盖文件选择 `public`。两种模式都默认 HTTP-01 申请邮件证书 |
 | `PMAIL_WEB_ROOT` | 静态前端构建产物目录，默认 `/work/web`；本地可用相对路径（相对进程工作目录） |
@@ -313,7 +309,7 @@ docker compose down -v
 - **网页无法访问：** 查看 `docker compose ps` 与日志。A 路线核对绑定、证书和 `443`；B 路线核对代理是否能访问 `PMAIL_WEB_BIND:PMAIL_HOST_HTTP_PORT`，不要连 `8443`。
 - **发信进垃圾箱：** 检查 SPF、DKIM、DMARC 对齐、PTR/rDNS 和公网 IP 声誉，参考收件方邮件头定位失败项。
 - **PostgreSQL 无法读取密码文件：** 若手动替换 `secrets` 卷中的 `db_password`，文件属主和属组应为 `70:70`、权限为 `0600`，卷根目录应允许 PostgreSQL 用户遍历。使用自定义 PostgreSQL 镜像时，可在 `init-secrets` 服务环境中设置 `PMAIL_DB_SECRET_UID`、`PMAIL_DB_SECRET_GID`，使文件归属与镜像中的用户和组一致。替换文件不会修改数据库中的密码，文件内容必须与数据库实际密码一致。
-- **忘记管理员密码：** 如未修改过，可查初始密码文件（显式设过密码则查 `.env`）；否则由另一位可以登录的管理员在「用户管理」重置。修改 `.env` 的引导密码再重启不能重置旧账号。当前没有免登录重置入口，不要通过清空数据库卷来重置。
+- **忘记管理员密码：** 若从未修改且部署时显式配置了密码，可查保管的部署凭据；否则由另一位可以登录的管理员在「用户管理」重置。修改 `.env` 的引导密码再重启不能重置旧账号。当前没有免登录重置入口，不要通过清空数据库卷来重置。
 - **外部邮箱收取异常：** 看账户的 `last_error`，检查服务商授权码、TLS 模式及私网访问限制。
 
 ## 从源码构建与开发

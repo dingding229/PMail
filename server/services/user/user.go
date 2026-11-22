@@ -14,11 +14,13 @@ import (
 )
 
 var (
-	ErrInvalid   = errors.New("invalid user parameters")
-	ErrNotFound  = errors.New("user not found")
-	ErrExists    = errors.New("account already exists")
-	ErrLastAdmin = errors.New("cannot disable the last active administrator")
-	ErrRevoked   = errors.New("session was revoked")
+	ErrInvalidQuota = errors.New("invalid user quota")
+	ErrBadPassword  = errors.New("incorrect current password")
+	ErrInvalid      = errors.New("invalid user parameters")
+	ErrNotFound     = errors.New("user not found")
+	ErrExists       = errors.New("account already exists")
+	ErrLastAdmin    = errors.New("cannot disable the last active administrator")
+	ErrRevoked      = errors.New("session was revoked")
 )
 
 type View struct {
@@ -35,7 +37,10 @@ func validQuota(mb int64) bool { return mb >= 0 && mb <= quota.MaxMB }
 
 func Create(account, name, secret string, disabled int, mb int64) (models.User, error) {
 	local, err := address.NormalizeLocal(account)
-	if err != nil || utf8.RuneCountInString(local) > 20 || !ValidName(name) || !validQuota(mb) || (disabled != 0 && disabled != 1) {
+	if !validQuota(mb) {
+		return models.User{}, ErrInvalidQuota
+	}
+	if err != nil || utf8.RuneCountInString(local) > 20 || !ValidName(name) || (disabled != 0 && disabled != 1) {
 		return models.User{}, ErrInvalid
 	}
 	hash, err := password.Hash(secret)
@@ -101,6 +106,7 @@ type Patch struct {
 	Password string
 	Disabled *int
 	QuotaMB  *int64
+	Lang     *string
 }
 
 func Edit(p Patch) (models.User, error) {
@@ -113,7 +119,10 @@ func Edit(p Patch) (models.User, error) {
 			return updated, err
 		}
 	}
-	if (p.ID <= 0 && p.Account == "") || (p.Name != "" && !ValidName(p.Name)) || (p.Disabled != nil && *p.Disabled != 0 && *p.Disabled != 1) || (p.QuotaMB != nil && !validQuota(*p.QuotaMB)) {
+	if p.QuotaMB != nil && !validQuota(*p.QuotaMB) {
+		return updated, ErrInvalidQuota
+	}
+	if (p.ID <= 0 && p.Account == "") || (p.Name != "" && !ValidName(p.Name)) || (p.Disabled != nil && *p.Disabled != 0 && *p.Disabled != 1) {
 		return updated, ErrInvalid
 	}
 	db.MailboxRegistry.Lock()
@@ -137,6 +146,10 @@ func Edit(p Patch) (models.User, error) {
 		if p.Name != "" {
 			updated.Name = p.Name
 			updates["name"] = p.Name
+		}
+		if p.Lang != nil {
+			updated.Lang = *p.Lang
+			updates["lang"] = *p.Lang
 		}
 		if p.QuotaMB != nil {
 			updated.QuotaMB = *p.QuotaMB
@@ -183,7 +196,7 @@ func ChangePassword(id int, version int64, old, next string) error {
 		return ErrRevoked
 	}
 	if valid, _ := password.Verify(u.Password, old); !valid {
-		return ErrInvalid
+		return ErrBadPassword
 	}
 	hash, err := password.Hash(next)
 	if err != nil {

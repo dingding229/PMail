@@ -28,6 +28,14 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+var (
+	ErrNotFound = errors.New("external account not found")
+	ErrProtocol = errors.New("protocol must be imap or pop3")
+	ErrTLSMode  = errors.New("tls_mode must be tls, starttls or none")
+	ErrPort     = errors.New("invalid external port")
+	ErrAuth     = errors.New("external mailbox authentication failed")
+)
+
 var accountLocks sync.Map
 var workerSemaphore = make(chan struct{}, 3)
 
@@ -83,7 +91,7 @@ func Update(userID int, admin bool, input models.ExternalAccount, password strin
 	var current models.ExternalAccount
 	found, err := q.Get(&current)
 	if err != nil || !found {
-		return current, errors.New("external account not found")
+		return current, ErrNotFound
 	}
 	if input.Host != "" {
 		if err := validateHost(input.Host); err != nil {
@@ -138,7 +146,7 @@ func Delete(userID int, admin bool, id int) error {
 	}
 	n, err := q.Delete(&models.ExternalAccount{})
 	if err == nil && n == 0 {
-		return errors.New("external account not found")
+		return ErrNotFound
 	}
 	return err
 }
@@ -154,7 +162,7 @@ func SyncNow(ctx context.Context, userID int, admin bool, id int) error {
 		return err
 	}
 	if !found {
-		return errors.New("external account not found")
+		return ErrNotFound
 	}
 	// HTTP request contexts are cancelled after the response. Detach the
 	// background sync while retaining the request context as its value parent.
@@ -264,7 +272,7 @@ func syncAccountLocked(ctx context.Context, id int) (resultErr error) {
 	ok, err := db.Instance.ID(id).Get(&account)
 	if err != nil || !ok {
 		if err == nil {
-			err = errors.New("external account not found")
+			err = ErrNotFound
 		}
 		log.WithFields(log.Fields{"account_id": id, "duration": time.Since(started), "error": err}).Error("external sync finished before account lookup")
 		return err
@@ -330,7 +338,7 @@ func syncIMAP(ctx context.Context, account models.ExternalAccount, password stri
 	defer stopWatch()
 	defer client.Close()
 	if err := client.Login(account.Username, password).Wait(); err != nil {
-		return fmt.Errorf("authentication failed: %w", err)
+		return fmt.Errorf("%w: %w", ErrAuth, err)
 	}
 	folders := strings.Split(account.Folder, ",")
 	for _, folder := range folders {
@@ -427,10 +435,10 @@ func syncPOP3(ctx context.Context, account models.ExternalAccount, password stri
 		return err
 	}
 	if err := popCommand(conn, reader, "USER "+account.Username); err != nil {
-		return fmt.Errorf("authentication failed: %w", err)
+		return fmt.Errorf("%w: %w", ErrAuth, err)
 	}
 	if err := popCommand(conn, reader, "PASS "+password); err != nil {
-		return fmt.Errorf("authentication failed: %w", err)
+		return fmt.Errorf("%w: %w", ErrAuth, err)
 	}
 	if _, err := fmt.Fprint(conn, "UIDL\r\n"); err != nil {
 		return err
@@ -564,10 +572,10 @@ func normalize(a *models.ExternalAccount) error {
 		a.InitialDays = 30
 	}
 	if a.Protocol != "imap" && a.Protocol != "pop3" {
-		return errors.New("protocol must be imap or pop3")
+		return ErrProtocol
 	}
 	if a.TLSMode != "tls" && a.TLSMode != "starttls" && a.TLSMode != "none" {
-		return errors.New("tls_mode must be tls, starttls or none")
+		return ErrTLSMode
 	}
 	if a.Port == 0 {
 		if a.Protocol == "imap" {
@@ -585,7 +593,7 @@ func normalize(a *models.ExternalAccount) error {
 		}
 	}
 	if a.Port < 1 || a.Port > 65535 {
-		return errors.New("invalid port")
+		return ErrPort
 	}
 	return nil
 }
@@ -711,7 +719,7 @@ func testIMAP(a models.ExternalAccount, password string) ([]string, error) {
 	}
 	defer c.Close()
 	if err := c.Login(a.Username, password).Wait(); err != nil {
-		return nil, fmt.Errorf("authentication failed: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrAuth, err)
 	}
 	list, err := c.List("", "%", &imap.ListOptions{}).Collect()
 	if err != nil {
@@ -737,7 +745,7 @@ func testPOP3(a models.ExternalAccount, password string) ([]string, error) {
 		return nil, err
 	}
 	if err = popCommand(c, r, "PASS "+password); err != nil {
-		return nil, fmt.Errorf("authentication failed: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrAuth, err)
 	}
 	return []string{"INBOX"}, nil
 }

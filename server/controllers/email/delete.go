@@ -1,12 +1,11 @@
 package email
 
 import (
-	"encoding/json"
 	"github.com/Jinnrry/pmail/dto/response"
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/services/del_email"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
-	"io"
 	"net/http"
 )
 
@@ -16,26 +15,21 @@ type emailDeleteRequest struct {
 }
 
 func EmailDelete(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
-	reqBytes, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.WithContext(ctx).Errorf("%+v", err)
-	}
 	var reqData emailDeleteRequest
-	err = json.Unmarshal(reqBytes, &reqData)
-	if err != nil {
-		log.WithContext(ctx).Errorf("%+v", err)
+	if !readMailJSON(ctx, w, req, &reqData, false) {
+		return
 	}
 
 	if len(reqData.IDs) <= 0 {
-		response.NewErrorResponse(response.ParamsError, "ID错误", "").FPrint(w)
+		response.Localized(ctx, response.ParamsError, "mail_ids_required").FPrint(w)
 		return
 	}
 
-	err = del_email.DelEmail(ctx, reqData.IDs, reqData.ForcedDel)
-	if err != nil {
-		response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
+	if err := del_email.DelEmail(ctx, reqData.IDs, reqData.ForcedDel); err != nil {
+		log.WithContext(ctx).Errorf("Delete mail: %v", err)
+		response.Localized(ctx, response.ServerError, "internal_error").FPrint(w)
 		return
 	}
-	response.NewSuccessResponse("success").FPrint(w)
+	response.NewSuccessResponse(i18n.T(ctx, "succ")).FPrint(w)
 
 }

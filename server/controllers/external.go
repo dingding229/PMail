@@ -3,10 +3,13 @@ package controllers
 import (
 	"errors"
 	"net/http"
+	"strings"
 
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/external"
 	"github.com/Jinnrry/pmail/utils/context"
+	log "github.com/sirupsen/logrus"
 )
 
 type externalRequest struct {
@@ -20,36 +23,41 @@ func ExternalList(ctx *context.Context, w http.ResponseWriter, r *http.Request) 
 		serviceError(ctx, w, err)
 		return
 	}
+	for i := range rows {
+		localizeExternal(ctx, &rows[i])
+	}
 	success(w, rows)
 }
 
 func ExternalCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var body externalRequest
-	if !readRequest(w, r, &body, false) {
+	if !readRequest(ctx, w, r, &body, false) {
 		return
 	}
 	if body.Password == "" {
-		apiError(w, http.StatusBadRequest, responseParams, "password is required")
+		apiError(ctx, w, http.StatusBadRequest, responseParams, "external_password_required")
 		return
 	}
 	row, err := external.Create(ctx.UserID, body.ExternalAccount, body.Password)
 	if err != nil {
-		apiError(w, http.StatusBadRequest, responseParams, err.Error())
+		externalFailure(ctx, w, err, "external_invalid_config")
 		return
 	}
+	localizeExternal(ctx, &row)
 	success(w, row)
 }
 
 func ExternalUpdate(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var body externalRequest
-	if !readRequest(w, r, &body, false) {
+	if !readRequest(ctx, w, r, &body, false) {
 		return
 	}
 	row, err := external.Update(ctx.UserID, ctx.IsAdmin, body.ExternalAccount, body.Password)
 	if err != nil {
-		apiError(w, http.StatusBadRequest, responseParams, err.Error())
+		externalFailure(ctx, w, err, "external_invalid_config")
 		return
 	}
+	localizeExternal(ctx, &row)
 	success(w, row)
 }
 
@@ -57,11 +65,15 @@ func ExternalDelete(ctx *context.Context, w http.ResponseWriter, r *http.Request
 	var body struct {
 		ID int `json:"id"`
 	}
-	if !readRequest(w, r, &body, false) {
+	if !readRequest(ctx, w, r, &body, false) {
 		return
 	}
 	if err := external.Delete(ctx.UserID, ctx.IsAdmin, body.ID); err != nil {
-		apiError(w, http.StatusNotFound, responseParams, err.Error())
+		if errors.Is(err, external.ErrNotFound) {
+			apiError(ctx, w, http.StatusNotFound, responseParams, "external_not_found")
+		} else {
+			serviceError(ctx, w, err)
+		}
 		return
 	}
 	success(w, nil)
@@ -69,12 +81,16 @@ func ExternalDelete(ctx *context.Context, w http.ResponseWriter, r *http.Request
 
 func ExternalTest(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var body externalRequest
-	if !readRequest(w, r, &body, false) {
+	if !readRequest(ctx, w, r, &body, false) {
+		return
+	}
+	if body.Password == "" {
+		apiError(ctx, w, http.StatusBadRequest, responseParams, "external_password_required")
 		return
 	}
 	folders, err := external.TestConnection(body.ExternalAccount, body.Password)
 	if err != nil {
-		apiError(w, http.StatusBadRequest, responseParams, err.Error())
+		externalFailure(ctx, w, err, "external_connection_failed")
 		return
 	}
 	success(w, map[string]any{"folders": folders})
@@ -84,18 +100,22 @@ func ExternalSyncNow(ctx *context.Context, w http.ResponseWriter, r *http.Reques
 	var body struct {
 		ID int `json:"id"`
 	}
-	if !readRequest(w, r, &body, false) {
+	if !readRequest(ctx, w, r, &body, false) {
 		return
 	}
 	if err := external.SyncNow(ctx, ctx.UserID, ctx.IsAdmin, body.ID); err != nil {
 		if errors.Is(err, external.ErrSyncInProgress) {
-			apiError(w, http.StatusConflict, responseParams, "external account is already syncing")
+			apiError(ctx, w, http.StatusConflict, responseParams, "external_sync_busy")
 		} else {
-			apiError(w, http.StatusNotFound, responseParams, err.Error())
+			if errors.Is(err, external.ErrNotFound) {
+				apiError(ctx, w, http.StatusNotFound, responseParams, "external_not_found")
+			} else {
+				serviceError(ctx, w, err)
+			}
 		}
 		return
 	}
-	success(w, map[string]string{"status": "started", "message": "external sync started"})
+	success(w, map[string]string{"status": "started", "message": i18n.T(ctx, "external_sync_started")})
 }
 
 func ExternalPresets(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
@@ -103,3 +123,46 @@ func ExternalPresets(ctx *context.Context, w http.ResponseWriter, r *http.Reques
 }
 
 const responseParams = 100
+
+func localizeExternal(ctx *context.Context, row *models.ExternalAccount) {
+	if row.LastError == "" {
+		return
+	}
+	// Persisted diagnostics may contain provider or database details. Do not
+	// send them to the browser; expose the localized operational category.
+	detail := strings.ToLower(row.LastError)
+	key := "external_sync_failed"
+	switch {
+	case strings.Contains(detail, "authentication"), strings.Contains(detail, "invalid credentials"):
+		key = "external_invalid_auth"
+	case strings.Contains(detail, external.ErrPrivateHost.Error()):
+		key = "external_private_host"
+	case strings.Contains(detail, "timeout"), strings.Contains(detail, "deadline exceeded"):
+		key = "external_timeout"
+	case strings.Contains(detail, "quota exceeded"):
+		key = "quota_exceeded"
+	}
+	row.LastError = i18n.T(ctx, key)
+}
+
+func externalFailure(ctx *context.Context, w http.ResponseWriter, err error, fallback string) {
+	key := fallback
+	switch {
+	case errors.Is(err, external.ErrNotFound):
+		key = "external_not_found"
+	case errors.Is(err, external.ErrHostRequired):
+		key = "external_host_required"
+	case errors.Is(err, external.ErrPrivateHost):
+		key = "external_private_host"
+	case errors.Is(err, external.ErrProtocol):
+		key = "external_invalid_protocol"
+	case errors.Is(err, external.ErrTLSMode):
+		key = "external_invalid_tls"
+	case errors.Is(err, external.ErrPort):
+		key = "external_invalid_port"
+	case errors.Is(err, external.ErrAuth):
+		key = "external_invalid_auth"
+	}
+	log.WithContext(ctx).Warnf("External mailbox operation: %v", err)
+	apiError(ctx, w, http.StatusBadRequest, responseParams, key)
+}

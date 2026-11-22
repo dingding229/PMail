@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"encoding/json"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/dto/response"
@@ -9,11 +8,11 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/rule"
+	"github.com/Jinnrry/pmail/services/rule/match"
 	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/errors"
 	log "github.com/sirupsen/logrus"
-	"io"
 	"net/http"
 )
 
@@ -24,44 +23,48 @@ func GetRule(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 
 func UpsertRule(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 
-	requestBody, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.WithContext(ctx).Errorf("ReadError:%v", err)
+	var data *dto.Rule
+	if !readRequest(ctx, w, req, &data, false) {
 		return
 	}
-
-	var data *dto.Rule
-	err = json.Unmarshal(requestBody, &data)
-	if err != nil {
-		response.NewErrorResponse(response.ParamsError, "params error", err).FPrint(w)
+	if data == nil || data.Id < 0 {
+		response.Localized(ctx, response.ParamsError, "rule_invalid").FPrint(w)
+		return
+	}
+	if data.Action != dto.READ && data.Action != dto.FORWARD && data.Action != dto.DELETE && data.Action != dto.MOVE {
+		response.Localized(ctx, response.ParamsError, "rule_invalid_action").FPrint(w)
 		return
 	}
 
 	if data.Action == dto.FORWARD {
 		targets := forward.Targets(data.Params)
 		if len(targets) == 0 {
-			response.NewErrorResponse(response.ParamsError, "ParamsError error", i18n.GetText(ctx.Lang, "invalid_email_address")).FPrint(w)
+			response.Localized(ctx, response.ParamsError, "forward_invalid_target").FPrint(w)
 			return
 		}
 		if _, err := forward.ValidateTargets(ctx.UserID, targets); err != nil {
-			response.NewErrorResponse(response.ParamsError, "ParamsError error", i18n.GetText(ctx.Lang, "invalid_email_address")).FPrint(w)
+			response.Localized(ctx, response.ParamsError, forwardErrorKey(err)).FPrint(w)
 			return
 		}
 	}
 
 	for _, r := range data.Rules {
-		if !array.InArray(r.Field, []string{"From", "Subject", "To", "Cc", "Text", "Html", "Content"}) {
-			response.NewErrorResponse(response.ParamsError, "ParamsError error", "params error! Rule Field Error!").FPrint(w)
+		if r == nil || !array.InArray(r.Field, []string{"From", "Subject", "To", "Cc", "Text", "Html", "Content"}) {
+			response.Localized(ctx, response.ParamsError, "rule_invalid_field").FPrint(w)
+			return
+		}
+		if r.Type != match.RuleTypeRegex && r.Type != match.RuleTypeContains && r.Type != match.RuleTypeEq {
+			response.Localized(ctx, response.ParamsError, "rule_invalid_match").FPrint(w)
 			return
 		}
 	}
 
-	err = save(ctx, data.Encode())
-	if err != nil {
-		response.NewErrorResponse(response.ServerError, "server error", err).FPrint(w)
+	if err := save(ctx, data.Encode()); err != nil {
+		log.WithContext(ctx).Errorf("Save rule: %v", err)
+		response.Localized(ctx, response.ServerError, "rule_write_failed").FPrint(w)
 		return
 	}
-	response.NewSuccessResponse("succ").FPrint(w)
+	response.NewSuccessResponse(i18n.T(ctx, "succ")).FPrint(w)
 }
 
 func save(ctx *context.Context, p *models.Rule) error {
@@ -87,29 +90,22 @@ type delRuleReq struct {
 }
 
 func DelRule(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
-	requestBody, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.WithContext(ctx).Errorf("ReadError:%v", err)
-		return
-	}
-
 	var data delRuleReq
-	err = json.Unmarshal(requestBody, &data)
-	if err != nil {
-		response.NewErrorResponse(response.ParamsError, "params error", err).FPrint(w)
+	if !readRequest(ctx, w, req, &data, false) {
 		return
 	}
 
 	if data.Id <= 0 {
-		response.NewErrorResponse(response.ParamsError, "params error", "id is empty").FPrint(w)
+		response.Localized(ctx, response.ParamsError, "invalid_id").FPrint(w)
 		return
 	}
 
-	_, err = db.Instance.Exec(db.WithContext(ctx, "delete from rule where id =? and user_id =?"), data.Id, ctx.UserID)
+	_, err := db.Instance.Exec(db.WithContext(ctx, "delete from rule where id =? and user_id =?"), data.Id, ctx.UserID)
 	if err != nil {
-		response.NewErrorResponse(response.ServerError, "unknown error", err).FPrint(w)
+		log.WithContext(ctx).Errorf("Delete rule: %v", err)
+		response.Localized(ctx, response.ServerError, "rule_delete_failed").FPrint(w)
 		return
 	}
 
-	response.NewSuccessResponse("succ").FPrint(w)
+	response.NewSuccessResponse(i18n.T(ctx, "succ")).FPrint(w)
 }

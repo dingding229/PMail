@@ -5,11 +5,10 @@ import (
 	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/dto/response"
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/services/list"
 	"github.com/Jinnrry/pmail/utils/context"
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cast"
-	"io"
 	"math"
 	"net/http"
 )
@@ -46,14 +45,9 @@ type emailRequest struct {
 
 func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	var lst []*emilItem
-	reqBytes, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.WithContext(ctx).Errorf("%+v", err)
-	}
 	var retData emailRequest
-	err = json.Unmarshal(reqBytes, &retData)
-	if err != nil {
-		log.WithContext(ctx).Errorf("%+v", err)
+	if !readMailJSON(ctx, w, req, &retData, true) {
+		return
 	}
 
 	offset := 0
@@ -96,7 +90,7 @@ func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 			Sender:    sender,
 			To:        tos,
 			Dangerous: authentication.Dangerous,
-			Error:     email.Error.String,
+			Error:     i18n.Delivery(ctx, "delivery_detail", email.Error.String),
 		})
 	}
 

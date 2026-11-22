@@ -33,7 +33,7 @@ func (w *nullWrite) Write(p []byte) (int, error) {
 
 // HttpsStart binds the HTTPS port using the already validated certificate.
 // Its return value controls whether the HTTP listener should redirect.
-func HttpsStart(cert tls.Certificate) bool {
+func HttpsStart(cert tls.Certificate, version string) bool {
 	if config.Instance.HttpsEnabled == 2 {
 		return false
 	}
@@ -42,7 +42,7 @@ func HttpsStart(cert tls.Certificate) bool {
 		port = 443
 	}
 	mux := http.NewServeMux()
-	router(mux)
+	router(mux, version)
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
 		Handler:      webMiddleware(apiSessions(mux)),
@@ -83,35 +83,26 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 		}
 
 		publicBootstrap := r.URL.Path == "/api/bootstrap"
-		if publicBootstrap {
+		publicRegister := r.URL.Path == "/api/register"
+		w.Header().Add("Vary", "Accept-Language, X-PMail-Lang")
+		if publicBootstrap || publicRegister {
 			w.Header().Set("Cache-Control", "no-store")
 		}
 
-		ctx := &context.Context{}
-		ctx.Context = r.Context()
+		ctx := i18n.ForRequest(r)
 		ctx.SetValue(context.LogID, id.GenLogID())
-		lang := r.Header.Get("Lang")
-		if lang == "" {
-			lang = "en"
+		if publicRegister {
+			h(ctx, w, r)
+			return
 		}
-		ctx.Lang = lang
-
 		if config.IsInit {
 			userInfo, err := session.CurrentUser(ctx)
 			if err != nil {
 				log.WithContext(ctx).Errorf("Validate session: %v", err)
-				response.NewErrorResponse(response.ServerError, i18n.GetText(ctx.Lang, "unknowError"), "").FPrint(w)
+				response.Localized(ctx, response.ServerError, "internal_error").FPrint(w)
 				return
 			}
-			if userInfo != nil {
-				ctx.UserID = userInfo.ID
-				ctx.AuthVersion = userInfo.AuthVersion
-				ctx.UserName = userInfo.Name
-				ctx.UserAccount = userInfo.Account
-				ctx.IsAdmin = userInfo.IsAdmin == 1
-			}
-
-			if ctx.UserID == 0 {
+			if userInfo == nil {
 				rawToken := r.Header.Get("Authorization")
 				if strings.HasPrefix(strings.ToLower(rawToken), "bearer ") {
 					rawToken = strings.TrimSpace(rawToken[7:])
@@ -120,18 +111,25 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 				}
 				if rawToken != "" {
 					if tokenUser, tokenErr := token.Authenticate(rawToken); tokenErr == nil {
-						ctx.UserID, ctx.UserName, ctx.UserAccount, ctx.IsAdmin, ctx.AuthVersion = tokenUser.ID, tokenUser.Name, tokenUser.Account, tokenUser.IsAdmin == 1, tokenUser.AuthVersion
+						userInfo = &tokenUser
 					}
 				}
 			}
-			if ctx.UserID == 0 {
-				if r.URL.Path != "/api/ping" && r.URL.Path != "/api/login" && !publicBootstrap {
-					response.NewErrorResponse(response.NeedLogin, i18n.GetText(ctx.Lang, "login_exp"), "").FPrint(w)
-					return
+			if userInfo != nil {
+				ctx.UserID = userInfo.ID
+				ctx.AuthVersion = userInfo.AuthVersion
+				ctx.UserName = userInfo.Name
+				ctx.UserAccount = userInfo.Account
+				ctx.IsAdmin = userInfo.IsAdmin == 1
+				if lang, ok := i18n.Preference(userInfo.Lang); ok && lang != "" {
+					ctx.Lang = lang
 				}
+			} else if r.URL.Path != "/api/login" && !publicBootstrap {
+				response.Localized(ctx, response.NeedLogin, "login_exp").FPrint(w)
+				return
 			}
 		} else if r.URL.Path != "/api/setup" && !publicBootstrap {
-			response.NewErrorResponse(response.NeedSetup, "", "").FPrint(w)
+			response.Localized(ctx, response.NeedSetup, "setup_required").FPrint(w)
 			return
 		}
 		h(ctx, w, r)

@@ -19,16 +19,16 @@ type loginRequest struct {
 
 func Login(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	var data loginRequest
-	if !readRequest(w, req, &data, false) {
+	if !readRequest(ctx, w, req, &data, false) {
 		return
 	}
 	u, err := auth.Authenticate(data.Account, data.Password, req.RemoteAddr)
 	if errors.Is(err, auth.ErrLocked) {
-		apiError(w, http.StatusTooManyRequests, response.ParamsError, err.Error())
+		apiError(ctx, w, http.StatusTooManyRequests, response.ParamsError, "rate_limit")
 		return
 	}
 	if errors.Is(err, auth.ErrCredentials) {
-		response.NewErrorResponse(response.ParamsError, i18n.GetText(ctx.Lang, "aperror"), "").FPrint(w)
+		response.Localized(ctx, response.ParamsError, "aperror").FPrint(w)
 		return
 	}
 	if err != nil {
@@ -47,5 +47,5 @@ func Logout(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		serviceError(ctx, w, err)
 		return
 	}
-	success(w, i18n.GetText(ctx.Lang, "succ"))
+	success(w, i18n.T(ctx, "succ"))
 }

@@ -7,6 +7,11 @@ import (
 	"strings"
 )
 
+var (
+	ErrDomainRequired    = errors.New("primary mail domain is required")
+	ErrWebDomainRequired = errors.New("web domain is required")
+)
+
 func GetDomainSettings() (string, string, []string, error) {
 	configData, err := config.ReadEffectiveConfig()
 	if err != nil {
@@ -23,11 +28,11 @@ func SetDomainSettings(smtpDomain, webDomain, multiDomains string) error {
 	}
 
 	if smtpDomain == "" {
-		return errors.New("domain must not empty!")
+		return ErrDomainRequired
 	}
 
 	if webDomain == "" {
-		return errors.New("web domain must not empty!")
+		return ErrWebDomainRequired
 	}
 
 	configData.Domains = []string{}

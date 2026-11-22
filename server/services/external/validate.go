@@ -11,11 +11,12 @@ import (
 	"github.com/Jinnrry/pmail/services/domain"
 )
 
+var ErrHostRequired = errors.New("external host is required")
 var ErrPrivateHost = errors.New("external host resolves to a private or local address")
 
 func validateHost(host string) error {
 	if strings.TrimSpace(host) == "" {
-		return errors.New("external host is required")
+		return ErrHostRequired
 	}
 	if allowPrivate() {
 		return nil

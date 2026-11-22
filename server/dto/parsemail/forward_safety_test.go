@@ -30,10 +30,10 @@ func TestIsAutomaticMessage(t *testing.T) {
 
 func TestShouldSkipForwardSources(t *testing.T) {
 	cases := []struct {
-		name    string
-		email   *Email
-		raw     string
-		want    bool
+		name  string
+		email *Email
+		raw   string
+		want  bool
 	}{
 		{name: "mailer daemon", email: &Email{From: &User{EmailAddress: "mailer-daemon@example.com"}}, want: true},
 		{name: "postmaster", email: &Email{From: &User{EmailAddress: "POSTMASTER@example.com"}}, want: true},

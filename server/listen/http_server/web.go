@@ -13,13 +13,14 @@ import (
 	"strings"
 
 	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/i18n"
 	log "github.com/sirupsen/logrus"
 )
 
 const (
 	acmePrefix = "/.well-known/acme-challenge/"
 	// A baseline that also works with the unchanged legacy front end.
-	webCSP = "base-uri 'self'; object-src 'none'; frame-ancestors 'none'"
+	webCSP = "base-uri 'self'; object-src 'none'; frame-ancestors 'self'"
 )
 
 // Vite uses an eight-character URL-safe fingerprint at the end of bundle names.
@@ -34,12 +35,12 @@ func staticWeb() http.HandlerFunc {
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if apiOrAttachment(r.URL.Path) || inNamespace(r.URL.Path, strings.TrimSuffix(acmePrefix, "/")) {
-			http.NotFound(w, r)
+			http.Error(w, i18n.T(i18n.ForRequest(r), "not_found"), http.StatusNotFound)
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			http.Error(w, i18n.T(i18n.ForRequest(r), "method_not_allowed"), http.StatusMethodNotAllowed)
 			return
 		}
 		name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), "/")
@@ -49,12 +50,12 @@ func staticWeb() http.HandlerFunc {
 		// Reject ambiguous paths before opening anything. Root also confines
 		// symlinks and stays safe if files are changed during a request.
 		if !fs.ValidPath(name) || name == "." || strings.Contains(name, `\`) {
-			http.NotFound(w, r)
+			http.Error(w, i18n.T(i18n.ForRequest(r), "not_found"), http.StatusNotFound)
 			return
 		}
 		root, err := os.OpenRoot(dir)
 		if err != nil {
-			webUnavailable(w)
+			webUnavailable(w, r)
 			return
 		}
 		defer root.Close()
@@ -71,9 +72,9 @@ func staticWeb() http.HandlerFunc {
 		}
 		if err != nil {
 			if name == "index.html" {
-				webUnavailable(w)
+				webUnavailable(w, r)
 			} else {
-				http.NotFound(w, r)
+				http.Error(w, i18n.T(i18n.ForRequest(r), "not_found"), http.StatusNotFound)
 			}
 			return
 		}
@@ -128,9 +129,9 @@ func openWebFile(root *os.Root, name string) (*os.File, fs.FileInfo, error) {
 	return file, info, nil
 }
 
-func webUnavailable(w http.ResponseWriter) {
+func webUnavailable(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	http.Error(w, "Web frontend unavailable", http.StatusServiceUnavailable)
+	http.Error(w, i18n.T(i18n.ForRequest(r), "web_unavailable"), http.StatusServiceUnavailable)
 }
 
 func compressible(media string) bool {

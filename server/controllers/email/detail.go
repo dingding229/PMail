@@ -3,13 +3,13 @@ package email
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"sort"
 	"strings"
 
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/dto/response"
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/services/detail"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
@@ -20,30 +20,27 @@ type emailDetailRequest struct {
 }
 
 func EmailDetail(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
-	reqBytes, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.WithContext(ctx).Errorf("%+v", err)
-	}
 	var retData emailDetailRequest
-	err = json.Unmarshal(reqBytes, &retData)
-	if err != nil {
-		log.WithContext(ctx).Errorf("%+v", err)
+	if !readMailJSON(ctx, w, req, &retData, false) {
+		return
 	}
 
 	if retData.ID <= 0 {
-		response.NewErrorResponse(response.ParamsError, "ID错误", "").FPrint(w)
+		response.Localized(ctx, response.ParamsError, "invalid_id").FPrint(w)
 		return
 	}
 
 	email, err := detail.GetEmailDetail(ctx, retData.ID, true)
 	if err != nil {
-		response.NewErrorResponse(response.ServerError, err.Error(), "").FPrint(w)
+		log.WithContext(ctx).Warnf("Read mail detail: %v", err)
+		response.Localized(ctx, response.ServerError, "mail_not_found").FPrint(w)
 		return
 	}
 
 	// Rewrite inline URLs only for the HTTP representation; MIME forwarding
 	// and POP3 still need the original cid references.
 	email.Html.String = inlineAttachmentURLs(retData.ID, email.Html.String, email.Attachments)
+	email.Error.String = i18n.Delivery(ctx, "delivery_detail", email.Error.String)
 	response.NewSuccessResponse(email).FPrint(w)
 }
 

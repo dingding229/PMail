@@ -45,10 +45,10 @@ func GetDNSSettings(ctx *context.Context) (map[string][]*DNSItem, error) {
 	}
 	for _, domain := range configData.Domains {
 		ret[domain] = []*DNSItem{
-			{Type: "A", Host: "smtp", Value: ip.GetIp(), TTL: 3600, Tips: i18n.GetText(ctx.Lang, "ip_taps")},
-			{Type: "A", Host: "imap", Value: ip.GetIp(), TTL: 3600, Tips: i18n.GetText(ctx.Lang, "ip_taps")},
-			{Type: "A", Host: "pop", Value: ip.GetIp(), TTL: 3600, Tips: i18n.GetText(ctx.Lang, "ip_taps")},
-			{Type: "A", Host: "@", Value: ip.GetIp(), TTL: 3600, Tips: i18n.GetText(ctx.Lang, "ip_taps")},
+			{Type: "A", Host: "smtp", Value: ip.GetIp(), TTL: 3600, Tips: i18n.T(ctx, "ip_taps")},
+			{Type: "A", Host: "imap", Value: ip.GetIp(), TTL: 3600, Tips: i18n.T(ctx, "ip_taps")},
+			{Type: "A", Host: "pop", Value: ip.GetIp(), TTL: 3600, Tips: i18n.T(ctx, "ip_taps")},
+			{Type: "A", Host: "@", Value: ip.GetIp(), TTL: 3600, Tips: i18n.T(ctx, "ip_taps")},
 			{Type: "MX", Host: "@", Value: fmt.Sprintf("smtp.%s", domain), TTL: 3600},
 			{Type: "TXT", Host: "@", Value: "v=spf1 a mx ~all", TTL: 3600},
 			{Type: "TXT", Host: "default._domainkey", Value: record, TTL: 3600},
@@ -60,7 +60,7 @@ func GetDNSSettings(ctx *context.Context) (map[string][]*DNSItem, error) {
 				// These A records already appear in the list.
 			default:
 				ret[domain] = append(ret[domain], &DNSItem{
-					Type: "A", Host: host, Value: ip.GetIp(), TTL: 3600, Tips: i18n.GetText(ctx.Lang, "ip_taps"),
+					Type: "A", Host: host, Value: ip.GetIp(), TTL: 3600, Tips: i18n.T(ctx, "ip_taps"),
 				})
 			}
 		}

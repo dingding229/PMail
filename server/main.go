@@ -52,7 +52,7 @@ func main() {
 	}
 
 	if version == "" {
-		version = "TestVersion"
+		version = "dev"
 	}
 
 	log.Infoln("*******************************************************************")

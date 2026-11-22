@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/services/token"
 	"github.com/Jinnrry/pmail/utils/context"
 )
@@ -21,7 +22,7 @@ func TokenCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		Name      string     `json:"name"`
 		ExpiresAt *time.Time `json:"expires_at"`
 	}
-	if !readRequest(w, r, &body, false) {
+	if !readRequest(ctx, w, r, &body, false) {
 		return
 	}
 	row, raw, err := token.Create(ctx.UserID, body.Name, body.ExpiresAt)
@@ -35,11 +36,11 @@ func TokenDelete(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ID int `json:"id"`
 	}
-	if !readRequest(w, r, &body, false) {
+	if !readRequest(ctx, w, r, &body, false) {
 		return
 	}
 	if body.ID <= 0 {
-		serviceError(ctx, w, token.ErrInvalid)
+		apiError(ctx, w, http.StatusBadRequest, response.ParamsError, "invalid_id")
 		return
 	}
 	if err := token.Delete(body.ID, ctx.UserID, ctx.IsAdmin); err != nil {

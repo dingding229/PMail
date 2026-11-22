@@ -56,7 +56,7 @@ func TestStaticWebFilesAndFallback(t *testing.T) {
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, r)
 			if w.Code != tc.status || w.Header().Get("Cache-Control") != tc.cache ||
-				!strings.Contains(w.Header().Get("Content-Type"), tc.contentType) || w.Header().Get("X-Frame-Options") != "DENY" {
+				!strings.Contains(w.Header().Get("Content-Type"), tc.contentType) || w.Header().Get("X-Frame-Options") != "SAMEORIGIN" {
 				t.Fatalf("status=%d headers=%v", w.Code, w.Header())
 			}
 			if tc.contentType == "text/html" && w.Header().Get("Content-Security-Policy") != webCSP {

@@ -18,7 +18,6 @@ import (
 	"github.com/Jinnrry/pmail/utils/send"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cast"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -50,26 +49,16 @@ type attachment struct {
 }
 
 func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
-	reqBytes, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.WithContext(ctx).Errorf("%+v", err)
-		response.NewErrorResponse(response.ParamsError, "params error", err.Error()).FPrint(w)
+	var reqData sendRequest
+	if !readMailJSON(ctx, w, req, &reqData, false) {
 		return
 	}
 	log.WithContext(ctx).Infof("发送邮件")
 
-	var reqData sendRequest
-	err = json.Unmarshal(reqBytes, &reqData)
-	if err != nil {
-		log.WithContext(ctx).Errorf("%+v", err)
-		response.NewErrorResponse(response.ParamsError, "params error", err.Error()).FPrint(w)
-		return
-	}
-
 	if reqData.FromAddress != "" {
 		resolved, err := address.SendAddress(ctx.UserID, reqData.FromAddress)
 		if err != nil && !ctx.IsAdmin {
-			response.NewErrorResponse(response.NoAccessPrivileges, "forbidden sender address", "").FPrintStatus(w, http.StatusForbidden)
+			response.Localized(ctx, response.NoAccessPrivileges, "mail_sender_forbidden").FPrintStatus(w, http.StatusForbidden)
 			return
 		}
 		if err == nil {
@@ -79,7 +68,7 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	if reqData.From.Email != "" && !ctx.IsAdmin {
 		resolved, err := address.SendAddress(ctx.UserID, reqData.From.Email)
 		if err != nil {
-			response.NewErrorResponse(response.NoAccessPrivileges, "forbidden sender address", "").FPrintStatus(w, http.StatusForbidden)
+			response.Localized(ctx, response.NoAccessPrivileges, "mail_sender_forbidden").FPrintStatus(w, http.StatusForbidden)
 			return
 		}
 		reqData.From.Email = resolved
@@ -90,7 +79,7 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	}
 
 	if reqData.From.Email == "" {
-		response.NewErrorResponse(response.ParamsError, "发件人必填", "发件人必填").FPrint(w)
+		response.Localized(ctx, response.ParamsError, "mail_sender_required").FPrint(w)
 		return
 	}
 
@@ -99,12 +88,12 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	}
 
 	if reqData.Subject == "" {
-		response.NewErrorResponse(response.ParamsError, "邮件标题必填", "邮件标题必填").FPrint(w)
+		response.Localized(ctx, response.ParamsError, "mail_subject_required").FPrint(w)
 		return
 	}
 
 	if len(reqData.To) <= 0 {
-		response.NewErrorResponse(response.ParamsError, "收件人必填", "收件人必填").FPrint(w)
+		response.Localized(ctx, response.ParamsError, "mail_recipient_required").FPrint(w)
 		return
 	}
 
@@ -151,14 +140,16 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	e.HTML = []byte(reqData.HTML)
 	e.Subject = reqData.Subject
 	for _, att := range reqData.Attachments {
-		att.Data = strings.TrimPrefix(att.Data, "data:")
-		infos := strings.Split(att.Data, ";")
-		contentType := infos[0]
-		content := strings.TrimPrefix(infos[1], "base64,")
+		raw, dataURL := strings.CutPrefix(att.Data, "data:")
+		contentType, content, base64Data := strings.Cut(raw, ";base64,")
+		if !dataURL || !base64Data || contentType == "" {
+			response.Localized(ctx, response.ParamsError, "attachment_encoding_invalid").FPrint(w)
+			return
+		}
 		decoded, err := base64.StdEncoding.DecodeString(content)
 		if err != nil {
 			log.WithContext(ctx).Errorf("附件解码错误！%v", err)
-			response.NewErrorResponse(response.ParamsError, i18n.GetText(ctx.Lang, "att_err"), err.Error()).FPrint(w)
+			response.Localized(ctx, response.ParamsError, "att_err").FPrint(w)
 			return
 		}
 		e.Attachments = append(e.Attachments, &parsemail.Attachment{
@@ -200,10 +191,10 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		MsgID:        e.MsgID,
 	}
 
-	err = persistOutboundParent(&modelEmail, ctx.UserID)
+	err := persistOutboundParent(&modelEmail, ctx.UserID)
 	if err != nil || modelEmail.Id <= 0 {
 		log.Printf("insert outbound parent error: %v", err)
-		response.NewErrorResponse(response.ServerError, i18n.GetText(ctx.Lang, "send_fail"), errorString(err)).FPrint(w)
+		response.Localized(ctx, response.ServerError, "mail_persist_failed").FPrint(w)
 		return
 	}
 
@@ -233,7 +224,7 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		default:
 			delivered++
 		}
-		recipientsResult = append(recipientsResult, map[string]any{"address": recipient.EmailAddress, "status": status, "error": errorText})
+		recipientsResult = append(recipientsResult, map[string]any{"address": recipient.EmailAddress, "status": status, "error": i18n.Delivery(ctx, "delivery_detail", errorText)})
 	}
 	if deliveryErr != nil && firstFailure == nil {
 		firstFailure = deliveryErr
@@ -262,7 +253,7 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	}
 	result := map[string]any{"status": statusText, "recipients": recipientsResult}
 	if delivered+queued == 0 {
-		response.NewErrorResponse(response.ServerError, i18n.GetText(ctx.Lang, "send_fail"), result).FPrint(w)
+		response.NewErrorResponse(response.ServerError, i18n.T(ctx, "send_fail"), result).FPrint(w)
 		return
 	}
 	response.NewSuccessResponse(result).FPrint(w)
