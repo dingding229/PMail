@@ -19,7 +19,7 @@ func ForwardGet(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		serviceError(ctx, w, err)
 		return
 	}
-	success(w, map[string]any{"setting": setting, "targets": targets})
+	success(w, map[string]any{"setting": apiForward(setting), "targets": targets})
 }
 
 func ForwardSet(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
@@ -41,7 +41,7 @@ func ForwardSet(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		apiError(ctx, w, http.StatusBadRequest, 100, forwardErrorKey(err))
 		return
 	}
-	success(w, setting)
+	success(w, apiForward(setting))
 }
 
 func forwardErrorKey(err error) string {

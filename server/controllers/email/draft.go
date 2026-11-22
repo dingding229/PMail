@@ -97,7 +97,10 @@ func SaveDraft(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		draftError(ctx, w, err)
 		return
 	}
-	response.NewSuccessResponse(map[string]int{"id": draft.Id}).FPrint(w)
+	response.NewSuccessResponse(struct {
+		ID int `json:"id"`
+		models.EmailISOTimes
+	}{draft.Id, draft.ISOTimes()}).FPrint(w)
 }
 
 func persistDraft(draft *models.Email, keepAttachments bool) error {
@@ -113,8 +116,10 @@ func persistDraft(draft *models.Email, keepAttachments bool) error {
 			if _, err := tx.Insert(draft); err != nil {
 				return err
 			}
-			_, err := tx.Insert(&models.UserEmail{UserID: draft.SendUserID, EmailID: draft.Id, Status: consts.EmailStatusDrafts, IsRead: 1})
-			return err
+			if _, err := tx.Insert(&models.UserEmail{UserID: draft.SendUserID, EmailID: draft.Id, Status: consts.EmailStatusDrafts, IsRead: 1}); err != nil {
+				return err
+			}
+			return readDraftTimes(tx, draft)
 		}
 		stored, err := findDraft(tx, draft.SendUserID, draft.Id)
 		if err != nil {
@@ -128,9 +133,25 @@ func persistDraft(draft *models.Email, keepAttachments bool) error {
 		}
 		draft.Size = len(draft.Text.String) + len(draft.Html.String) + len(draft.Attachments)
 		updates := map[string]any{"from_address": draft.FromAddress, "from_name": draft.FromName, "sender": draft.Sender, "subject": draft.Subject, "to": draft.To, "cc": draft.Cc, "bcc": draft.Bcc, "text": draft.Text.String, "html": draft.Html.String, "text_format": draft.TextFormat, "attachments": draft.Attachments, "size": draft.Size, "send_date": now}
-		_, err = tx.Table(&models.Email{}).ID(draft.Id).Where("send_user_id=? AND status=?", draft.SendUserID, consts.EmailStatusDrafts).Update(updates)
-		return err
+		if _, err := tx.Table(&models.Email{}).ID(draft.Id).Where("send_user_id=? AND status=?", draft.SendUserID, consts.EmailStatusDrafts).Update(updates); err != nil {
+			return err
+		}
+		return readDraftTimes(tx, draft)
 	})
+}
+
+// Read the stored timestamps after Xorm has handled its created/updated hooks.
+func readDraftTimes(tx *xorm.Session, draft *models.Email) error {
+	var stored models.Email
+	found, err := tx.ID(draft.Id).Cols("send_date", "create_time", "update_time", "cron_send_time").Get(&stored)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return errDraftNotFound
+	}
+	draft.SendDate, draft.CreateTime, draft.UpdateTime, draft.CronSendTime = stored.SendDate, stored.CreateTime, stored.UpdateTime, stored.CronSendTime
+	return nil
 }
 
 func findDraft(tx *xorm.Session, owner, id int) (models.Email, error) {

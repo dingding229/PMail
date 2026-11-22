@@ -47,7 +47,7 @@ func CreateUser(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		serviceError(ctx, w, err)
 		return
 	}
-	success(w, u)
+	success(w, apiUser(u))
 }
 
 func EditUser(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
@@ -60,7 +60,7 @@ func EditUser(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		serviceError(ctx, w, err)
 		return
 	}
-	success(w, u)
+	success(w, apiUser(u))
 }
 
 func UserList(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
@@ -92,7 +92,7 @@ func UserList(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		serviceError(ctx, w, err)
 		return
 	}
-	success(w, map[string]any{"current_page": b.Page, "total_page": (n + int64(b.Size) - 1) / int64(b.Size), "list": items})
+	success(w, map[string]any{"current_page": b.Page, "total_page": (n + int64(b.Size) - 1) / int64(b.Size), "list": mapViews(items, apiCurrentUser)})
 }
 
 func Info(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
@@ -139,7 +139,7 @@ func UserMe(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		serviceError(ctx, w, err)
 		return
 	}
-	success(w, views[0])
+	success(w, apiCurrentUser(views[0]))
 }
 
 func UserResetPassword(ctx *context.Context, w http.ResponseWriter, r *http.Request) {

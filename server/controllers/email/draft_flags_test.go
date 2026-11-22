@@ -192,7 +192,8 @@ func TestDraftRemainsAfterFailureAndIsRemovedAfterAcceptedSend(t *testing.T) {
 func TestSaveDraftTwiceKeepsIDAndUpdatesContent(t *testing.T) {
 	owner, _ := composeFixture(t)
 	type saved struct {
-		ID int `json:"id"`
+		ID         int     `json:"id"`
+		UpdatedISO *string `json:"update_time_iso"`
 	}
 	var first, second saved
 	status, code, data := callCompose(t, SaveDraft, owner, `{"subject":"before", "text":"initial body"}`)
@@ -204,7 +205,7 @@ func TestSaveDraftTwiceKeepsIDAndUpdatesContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, code, data = callCompose(t, SaveDraft, owner, string(payload))
-	if err := json.Unmarshal(data, &second); err != nil || status != 200 || code != 0 || second.ID != first.ID {
+	if err := json.Unmarshal(data, &second); err != nil || status != 200 || code != 0 || second.ID != first.ID || second.UpdatedISO == nil {
 		t.Fatalf("repeat save of %d: HTTP %d, errorNo %d, data %s", first.ID, status, code, data)
 	}
 	var row models.Email

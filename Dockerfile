@@ -31,7 +31,6 @@ RUN apk add --no-cache ca-certificates tzdata \
     && mkdir -m 700 /work/config
 COPY --from=backend /out/pmail /work/pmail
 COPY --from=frontend /build/web/dist/ /work/web/
-VOLUME ["/work/config"]
 EXPOSE 25 80 110 143 443 465 587 993 995
 HEALTHCHECK --interval=30s --timeout=5s --start-period=75s --retries=3 CMD ["/work/pmail", "healthcheck"]
 CMD ["/work/pmail"]

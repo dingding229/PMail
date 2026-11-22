@@ -13,6 +13,7 @@ import (
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -47,7 +48,7 @@ func TestAttachmentPreviewAccessAndUnsupported(t *testing.T) {
 	for _, tc := range []struct {
 		owner, index, status int
 		contains             string
-	}{{17, 0, 200, `"language":"python"`}, {17, 1, 415, "不是受支持的文本"}, {18, 0, 404, "找不到附件"}} {
+	}{{17, 0, 200, `"language":"python"`}, {17, 1, 415, i18n.T(ctx, "attachment_preview_unsupported")}, {18, 0, 404, i18n.T(ctx, "attachment_not_found")}} {
 		r := httptest.NewRequest(http.MethodGet, "/api/attachments/preview", nil)
 		r.SetPathValue("id", fmt.Sprintf("%d.%d", mail.Id, tc.index))
 		w := httptest.NewRecorder()

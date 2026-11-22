@@ -93,6 +93,7 @@ type Email struct {
 	MsgID          string // RFC-compliant Message-ID, persisted in DB
 	Size           int
 	Authentication *EmailAuthentication
+	AuthUnchecked  bool // explicitly imported without transport authentication
 	// EnvelopeFrom is set by SMTP sessions when the envelope sender is known.
 	EnvelopeFrom      string `json:"-"`
 	EnvelopeFromKnown bool   `json:"-"`

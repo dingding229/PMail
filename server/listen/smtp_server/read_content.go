@@ -50,6 +50,7 @@ func ImportExternal(ctx *context.Context, raw []byte, recipient string, targetGr
 		}
 	}
 	email.Authentication = parsemail.NewEmailAuthentication(false, false)
+	email.AuthUnchecked = true
 	users, saved, err := saveEmail(ctx, len(raw), email, 0, int(consts.EmailTypeReceive), []string{recipient}, false, false)
 	if err != nil {
 		return nil, err
@@ -232,28 +233,29 @@ func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserI
 	}
 
 	modelEmail := models.Email{
-		Type:         cast.ToInt8(emailType),
-		Subject:      email.Subject,
-		ReplyTo:      json2string(email.ReplyTo),
-		FromName:     email.From.Name,
-		FromAddress:  email.From.EmailAddress,
-		To:           json2string(email.To),
-		Bcc:          json2string(email.Bcc),
-		Cc:           json2string(email.Cc),
-		Text:         sql.NullString{String: string(email.Text), Valid: true},
-		TextFormat:   email.TextFormat,
-		Html:         sql.NullString{String: string(email.HTML), Valid: true},
-		Sender:       json2string(email.Sender),
-		Attachments:  json2string(email.Attachments),
-		Size:         email.Size,
-		SPFCheck:     boolInt8(SPFStatus),
-		DKIMCheck:    boolInt8(dkimStatus),
-		SendUserID:   sendUserID,
-		SendDate:     time.Now(),
-		Status:       cast.ToInt8(email.Status),
-		CreateTime:   time.Now(),
-		CronSendTime: time.Now(),
-		MsgID:        msgID,
+		Type:          cast.ToInt8(emailType),
+		Subject:       email.Subject,
+		ReplyTo:       json2string(email.ReplyTo),
+		FromName:      email.From.Name,
+		FromAddress:   email.From.EmailAddress,
+		To:            json2string(email.To),
+		Bcc:           json2string(email.Bcc),
+		Cc:            json2string(email.Cc),
+		Text:          sql.NullString{String: string(email.Text), Valid: true},
+		TextFormat:    email.TextFormat,
+		Html:          sql.NullString{String: string(email.HTML), Valid: true},
+		Sender:        json2string(email.Sender),
+		Attachments:   json2string(email.Attachments),
+		Size:          email.Size,
+		SPFCheck:      boolInt8(SPFStatus),
+		DKIMCheck:     boolInt8(dkimStatus),
+		AuthUnchecked: email.AuthUnchecked,
+		SendUserID:    sendUserID,
+		SendDate:      time.Now(),
+		Status:        cast.ToInt8(email.Status),
+		CreateTime:    time.Now(),
+		CronSendTime:  time.Now(),
+		MsgID:         msgID,
 	}
 
 	var userIDs []int

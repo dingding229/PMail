@@ -81,6 +81,8 @@ docker compose ps -a
 
 `init-secrets` 应正常退出（退出码 `0`），`postgres` 和 `pmail` 应为 `healthy`。这不代表公网 DNS、邮件端口或证书已就绪。反代路线先完成下一节；直连路线等 PMail 签发网页证书后再访问。登录后在「管理 → 域名管理」核对主邮件域名，在「设置 → 地址与别名」确认实际地址。网页域名不会自动成为收信域名。
 
+Compose 已用命名卷 `pmail_config` 挂载 `/work/config`（配置、DKIM/TLS、注册密钥等），数据库密码另存于 `secrets` 卷。镜像不再自动创建 `/work/config` 匿名卷；若用 `docker run` 而非 Compose，请显式挂载 `--mount type=volume,source=pmail_config,target=/work/config` 或绑定一个持久目录，否则替换容器会丢失该目录的数据。升级时请继续挂载已有配置卷，不要删除未确认归属的旧卷。
+
 多实例需各用不同的 `PMAIL_PROJECT_NAME` 和宿主机端口。接管已有部署时须保留原项目名、`.env` 和数据卷，不要重新初始化。
 
 ## 反向代理

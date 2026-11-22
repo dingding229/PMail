@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"github.com/Jinnrry/pmail/dto/response"
+	"github.com/Jinnrry/pmail/i18n"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -63,7 +64,7 @@ func TestStaticWebFilesAndFallback(t *testing.T) {
 				t.Fatalf("status=%d headers=%v", w.Code, w.Header())
 			}
 			if tc.contentType == "application/json" {
-				assertUnknownAPI(t, w, "找不到请求的资源")
+				assertUnknownAPI(t, w, i18n.Text(i18n.Default(), "not_found"))
 			}
 			if tc.contentType == "text/html" && w.Header().Get("Content-Security-Policy") != webCSP {
 				t.Fatalf("missing SPA CSP: %v", w.Header())
@@ -134,5 +135,5 @@ func TestUnknownAPIUsesLanguageWithoutServingSPA(t *testing.T) {
 	r.Header.Set("Accept", "text/html")
 	w := httptest.NewRecorder()
 	webMiddleware(mux).ServeHTTP(w, r)
-	assertUnknownAPI(t, w, "The requested resource was not found")
+	assertUnknownAPI(t, w, i18n.Text(i18n.English, "not_found"))
 }

@@ -7,3 +7,4 @@
 - `POST /api/domain/dns` 返回本地化 DNS 向导（有 SPF 冲突或未授权时可提供 `suggested_value`）；`GET /api/domain/dns/zone` 下载建议记录。兼容 GET `/api/domain/dns` 仍返回旧数组。
 - 附件新地址使用 `<邮件 ID>.<附件 Index>`；下载返回字节，`/api/attachments/preview/{id}` 返回最大 512 KiB 的文本预览。旧 `/attachments/*` 保留。
 - 邮件列表与详情新增规范化地址、附件字段，保留旧格式。新增星标、未读、服务器草稿接口；通过发送请求的 `draft_id` 关联已接受的投递与草稿删除。邮件 `text` 与预览 `content` 是纯文本，不应作为 HTML 插入。
+- 时间展示和排序请优先使用 RFC3339 `*_iso` 字段（带时区，未设置为 `null`），旧字段仅用于兼容。邮件列表和详情的 `auth_status` 表示收信认证结果；草稿和本服务器发出的邮件为 `not_applicable`，不会标为 `dangerous`。

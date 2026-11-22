@@ -15,7 +15,7 @@ func TokenList(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		serviceError(ctx, w, err)
 		return
 	}
-	success(w, rows)
+	success(w, mapViews(rows, apiToken))
 }
 func TokenCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -30,7 +30,7 @@ func TokenCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		serviceError(ctx, w, err)
 		return
 	}
-	success(w, map[string]any{"token": raw, "item": row})
+	success(w, map[string]any{"token": raw, "item": apiToken(row)})
 }
 func TokenDelete(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var body struct {

@@ -20,6 +20,7 @@ import (
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/dto/response"
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/signal"
 	"github.com/Jinnrry/pmail/testschema"
 )
@@ -287,7 +288,7 @@ func TestMaster(t *testing.T) {
 		var env struct {
 			ErrorMsg string `json:"errorMsg"`
 		}
-		if err := json.Unmarshal(res.Body, &env); err != nil || env.ErrorMsg != "域名已存在" {
+		if err := json.Unmarshal(res.Body, &env); err != nil || env.ErrorMsg == "" || env.ErrorMsg != i18n.Text(i18n.Default(), "domain_exists") {
 			t.Fatalf("normalized duplicate domain: body: %s", res.Body)
 		}
 	}) {

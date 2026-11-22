@@ -3,7 +3,7 @@ info:
   title: PMail Pro HTTP API
   version: 4.0.0-beta.1
   description: |-
-    C3 runtime contract. Cookie, Bearer token, and the legacy Token header are alternative credentials; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource; any admin override is stated per operation.
+    v4 runtime contract. For timestamps use the additive *_iso fields (RFC3339 with an explicit offset); legacy fields are unchanged. Cookie, Bearer token, and the legacy Token header are alternative credentials; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource; any admin override is stated per operation.
 
     JSON responses use {errorNo, errorMsg, data} unless stated otherwise. Legacy failures can return HTTP 200. x-error-codes lists application codes by HTTP status. Don't infer success from HTTP status alone. Unmatched /api requests return HTTP 404 with the localized JSON envelope (errorNo 404). The reusable UnknownApiPath response describes this routing error. Resource-not-found errors on matched routes keep their existing error codes. Unsupported attachment subpaths never return SPA HTML. The legacy setup endpoint is available only on the setup listener; when HTTPS is active the plain HTTP listener serves ping and ACME directly and redirects other requests to HTTPS. Listed GET/POST variants are supported contracts; incidental verbs accepted by some older handlers are not part of the contract.
 
@@ -2697,10 +2697,37 @@ components:
         content_id: {type: string}
         inline: {type: boolean}
         previewable: {type: boolean}
+    IsoTimestamp:
+      type: [string, 'null']
+      format: date-time
+      description: RFC3339 date-time with an explicit UTC offset. Clients should use *_iso instead of legacy time fields.
+        Null means unknown or unset.
     MailListItem:
       type: object
-      required: [id, to_list, cc_list, bcc_list, reply_to_list, attachments_list, is_starred, title, desc, datetime, is_read,
-        sender, to, dangerous, error]
+      required:
+      - id
+      - to_list
+      - cc_list
+      - bcc_list
+      - reply_to_list
+      - attachments_list
+      - send_date_iso
+      - create_time_iso
+      - update_time_iso
+      - send_time_iso
+      - cron_send_time_iso
+      - datetime_iso
+      - is_draft
+      - dangerous
+      - auth_status
+      - is_starred
+      - title
+      - desc
+      - datetime
+      - is_read
+      - sender
+      - to
+      - error
       properties:
         id: {type: integer}
         to_list:
@@ -2718,19 +2745,33 @@ components:
         attachments_list:
           type: array
           items: {$ref: '#/components/schemas/NormalizedMailAttachment'}
+        send_date_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        create_time_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        update_time_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        send_time_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        cron_send_time_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        datetime_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        is_draft: {type: boolean}
+        dangerous:
+          type: boolean
+          description: True only for inbound mail whose known checks both failed; false for drafts/outbound mail.
+        auth_status:
+          enum: [pass, fail, none, not_applicable]
+          description: pass if at least one check passed; fail if neither passed for checked inbound mail; none when no
+            check is known or performed; not_applicable for drafts and outgoing mail.
         is_starred: {type: boolean}
         title: {type: string}
         desc: {type: string}
         datetime:
           type: string
           pattern: ^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$
-          description: Server-local time formatted as YYYY-MM-DD HH:mm:ss, without a UTC offset.
+          description: Legacy server-local YYYY-MM-DD HH:mm:ss without an offset; use the corresponding *_iso field for
+            display and sorting.
         is_read: {type: boolean}
         sender: {$ref: '#/components/schemas/MailAddress'}
         to:
           type: [array, 'null']
           items: {$ref: '#/components/schemas/MailAddress'}
-        dangerous: {type: boolean, description: True if neither SPF nor DKIM passed.}
         error: {type: string}
     MailPage:
       type: object
@@ -2768,6 +2809,19 @@ components:
         attachments_list:
           type: array
           items: {$ref: '#/components/schemas/NormalizedMailAttachment'}
+        send_date_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        create_time_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        update_time_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        send_time_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        cron_send_time_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        is_draft: {type: boolean}
+        dangerous:
+          type: boolean
+          description: True only for inbound mail whose known checks both failed; false for drafts/outbound mail.
+        auth_status:
+          enum: [pass, fail, none, not_applicable]
+          description: pass if at least one check passed; fail if neither passed for checked inbound mail; none when no
+            check is known or performed; not_applicable for drafts and outgoing mail.
         is_read: {type: boolean}
         is_starred: {type: boolean}
         mailbox_status: {type: integer}
@@ -2828,28 +2882,33 @@ components:
         send_time:
           type: string
           pattern: ^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$
-          description: Server-local time formatted as YYYY-MM-DD HH:mm:ss, without a UTC offset.
+          description: Legacy server-local YYYY-MM-DD HH:mm:ss without an offset; use the corresponding *_iso field for
+            display and sorting.
         update_time:
           type: string
           pattern: ^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$
-          description: Server-local time formatted as YYYY-MM-DD HH:mm:ss, without a UTC offset.
+          description: Legacy server-local YYYY-MM-DD HH:mm:ss without an offset; use the corresponding *_iso field for
+            display and sorting.
         send_user_id: {type: integer}
         size: {type: integer}
         error: {type: string}
         send_date:
           type: string
           pattern: ^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$
-          description: Server-local time formatted as YYYY-MM-DD HH:mm:ss, without a UTC offset.
+          description: Legacy server-local YYYY-MM-DD HH:mm:ss without an offset; use the corresponding *_iso field for
+            display and sorting.
         create_time:
           type: string
           pattern: ^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$
-          description: Server-local time formatted as YYYY-MM-DD HH:mm:ss, without a UTC offset.
+          description: Legacy server-local YYYY-MM-DD HH:mm:ss without an offset; use the corresponding *_iso field for
+            display and sorting.
         msg_id: {type: string, description: Persisted RFC Message-ID.}
         text_format:
           enum: [plain, flowed, markdown, patch]
         has_code:
           type: boolean
-          description: True for recognizable patch content, fenced Markdown code, or HTML pre/code elements. Plain-text code without any of those markers is false.
+          description: True for recognizable patch content, fenced Markdown code, or HTML pre/code elements. Plain-text
+            code without any of those markers is false.
       required:
       - id
       - to_list
@@ -2857,6 +2916,14 @@ components:
       - bcc_list
       - reply_to_list
       - attachments_list
+      - send_date_iso
+      - create_time_iso
+      - update_time_iso
+      - send_time_iso
+      - cron_send_time_iso
+      - is_draft
+      - dangerous
+      - auth_status
       - is_read
       - is_starred
       - mailbox_status
@@ -2995,9 +3062,14 @@ components:
           description: Omit to keep saved attachments when updating; an explicit empty array removes them.
     DraftSaved:
       type: object
-      required: [id]
+      required: [id, send_date_iso, create_time_iso, update_time_iso, send_time_iso, cron_send_time_iso]
       properties:
         id: {type: integer, minimum: 1}
+        send_date_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        create_time_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        update_time_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        send_time_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        cron_send_time_iso: {$ref: '#/components/schemas/IsoTimestamp'}
     DraftDeleteRequest:
       type: object
       properties:
@@ -3077,8 +3149,9 @@ components:
         parent_id: {type: integer, default: 0}
     ForwardSetting:
       type: object
-      required: [user_id, enabled, targets, keep_copy, updated]
+      required: [updated_iso, user_id, enabled, targets, keep_copy, updated]
       properties:
+        updated_iso: {$ref: '#/components/schemas/IsoTimestamp'}
         user_id: {type: integer}
         enabled: {type: boolean}
         targets:
@@ -3153,6 +3226,9 @@ components:
     QueueItem:
       type: object
       properties:
+        next_retry_at_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        created_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        updated_iso: {$ref: '#/components/schemas/IsoTimestamp'}
         id: {type: integer}
         kind:
           enum: [send, forward, bounce]
@@ -3169,8 +3245,8 @@ components:
             verbatim.}
         created: {type: string, format: date-time}
         updated: {type: string, format: date-time}
-      required: [id, kind, user_id, mail_from, rcpt_to, attempts, max_attempts, next_retry_at, status, last_error, created,
-        updated]
+      required: [next_retry_at_iso, created_iso, updated_iso, id, kind, user_id, mail_from, rcpt_to, attempts, max_attempts,
+        next_retry_at, status, last_error, created, updated]
     ExternalPreset:
       type: object
       required: [name, protocol, host, port, tls_mode]
@@ -3185,6 +3261,10 @@ components:
     ExternalAccount:
       type: object
       required:
+      - last_sync_at_iso
+      - last_success_at_iso
+      - created_iso
+      - updated_iso
       - id
       - user_id
       - name
@@ -3206,6 +3286,10 @@ components:
       - created
       - updated
       properties:
+        last_sync_at_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        last_success_at_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        created_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        updated_iso: {$ref: '#/components/schemas/IsoTimestamp'}
         id: {type: integer}
         user_id: {type: integer}
         name: {type: string}
@@ -3310,8 +3394,10 @@ components:
         message: {type: string}
     Domain:
       type: object
-      required: [id, name, is_default, dkim_selector, created, updated]
+      required: [created_iso, updated_iso, id, name, is_default, dkim_selector, created, updated]
       properties:
+        created_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        updated_iso: {$ref: '#/components/schemas/IsoTimestamp'}
         id: {type: integer}
         name: {type: string}
         is_default: {type: boolean}
@@ -3376,8 +3462,9 @@ components:
         fix_hint: {type: string, description: Localized.}
     DomainDns:
       type: object
-      required: [domain, mail_host, web_domain, all_required_ok, checked_at, records]
+      required: [domain, mail_host, web_domain, all_required_ok, checked_at, checked_at_iso, records]
       properties:
+        checked_at_iso: {$ref: '#/components/schemas/IsoTimestamp'}
         domain: {type: string}
         mail_host: {type: string}
         web_domain: {type: string}
@@ -3401,8 +3488,9 @@ components:
         created: {type: string, format: date-time}
     Address:
       type: object
-      required: [id, user_id, local_part, domain_id, is_primary, can_send, created, domain, address]
+      required: [created_iso, id, user_id, local_part, domain_id, is_primary, can_send, created, domain, address]
       properties:
+        created_iso: {$ref: '#/components/schemas/IsoTimestamp'}
         id: {type: integer}
         user_id: {type: integer}
         local_part: {type: string}
@@ -3436,8 +3524,10 @@ components:
         can_send: {type: boolean}
     User:
       type: object
-      required: [id, account, name, disabled, is_admin, lang, quota_mb, created, last_login_at]
+      required: [created_iso, last_login_at_iso, id, account, name, disabled, is_admin, lang, quota_mb, created, last_login_at]
       properties:
+        created_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        last_login_at_iso: {$ref: '#/components/schemas/IsoTimestamp'}
         id: {type: integer}
         account: {type: string}
         name: {type: string}
@@ -3453,9 +3543,11 @@ components:
           format: date-time
     CurrentUser:
       type: object
-      required: [id, account, name, disabled, is_admin, lang, quota_mb, created, last_login_at, display_name, addresses,
-        used_bytes]
+      required: [created_iso, last_login_at_iso, id, account, name, disabled, is_admin, lang, quota_mb, created, last_login_at,
+        display_name, addresses, used_bytes]
       properties:
+        created_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        last_login_at_iso: {$ref: '#/components/schemas/IsoTimestamp'}
         id: {type: integer}
         account: {type: string}
         name: {type: string}
@@ -3535,8 +3627,11 @@ components:
         quota_mb: {type: integer, minimum: 0}
     Token:
       type: object
-      required: [id, user_id, name, prefix, last_used_at, expires_at, created]
+      required: [last_used_at_iso, expires_at_iso, created_iso, id, user_id, name, prefix, last_used_at, expires_at, created]
       properties:
+        last_used_at_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        expires_at_iso: {$ref: '#/components/schemas/IsoTimestamp'}
+        created_iso: {$ref: '#/components/schemas/IsoTimestamp'}
         id: {type: integer}
         user_id: {type: integer}
         name: {type: string}

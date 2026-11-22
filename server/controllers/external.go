@@ -27,7 +27,7 @@ func ExternalList(ctx *context.Context, w http.ResponseWriter, r *http.Request) 
 	for i := range rows {
 		localizeExternal(ctx, &rows[i])
 	}
-	success(w, rows)
+	success(w, mapViews(rows, apiExternal))
 }
 
 func ExternalCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
@@ -45,7 +45,7 @@ func ExternalCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request
 		return
 	}
 	localizeExternal(ctx, &row)
-	success(w, row)
+	success(w, apiExternal(row))
 }
 
 func ExternalUpdate(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
@@ -59,7 +59,7 @@ func ExternalUpdate(ctx *context.Context, w http.ResponseWriter, r *http.Request
 		return
 	}
 	localizeExternal(ctx, &row)
-	success(w, row)
+	success(w, apiExternal(row))
 }
 
 func ExternalDelete(ctx *context.Context, w http.ResponseWriter, r *http.Request) {

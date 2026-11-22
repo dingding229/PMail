@@ -73,5 +73,5 @@ func Register(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		serviceError(ctx, w, err)
 		return
 	}
-	success(w, views[0])
+	success(w, apiCurrentUser(views[0]))
 }

@@ -18,7 +18,7 @@ func QueueList(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	for i := range rows {
 		rows[i].LastError = i18n.Delivery(ctx, "queue_detail", rows[i].LastError)
 	}
-	success(w, rows)
+	success(w, mapViews(rows, apiQueueItem))
 }
 
 func QueueAction(ctx *context.Context, w http.ResponseWriter, r *http.Request, fn func(int, int, bool) error) {

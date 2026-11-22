@@ -2,15 +2,18 @@ package email
 
 import (
 	"encoding/json"
-	"github.com/Jinnrry/pmail/dto"
-	"github.com/Jinnrry/pmail/dto/parsemail"
-	"github.com/Jinnrry/pmail/dto/response"
-	"github.com/Jinnrry/pmail/i18n"
-	"github.com/Jinnrry/pmail/services/list"
-	"github.com/Jinnrry/pmail/utils/context"
-	"github.com/spf13/cast"
 	"math"
 	"net/http"
+	"time"
+
+	"github.com/Jinnrry/pmail/dto"
+	"github.com/Jinnrry/pmail/dto/response"
+	"github.com/Jinnrry/pmail/i18n"
+	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/list"
+	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/isotime"
+	"github.com/spf13/cast"
 )
 
 type emailListResponse struct {
@@ -21,16 +24,18 @@ type emailListResponse struct {
 
 type emilItem struct {
 	normalizedMail
-	IsStarred bool   `json:"is_starred"`
-	ID        int    `json:"id"`
-	Title     string `json:"title"`
-	Desc      string `json:"desc"`
-	Datetime  string `json:"datetime"`
-	IsRead    bool   `json:"is_read"`
-	Sender    User   `json:"sender"`
-	To        []User `json:"to"`
-	Dangerous bool   `json:"dangerous"`
-	Error     string `json:"error"`
+	models.EmailISOTimes
+	mailAuthenticationView
+	DatetimeISO *time.Time `json:"datetime_iso"`
+	IsStarred   bool       `json:"is_starred"`
+	ID          int        `json:"id"`
+	Title       string     `json:"title"`
+	Desc        string     `json:"desc"`
+	Datetime    string     `json:"datetime"`
+	IsRead      bool       `json:"is_read"`
+	Sender      User       `json:"sender"`
+	To          []User     `json:"to"`
+	Error       string     `json:"error"`
 }
 
 type User struct {
@@ -81,20 +86,21 @@ func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 
 		var tos []User
 		_ = json.Unmarshal([]byte(email.To), &tos)
-		authentication := parsemail.NewEmailAuthentication(email.SPFCheck == 1, email.DKIMCheck == 1)
 
 		lst = append(lst, &emilItem{
-			normalizedMail: normalizeMail(email.Email),
-			IsStarred:      email.IsStarred,
-			ID:             email.Id,
-			Title:          email.Subject,
-			Desc:           email.Text.String,
-			Datetime:       email.SendDate.Format("2006-01-02 15:04:05"),
-			IsRead:         email.IsRead == 1,
-			Sender:         sender,
-			To:             tos,
-			Dangerous:      authentication.Dangerous,
-			Error:          i18n.Delivery(ctx, "delivery_detail", email.Error.String),
+			normalizedMail:         normalizeMail(email.Email),
+			EmailISOTimes:          email.Email.ISOTimes(),
+			mailAuthenticationView: mailAuthentication(email.Email, email.MailboxStatus),
+			DatetimeISO:            isotime.UTC(email.SendDate),
+			IsStarred:              email.IsStarred,
+			ID:                     email.Id,
+			Title:                  email.Subject,
+			Desc:                   email.Text.String,
+			Datetime:               email.SendDate.Format("2006-01-02 15:04:05"),
+			IsRead:                 email.IsRead == 1,
+			Sender:                 sender,
+			To:                     tos,
+			Error:                  i18n.Delivery(ctx, "delivery_detail", email.Error.String),
 		})
 	}
 

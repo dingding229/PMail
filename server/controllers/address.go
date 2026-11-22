@@ -59,7 +59,7 @@ func AddressList(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		serviceError(ctx, w, err)
 		return
 	}
-	success(w, rows)
+	success(w, mapViews(rows, apiAddress))
 }
 
 func AddressCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
@@ -85,7 +85,7 @@ func AddressCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request)
 		serviceError(ctx, w, err)
 		return
 	}
-	success(w, row)
+	success(w, apiAddress(row))
 }
 
 func addressAction(ctx *context.Context, w http.ResponseWriter, r *http.Request, fn func(addressRequest) error) {

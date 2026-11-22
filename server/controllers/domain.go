@@ -16,7 +16,7 @@ func DomainList(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	if !adminOnly(ctx, w) || !readRequest(ctx, w, r, new(struct{}), true) {
 		return
 	}
-	success(w, domain.List())
+	success(w, mapViews(domain.List(), apiDomain))
 }
 
 func DomainCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
@@ -31,7 +31,7 @@ func DomainCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request) 
 		serviceError(ctx, w, err)
 		return
 	}
-	success(w, item)
+	success(w, apiDomain(item))
 }
 
 func domainAction(ctx *context.Context, w http.ResponseWriter, r *http.Request, fn func(int) error) {
@@ -79,7 +79,7 @@ func DomainDNS(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 			serviceError(ctx, w, err)
 			return
 		}
-		success(w, guide)
+		success(w, apiDNSGuide(guide))
 		return
 	}
 	records, err := domain.DNS(r.Context(), body.ID)

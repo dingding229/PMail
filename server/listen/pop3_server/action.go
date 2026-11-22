@@ -1,312 +1,228 @@
 package pop3_server
 
 import (
-	errors2 "errors"
-	"github.com/Jinnrry/gopop"
-	"github.com/Jinnrry/pmail/consts"
-	"github.com/Jinnrry/pmail/dto"
-	"github.com/Jinnrry/pmail/dto/parsemail"
-	"github.com/Jinnrry/pmail/services/auth"
-	"github.com/Jinnrry/pmail/services/del_email"
-	"github.com/Jinnrry/pmail/services/detail"
-	"github.com/Jinnrry/pmail/services/list"
-	"github.com/Jinnrry/pmail/utils/array"
-	"github.com/Jinnrry/pmail/utils/context"
-	"github.com/Jinnrry/pmail/utils/errors"
-	"github.com/Jinnrry/pmail/utils/id"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cast"
+	stdcontext "context"
+	"errors"
+	"strconv"
 	"strings"
+	"sync"
+
+	"github.com/Jinnrry/pmail/consts"
+	"github.com/Jinnrry/pmail/db"
+	"github.com/Jinnrry/pmail/dto/parsemail"
+	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/auth"
+	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/id"
+	"xorm.io/xorm"
 )
 
-type action struct {
+var (
+	errNoSuchMessage  = errors.New("no such message")
+	errMaildropLocked = errors.New("maildrop already locked")
+	maildropLocks     sync.Map // one POP3 transaction per user across both listeners
+	crlf              = strings.NewReplacer("\r\n", "\r\n", "\n", "\r\n", "\r", "\r\n")
+)
+
+type messageRef struct {
+	id     int
+	size   int64 // octets of the exact (unescaped) RETR rendition, -1 until measured
+	marked bool
 }
 
-// Custom 非标准命令
-func (a action) Custom(session *gopop.Session, cmd string, args []string) ([]string, error) {
-	if session.Ctx == nil {
-		tc := &context.Context{}
-		tc.SetValue(context.LogID, id.GenLogID())
-		session.Ctx = tc
-	}
-
-	log.WithContext(session.Ctx).Debugf("not supported cmd request! cmd:%s args:%v", cmd, args)
-	return nil, errors2.New("not supported cmd request")
+type maildrop struct {
+	ctx      *context.Context
+	messages []messageRef
 }
 
-// Capa 说明服务端支持的命令列表
-func (a action) Capa(session *gopop.Session) ([]string, error) {
-	if session.Ctx == nil {
-		tc := &context.Context{}
-		tc.SetValue(context.LogID, id.GenLogID())
-		session.Ctx = tc
-	}
+// Restrict snapshots and loads to messages visible in this user's POP3 maildrop.
+// An EXISTS guard also de-duplicates copies in user_email.
+// POP3 exposes the Inbox, not IMAP's separate user folders. Apply the same
+// filter to STAT/LIST and to the links DELE can move to Trash.
+const inboxLink = `user_id=? AND status=? AND (group_id=0 OR group_id=?)`
+const visibleMessage = `email.type=? AND EXISTS (
+	SELECT 1 FROM user_email WHERE email_id=email.id AND ` + inboxLink + `
+)`
 
-	if session.InTls {
-		log.WithContext(session.Ctx).Debugf("POP3 CMD: CAPA With Tls")
-	} else {
-		log.WithContext(session.Ctx).Debugf("POP3 CMD: CAPA Without Tls")
+func openMaildrop(user models.User) (*maildrop, error) {
+	if _, held := maildropLocks.LoadOrStore(user.ID, true); held {
+		return nil, errMaildropLocked
 	}
-
-	ret := []string{
-		"USER",
-		"PASS",
-		"TOP",
-		"STAT",
-		"UIDL",
-		"LIST",
-		"RETR",
-		"DELE",
-		"REST",
-		"NOOP",
-		"QUIT",
+	ctx := &context.Context{Context: stdcontext.Background(), UserID: user.ID, UserName: user.Name, UserAccount: user.Account, AuthVersion: user.AuthVersion}
+	ctx.SetValue(context.LogID, id.GenLogID())
+	var rows []struct {
+		ID int `xorm:"id"`
 	}
-	if !session.InTls {
-		ret = append(ret, "STLS")
+	if err := db.Instance.Table("email").Cols("id").Where(visibleMessage, consts.EmailTypeReceive, user.ID, consts.EmailStatusWait, models.INBOX).Desc("id").Find(&rows); err != nil {
+		maildropLocks.Delete(user.ID)
+		return nil, err
 	}
-
-	log.WithContext(session.Ctx).Debugf("CAPA \n %+v", ret)
-
-	return ret, nil
+	drop := &maildrop{ctx: ctx, messages: make([]messageRef, len(rows))}
+	for i, row := range rows {
+		drop.messages[i] = messageRef{id: row.ID, size: -1}
+	}
+	return drop, nil
 }
 
-// User records the full login, including a domain if the client used an alias.
-func (a action) User(session *gopop.Session, username string) error {
-	session.User = username
-	return nil
+func (d *maildrop) close()          { maildropLocks.Delete(d.ctx.UserID) }
+func (d *maildrop) validate() error { return auth.ValidateSession(d.ctx.UserID, d.ctx.AuthVersion) }
+
+func (d *maildrop) ref(number int) (*messageRef, error) {
+	if number < 1 || number > len(d.messages) || d.messages[number-1].marked {
+		return nil, errNoSuchMessage
+	}
+	return &d.messages[number-1], nil
 }
 
-func (a action) Pass(session *gopop.Session, pwd string) error {
-	if session.Ctx == nil {
-		ctx := &context.Context{}
-		ctx.SetValue(context.LogID, id.GenLogID())
-		session.Ctx = ctx
-	}
-	ctx := session.Ctx.(*context.Context)
-	remote := ""
-	if session.Conn != nil {
-		remote = session.Conn.RemoteAddr().String()
-	}
-	user, err := auth.Authenticate(session.User, pwd, remote)
+func (d *maildrop) render(ref *messageRef) (string, error) {
+	var mail models.Email
+	// Even an administrator can only read mail belonging to this POP3 mailbox.
+	// Recheck the association: a concurrent Web/IMAP delete or move can hide it.
+	found, err := db.Instance.ID(ref.id).Where(visibleMessage, consts.EmailTypeReceive, d.ctx.UserID, consts.EmailStatusWait, models.INBOX).Get(&mail)
 	if err != nil {
-		return err
+		return "", err
 	}
-	session.Status = gopop.TRANSACTION
-	ctx.UserID, ctx.UserName, ctx.UserAccount, ctx.AuthVersion = user.ID, user.Name, user.Account, user.AuthVersion
-	return nil
+	if !found {
+		return "", errNoSuchMessage
+	}
+	body := crlf.Replace(string(parsemail.NewEmailFromModel(mail).BuildBytes(d.ctx, false)))
+	if !strings.HasSuffix(body, "\r\n") {
+		body += "\r\n"
+	}
+	ref.size = int64(len(body))
+	return body, nil
 }
 
-// The legacy static MD5 digest cannot authenticate a bcrypt account safely.
-func (a action) Apop(_ *gopop.Session, _, _ string) error {
-	return errors2.New("APOP not supported; use USER/PASS over TLS")
-}
-
-func validateSession(session *gopop.Session) error {
-	ctx, ok := session.Ctx.(*context.Context)
-	if !ok {
-		return auth.ErrCredentials
-	}
-	return auth.ValidateSession(ctx.UserID, ctx.AuthVersion)
-}
-
-// Stat 查询邮件数量
-func (a action) Stat(session *gopop.Session) (msgNum, msgSize int64, err error) {
-	if err := validateSession(session); err != nil {
-		return 0, 0, err
-	}
-	log.WithContext(session.Ctx).Debugf("POP3 CMD: STAT")
-
-	num, size := list.Stat(session.Ctx.(*context.Context))
-	log.WithContext(session.Ctx).Debugf("POP3 STAT RETURT : %d,%d", num, size)
-	return num, size, nil
-}
-
-// Uidl 查询某封邮件的唯一标志符
-func (a action) Uidl(session *gopop.Session, msg string) ([]gopop.UidlItem, error) {
-	if err := validateSession(session); err != nil {
-		return nil, err
-	}
-	log.WithContext(session.Ctx).Debugf("POP3 CMD: UIDL ,Args:%s", msg)
-
-	reqId := cast.ToInt64(msg)
-	if reqId > 0 {
-		log.WithContext(session.Ctx).Debugf("Uidl \n %+v", reqId)
-		return []gopop.UidlItem{
-			{
-				Id:      reqId,
-				UnionId: msg,
-			},
-		}, nil
-	}
-
-	var res []listItem
-
-	emailList, _ := list.GetEmailList(session.Ctx.(*context.Context), dto.SearchTag{Type: consts.EmailTypeReceive, Status: -1, GroupId: -1}, "", true, 0, 99999)
-	for _, info := range emailList {
-		res = append(res, listItem{
-			Id:   cast.ToInt64(info.Id),
-			Size: cast.ToInt64(info.Size),
-		})
-	}
-	ret := []gopop.UidlItem{}
-	for _, re := range res {
-		ret = append(ret, gopop.UidlItem{
-			Id:      re.Id,
-			UnionId: cast.ToString(re.Id),
-		})
-	}
-
-	log.WithContext(session.Ctx).Debugf("Uidl \n %+v", ret)
-	return ret, nil
-}
-
-type listItem struct {
-	Id   int64 `json:"id"`
-	Size int64 `json:"size"`
-}
-
-// List 邮件列表
-func (a action) List(session *gopop.Session, msg string) ([]gopop.MailInfo, error) {
-	if err := validateSession(session); err != nil {
-		return nil, err
-	}
-	log.WithContext(session.Ctx).Debugf("POP3 CMD: LIST ,Args:%s", msg)
-	var res []listItem
-	var listId int
-	if msg != "" {
-		listId = cast.ToInt(msg)
-		if listId == 0 {
-			return nil, errors.New("params error")
+func (d *maildrop) size(ref *messageRef) (int64, error) {
+	if ref.size < 0 {
+		if _, err := d.render(ref); err != nil {
+			return 0, err
 		}
 	}
+	return ref.size, nil
+}
 
-	if listId != 0 {
-		info, err := detail.GetEmailDetail(session.Ctx.(*context.Context), listId, false)
+func (d *maildrop) stat() (int, int64, error) {
+	var count int
+	var total int64
+	for i := range d.messages {
+		ref := &d.messages[i]
+		if ref.marked {
+			continue
+		}
+		n, err := d.size(ref)
+		if errors.Is(err, errNoSuchMessage) {
+			continue
+		}
+		if err != nil {
+			return 0, 0, err
+		}
+		count++
+		total += n
+	}
+	return count, total, nil
+}
+
+func (d *maildrop) list(number int, uid bool) ([]string, error) {
+	line := func(number int, ref *messageRef) (string, error) {
+		if uid {
+			return strconv.Itoa(number) + " " + strconv.Itoa(ref.id), nil
+		}
+		size, err := d.size(ref)
+		if err != nil {
+			return "", err
+		}
+		return strconv.Itoa(number) + " " + strconv.FormatInt(size, 10), nil
+	}
+	if number != 0 {
+		ref, err := d.ref(number)
 		if err != nil {
 			return nil, err
 		}
-		item := listItem{
-			Id:   cast.ToInt64(info.Id),
-			Size: cast.ToInt64(info.Size),
+		entry, err := line(number, ref)
+		if err != nil {
+			return nil, err
 		}
-		if item.Size == 0 {
-			item.Size = 9999
-		}
-		res = append(res, item)
-	} else {
-		emailList, _ := list.GetEmailList(session.Ctx.(*context.Context), dto.SearchTag{Type: consts.EmailTypeReceive, Status: -1, GroupId: -1}, "", true, 0, 99999)
-		for _, info := range emailList {
-			item := listItem{
-				Id:   cast.ToInt64(info.Id),
-				Size: cast.ToInt64(info.Size),
-			}
-			if item.Size == 0 {
-				item.Size = 9999
-			}
-			res = append(res, item)
-		}
+		return []string{entry}, nil
 	}
-	ret := []gopop.MailInfo{}
-	for _, re := range res {
-		ret = append(ret, gopop.MailInfo{
-			Id:   re.Id,
-			Size: re.Size,
-		})
+	out := make([]string, 0, len(d.messages))
+	for i := range d.messages {
+		ref := &d.messages[i]
+		if ref.marked {
+			continue
+		}
+		entry, err := line(i+1, ref)
+		if errors.Is(err, errNoSuchMessage) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
 	}
-
-	log.WithContext(session.Ctx).Debugf("List \n %+v", ret)
-	return ret, nil
+	return out, nil
 }
 
-// Retr 获取邮件详情
-func (a action) Retr(session *gopop.Session, id int64) (string, int64, error) {
-	if err := validateSession(session); err != nil {
-		return "", 0, err
-	}
-	log.WithContext(session.Ctx).Debugf("POP3 CMD: RETR ,Args:%d", id)
-	email, err := detail.GetEmailDetail(session.Ctx.(*context.Context), cast.ToInt(id), false)
+func (d *maildrop) retr(number int) (string, error) {
+	ref, err := d.ref(number)
 	if err != nil {
-		log.WithContext(session.Ctx.(*context.Context)).Errorf("%+v", err)
-		return "", 0, errors.New("server error")
-	}
-
-	ret := parsemail.NewEmailFromModel(email.Email).BuildBytes(session.Ctx.(*context.Context), false)
-	log.WithContext(session.Ctx).Debugf("Retr \n %+v", string(ret))
-	return string(ret), cast.ToInt64(len(ret)), nil
-
-}
-
-// Delete 删除邮件
-func (a action) Delete(session *gopop.Session, id int64) error {
-	if err := validateSession(session); err != nil {
-		return err
-	}
-	log.WithContext(session.Ctx).Debugf("POP3 CMD: DELE ,Args:%d", id)
-
-	session.DeleteIds = append(session.DeleteIds, id)
-	session.DeleteIds = array.Unique(session.DeleteIds)
-	return nil
-}
-
-func (a action) Rest(session *gopop.Session) error {
-	if err := validateSession(session); err != nil {
-		return err
-	}
-	log.WithContext(session.Ctx).Debugf("POP3 CMD: REST ")
-	session.DeleteIds = []int64{}
-	return nil
-}
-
-func (a action) Top(session *gopop.Session, id int64, n int) (string, error) {
-	if err := validateSession(session); err != nil {
 		return "", err
 	}
-	log.WithContext(session.Ctx).Debugf("POP3 CMD: TOP %d %d", id, n)
-	email, err := detail.GetEmailDetail(session.Ctx.(*context.Context), cast.ToInt(id), false)
-	if err != nil {
-		log.WithContext(session.Ctx.(*context.Context)).Errorf("%+v", err)
-		return "", errors2.New("password error")
-	}
+	return d.render(ref)
+}
 
-	ret := parsemail.NewEmailFromModel(email.Email).BuildBytes(session.Ctx.(*context.Context), false)
-	res := strings.Split(string(ret), "\n")
-	headerEndLine := len(res) - 1
-	for i, re := range res {
-		if re == "\r" {
-			headerEndLine = i
+func topLines(message string, n int) string {
+	pos := strings.Index(message, "\r\n\r\n")
+	if pos < 0 {
+		return message
+	}
+	end := pos + 4
+	for range n {
+		at := strings.Index(message[end:], "\r\n")
+		if at < 0 {
+			return message
+		}
+		end += at + 2
+		if end == len(message) {
 			break
 		}
 	}
-	if len(res) <= headerEndLine+n+1 {
-		return string(ret), nil
-	}
-
-	lines := array.Join(res[0:headerEndLine+n+1], "\n")
-	log.WithContext(session.Ctx).Debugf("Top \n %+v", lines)
-	return lines, nil
-
+	return message[:end]
 }
 
-func (a action) Noop(session *gopop.Session) error {
-	if err := validateSession(session); err != nil {
-		return err
+func (d *maildrop) mark(number int) error {
+	ref, err := d.ref(number)
+	if err == nil {
+		ref.marked = true
 	}
-	log.WithContext(session.Ctx).Debugf("POP3 CMD: NOOP ")
-	return nil
+	return err
 }
 
-func (a action) Quit(session *gopop.Session) error {
-	log.WithContext(session.Ctx).Debugf("POP3 CMD: QUIT ")
+func (d *maildrop) reset() {
+	for i := range d.messages {
+		d.messages[i].marked = false
+	}
+}
 
-	var DelIds []int
-
-	if len(session.DeleteIds) > 0 {
-		for _, delId := range session.DeleteIds {
-			DelIds = append(DelIds, cast.ToInt(delId))
+// QUIT removes marked messages from this user's POP3 maildrop. Consistent with
+// Web deletion, keep them in Trash; never purge already-trashed or foreign rows.
+func (d *maildrop) commit() error {
+	var ids []int
+	for _, ref := range d.messages {
+		if ref.marked {
+			ids = append(ids, ref.id)
 		}
-
-		del_email.DelEmail(session.Ctx.(*context.Context), DelIds, false)
 	}
-
-	return nil
+	if len(ids) == 0 {
+		return nil
+	}
+	return db.Transaction(db.Instance, func(tx *xorm.Session) error {
+		for start := 0; start < len(ids); start += 500 {
+			if _, err := tx.Table(&models.UserEmail{}).Where(inboxLink, d.ctx.UserID, consts.EmailStatusWait, models.INBOX).
+				In("email_id", ids[start:min(start+500, len(ids))]).Update(map[string]any{"status": consts.EmailStatusDel, "group_id": 0}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

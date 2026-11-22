@@ -15,6 +15,7 @@ import (
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/response"
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/registration"
@@ -109,7 +110,7 @@ func TestRegistrationKeyHTTPFlow(t *testing.T) {
 		return env.Data
 	}
 	requireBoot(true, false)
-	assertUnknownAPI(t, call(http.MethodGet, "/api/not-a-route", nil), "找不到请求的资源")
+	assertUnknownAPI(t, call(http.MethodGet, "/api/not-a-route", nil), i18n.Text(i18n.Default(), "not_found"))
 	requireEnvelope(call(http.MethodPost, "/api/user/info", nil), 403, response.NoAccessPrivileges)
 	body := map[string]string{"registration_key": "wrong", "account": "owner", "password": "registration-password"}
 	requireEnvelope(call(http.MethodPost, "/api/register", body), 403, response.NoAccessPrivileges)
