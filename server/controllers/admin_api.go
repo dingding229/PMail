@@ -42,14 +42,23 @@ func readRequest(ctx *context.Context, w http.ResponseWriter, r *http.Request, d
 		if readOnly && errors.Is(err, io.EOF) {
 			return true
 		}
-		apiError(ctx, w, http.StatusBadRequest, response.ParamsError, "invalid_json")
+		jsonReadError(ctx, w, err)
 		return false
 	}
 	if err := dec.Decode(new(any)); !errors.Is(err, io.EOF) {
-		apiError(ctx, w, http.StatusBadRequest, response.ParamsError, "invalid_json")
+		jsonReadError(ctx, w, err)
 		return false
 	}
 	return true
+}
+
+func jsonReadError(ctx *context.Context, w http.ResponseWriter, err error) {
+	var max *http.MaxBytesError
+	if errors.As(err, &max) {
+		apiError(ctx, w, http.StatusRequestEntityTooLarge, response.ParamsError, "mail_resource_limit")
+		return
+	}
+	apiError(ctx, w, http.StatusBadRequest, response.ParamsError, "invalid_json")
 }
 
 var serviceErrors = []struct {

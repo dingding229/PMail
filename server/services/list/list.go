@@ -344,7 +344,7 @@ func LoadMailboxEmails(rows []*response.UserEmailUIDData) ([]*response.EmailResp
 		}
 		for _, row := range batch {
 			if message, ok := byID[row.EmailID]; ok {
-				result = append(result, &response.EmailResponseData{Email: message, IsRead: row.IsRead, IsStarred: row.IsStarred, MailboxStatus: row.Status, SerialNumber: row.SerialNumber, UeId: row.ID})
+				result = append(result, &response.EmailResponseData{Email: message, IsRead: row.IsRead, IsStarred: row.IsStarred, MailboxStatus: row.Status, IMAPDeleted: row.IMAPDeleted, SerialNumber: row.SerialNumber, UeId: row.ID, LinkID: row.LinkID})
 			}
 		}
 	}

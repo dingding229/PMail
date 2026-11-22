@@ -143,4 +143,8 @@ var cn = map[string]string{
 	"external_credential_conflict":        "外部邮箱设置已变更，请刷新后重试。",
 	"external_control_characters":         "外部邮箱凭据或文件夹含无效的控制字符。",
 	"mail_invalid_header":                 "邮件地址、头部或附件的 MIME 信息无效。",
+	"mail_resource_limit":                 "请求或邮件超过大小、附件、段数或收件人限制。",
+	"rule_count_limit":                    "每个账户最多 100 条规则，每条规则最多 32 个条件。",
+	"rule_invalid_regex":                  "正则表达式须符合 Go 语法且不超过 1024 字节（不支持前后向断言和反向引用）。",
+	"group_invalid_parent_or_target":      "父分组或目标分组无效、不属于当前用户，或分组层级超限。",
 }

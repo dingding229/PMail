@@ -1,96 +1,87 @@
 package imap_server
 
 import (
+	"errors"
+	"sync"
+	"time"
+
 	"github.com/Jinnrry/pmail/models"
-	"github.com/Jinnrry/pmail/services/group"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/emersion/go-imap/v2/imapserver"
-	"github.com/spf13/cast"
-	"sync"
 )
 
-type idleConnection struct {
-	writer  *imapserver.UpdateWriter
-	mailbox string
+// One coalesced notification slot per connection, bounded globally. Producers
+// never perform queries, write to a client socket or spawn goroutines.
+var idleQueue = struct {
+	sync.Mutex
+	subscribers map[int]map[chan struct{}]struct{}
+	count       int
+}{subscribers: make(map[int]map[chan struct{}]struct{})}
+
+func listenIdle(user int) (chan struct{}, func(), error) {
+	idleQueue.Lock()
+	defer idleQueue.Unlock()
+	if idleQueue.count >= 1024 {
+		return nil, nil, errors.New("IDLE subscriber limit reached")
+	}
+	c := make(chan struct{}, 1)
+	if idleQueue.subscribers[user] == nil {
+		idleQueue.subscribers[user] = make(map[chan struct{}]struct{})
+	}
+	idleQueue.subscribers[user][c] = struct{}{}
+	idleQueue.count++
+	return c, func() {
+		idleQueue.Lock()
+		defer idleQueue.Unlock()
+		delete(idleQueue.subscribers[user], c)
+		if len(idleQueue.subscribers[user]) == 0 {
+			delete(idleQueue.subscribers, user)
+		}
+		idleQueue.count--
+	}, nil
 }
 
-type idleConnections struct {
-	mu      sync.Mutex
-	writers map[string]idleConnection
+func notifyUser(user int) {
+	idleQueue.Lock()
+	defer idleQueue.Unlock()
+	for c := range idleQueue.subscribers[user] {
+		select {
+		case c <- struct{}{}:
+		default:
+		}
+	}
 }
-
-var userConnects sync.Map
-var userConnectsMu sync.Mutex
 
 func (s *serverSession) Idle(w *imapserver.UpdateWriter, stop <-chan struct{}) error {
 	if err := s.requireSession(); err != nil {
 		return err
 	}
-	userId := s.ctx.UserID
-	logId := cast.ToString(s.ctx.GetValue(context.LogID))
-
-	userConnectsMu.Lock()
-	connectsAny, ok := userConnects.Load(userId)
-	if !ok {
-		connectsAny = &idleConnections{writers: map[string]idleConnection{}}
-		userConnects.Store(userId, connectsAny)
+	c, release, err := listenIdle(s.ctx.UserID)
+	if err != nil {
+		return protocolNO(err)
 	}
-	connects := connectsAny.(*idleConnections)
-
-	connects.mu.Lock()
-	connects.writers[logId] = idleConnection{writer: w, mailbox: s.currentMailbox}
-	connects.mu.Unlock()
-	userConnectsMu.Unlock()
-
-	go func() {
-		<-stop
-
-		userConnectsMu.Lock()
-		connects.mu.Lock()
-		delete(connects.writers, logId)
-		if len(connects.writers) == 0 {
-			userConnects.Delete(userId)
+	defer release()
+	tick := time.NewTicker(15 * time.Second)
+	defer tick.Stop()
+	if err = s.Poll(w, true); err != nil {
+		return err
+	}
+	for {
+		select {
+		case <-stop:
+			return nil
+		case <-c:
+		case <-tick.C:
 		}
-		connects.mu.Unlock()
-		userConnectsMu.Unlock()
-	}()
-
-	return nil
+		if err = s.Poll(w, true); err != nil {
+			return err
+		}
+	}
 }
 
-func IdleNotice(ctx *context.Context, userId int, email *models.Email) error {
-	if userId == 0 || email == nil || email.Id == 0 {
-		return nil
-	}
-
-	userConnectsMu.Lock()
-	connectsAny, ok := userConnects.Load(userId)
-	if !ok {
-		userConnectsMu.Unlock()
-		return nil
-	}
-
-	connects := connectsAny.(*idleConnections)
-	connects.mu.Lock()
-	idleConnects := make([]idleConnection, 0, len(connects.writers))
-	for _, connect := range connects.writers {
-		idleConnects = append(idleConnects, connect)
-	}
-	connects.mu.Unlock()
-	userConnectsMu.Unlock()
-
-	for _, connect := range idleConnects {
-		connect.writer.WriteNumMessages(idleNumMessages(ctx, userId, connect.mailbox))
+func IdleNotice(_ *context.Context, userID int, email *models.Email) error {
+	if userID > 0 && email != nil && email.Id > 0 {
+		notifyUser(userID)
 	}
 	return nil
-}
-
-func idleNumMessages(ctx *context.Context, userId int, mailbox string) uint32 {
-	if mailbox == "" {
-		mailbox = "INBOX"
-	}
-	noticeCtx := *ctx
-	noticeCtx.UserID = userId
-	_, data := group.GetGroupStatus(&noticeCtx, mailbox, []string{"MESSAGES"})
-	return cast.ToUint32(data["MESSAGES"])
 }

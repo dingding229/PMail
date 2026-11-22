@@ -19,6 +19,7 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/mailbudget"
 	"github.com/Jinnrry/pmail/utils/wiretext"
 	"github.com/emersion/go-message"
 	_ "github.com/emersion/go-message/charset"
@@ -320,6 +321,27 @@ func NewEmailFromModel(d models.Email) *Email {
 }
 
 func NewEmailFromReader(to []string, r io.Reader, size int) *Email {
+	result, err := ParseLimited(to, r, size)
+	if err != nil {
+		log.Warnf("mail parse rejected: %v", err)
+		return &Email{}
+	}
+	return result
+}
+
+func ParseLimited(to []string, r io.Reader, size int) (*Email, error) {
+	if size > mailbudget.Message || len(to) > mailbudget.Recipients {
+		return nil, mailbudget.ErrLimit
+	}
+	limit := &io.LimitedReader{R: r, N: mailbudget.Message + 1}
+	result, err := parseMessage(to, limit, size)
+	if limit.N == 0 {
+		return nil, mailbudget.ErrLimit
+	}
+	return result, err
+}
+
+func parseMessage(to []string, r io.Reader, size int) (*Email, error) {
 	ret := &Email{}
 	m, errRead := message.Read(r)
 	if errRead != nil {
@@ -336,7 +358,7 @@ func NewEmailFromReader(to []string, r io.Reader, size int) *Email {
 		}
 	}
 	if m == nil {
-		return ret
+		return ret, nil
 	}
 	// Preserve the original Message-ID from the sender so it is stored and reused consistently.
 	if mid := m.Header.Get("Message-Id"); mid != "" {
@@ -365,6 +387,9 @@ func NewEmailFromReader(to []string, r io.Reader, size int) *Email {
 	}
 
 	ret.Cc = buildUsers(m.Header.Values("Cc"))
+	if len(ret.To)+len(ret.Cc)+len(ret.Bcc) > mailbudget.Recipients {
+		return nil, mailbudget.ErrLimit
+	}
 	ret.ReplyTo = buildUsers(m.Header.Values("Reply-To"))
 	ret.Sender = buildUser(m.Header.Get("Sender"))
 	if ret.Sender == nil || ret.Sender.EmailAddress == "" {
@@ -379,14 +404,25 @@ func NewEmailFromReader(to []string, r io.Reader, size int) *Email {
 		sendTime = time.Now()
 	}
 	ret.Date = sendTime.Format(time.RFC3339)
-	_ = m.Walk(func(path []int, entity *message.Entity, err error) error {
+	parts, decoded, attachmentSize := 0, 0, 0
+	walkErr := m.Walk(func(path []int, entity *message.Entity, err error) error {
+		parts++
+		if parts > mailbudget.Parts || len(path) > mailbudget.MaxDepth {
+			return mailbudget.ErrLimit
+		}
 		if len(path) == 0 {
 			err = errRead
 		}
-		return formatContent(entity, ret, err)
+		return formatContent(entity, ret, err, &decoded, &attachmentSize)
 	})
+	if errors.Is(walkErr, mailbudget.ErrLimit) {
+		return nil, walkErr
+	}
 	if len(ret.Text) == 0 && len(ret.HTML) != 0 {
 		ret.Text = []byte(HTMLText(string(ret.HTML)))
+	}
+	if len(ret.Text) > mailbudget.Message || len(ret.HTML) > mailbudget.Part {
+		return nil, mailbudget.ErrLimit
 	}
 	ret.TextFormat, _ = CodeMetadata(string(ret.Text), string(ret.HTML), ret.TextFormat)
 
@@ -395,10 +431,10 @@ func NewEmailFromReader(to []string, r io.Reader, size int) *Email {
 		ret.From.EmailAddress = strictPolicy.Sanitize(ret.From.EmailAddress)
 	}
 
-	return ret
+	return ret, nil
 }
 
-func formatContent(entity *message.Entity, ret *Email, walkErr error) error {
+func formatContent(entity *message.Entity, ret *Email, walkErr error, decoded, attachmentSize *int) error {
 	if entity == nil {
 		return nil
 	}
@@ -408,27 +444,38 @@ func formatContent(entity *message.Entity, ret *Email, walkErr error) error {
 	}
 	kind, _, _ := mime.ParseMediaType(entity.Header.Get("Content-Disposition"))
 	isAttachment := kind == "attachment"
-	body := readMIMEBody(entity.Body)
+	body, err := mailbudget.Read(entity.Body, int64(min(mailbudget.Part, mailbudget.Message-*decoded)))
+	if errors.Is(err, mailbudget.ErrLimit) {
+		return err
+	}
+	*decoded += len(body)
 	label := params["charset"]
 	if strings.HasPrefix(contentType, "text/") && label != "" && !message.IsUnknownCharset(walkErr) && utf8.Valid(body) {
 		// go-message has already decoded declared text charsets.
 		label = "utf-8"
 	}
-	addAttachment := func() {
+	addAttachment := func() error {
+		*attachmentSize += len(body)
+		if *attachmentSize > mailbudget.Attachments {
+			return mailbudget.ErrLimit
+		}
 		filename := getFileName(entity, params)
 		if filename == "no_name_file" && patchMIME(contentType) {
 			filename = "inline.patch"
 		}
 		ret.Attachments = append(ret.Attachments, &Attachment{Filename: sanitizeText(filename), ContentType: contentType, Content: body, Charset: label,
 			ContentID: strings.Trim(strings.TrimSpace(entity.Header.Get("Content-Id")), "<>")})
+		return nil
 	}
 	if isAttachment {
-		addAttachment()
-		return nil
+		return addAttachment()
 	}
 	switch {
 	case patchMIME(contentType):
 		text, _ := DecodeText(body, label)
+		if len(text) > mailbudget.Part {
+			return mailbudget.ErrLimit
+		}
 		if len(ret.Text) != 0 {
 			ret.Text = append(ret.Text, '\n')
 			ret.Text = append(ret.Text, text...)
@@ -436,12 +483,15 @@ func formatContent(entity *message.Entity, ret *Email, walkErr error) error {
 			ret.Text = []byte(text)
 		}
 		ret.TextFormat = "patch"
-		addAttachment()
+		return addAttachment()
 	case contentType == "text/plain", contentType == "text/markdown", contentType == "text/x-markdown":
 		if ret.TextFormat == "patch" {
 			break
 		}
 		text, _ := DecodeText(body, label)
+		if len(text) > mailbudget.Part {
+			return mailbudget.ErrLimit
+		}
 		ret.TextFormat = "plain"
 		if strings.EqualFold(params["format"], "flowed") {
 			text = flowedText(text, strings.EqualFold(params["delsp"], "yes"))
@@ -452,9 +502,12 @@ func formatContent(entity *message.Entity, ret *Email, walkErr error) error {
 		ret.Text = []byte(text)
 	case contentType == "text/html":
 		text, _ := DecodeText(body, label)
+		if len(text) > mailbudget.Part {
+			return mailbudget.ErrLimit
+		}
 		ret.HTML = []byte(sanitizeHTML(text))
 	default:
-		addAttachment()
+		return addAttachment()
 	}
 	return nil
 }
@@ -668,6 +721,23 @@ func wireAddressList(users []*User) ([]*mail.Address, error) {
 }
 
 func (e *Email) BuildBytes(ctx *context.Context, shouldSign bool) ([]byte, error) {
+	if e != nil {
+		if len(e.To)+len(e.Cc)+len(e.Bcc) > mailbudget.Recipients || len(e.Attachments)+4 > mailbudget.Parts || len(e.Text) > mailbudget.Part || len(e.HTML) > mailbudget.Part {
+			return nil, mailbudget.ErrLimit
+		}
+		size := 0
+		for _, a := range e.Attachments {
+			if a != nil {
+				size += len(a.Content)
+				if len(a.Content) > mailbudget.Part || size > mailbudget.Attachments {
+					return nil, mailbudget.ErrLimit
+				}
+			}
+		}
+		if size+len(e.Text)+len(e.HTML) > mailbudget.Message {
+			return nil, mailbudget.ErrLimit
+		}
+	}
 	if e == nil || e.From == nil || !wiretext.HeaderValue(e.Subject) {
 		return nil, ErrInvalidMailHeader
 	}
@@ -819,8 +889,15 @@ func (e *Email) BuildBytes(ctx *context.Context, shouldSign bool) ([]byte, error
 	if err := mw.Close(); err != nil {
 		return nil, err
 	}
+	if b.Len() > mailbudget.Message {
+		return nil, mailbudget.ErrLimit
+	}
 	if shouldSign {
-		return SignBytes(b.Bytes(), e.From.EmailAddress)
+		signed, err := SignBytes(b.Bytes(), e.From.EmailAddress)
+		if len(signed) > mailbudget.Message {
+			return nil, mailbudget.ErrLimit
+		}
+		return signed, err
 	}
 	return b.Bytes(), nil
 }

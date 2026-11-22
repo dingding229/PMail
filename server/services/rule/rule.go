@@ -10,6 +10,7 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
+	"github.com/Jinnrry/pmail/services/group"
 	"github.com/Jinnrry/pmail/services/rule/match"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
@@ -38,7 +39,18 @@ func GetAllRules(ctx *context.Context, userId int) []*dto.Rule {
 
 func MatchRule(ctx *context.Context, rule *dto.Rule, email *parsemail.Email) bool {
 
+	if rule == nil || email == nil {
+		return false
+	}
 	for _, r := range rule.Rules {
+		if r == nil {
+			return false
+		}
+		switch r.Field {
+		case "From", "Subject", "To", "Cc", "Text", "Html", "Content":
+		default:
+			return false
+		}
 		var m match.Match
 
 		switch r.Type {
@@ -50,7 +62,7 @@ func MatchRule(ctx *context.Context, rule *dto.Rule, email *parsemail.Email) boo
 			m = match.NewEqualMatch(r.Field, r.Rule)
 		}
 		if m == nil {
-			continue
+			return false
 		}
 
 		if !m.Match(ctx, email) {
@@ -150,61 +162,22 @@ func isLocalDomain(domainName string) bool {
 	return domain.IsLocal(domainName)
 }
 
-func doMove(ctx *context.Context, rule *dto.Rule, email *parsemail.Email, user *models.User) {
-
-	groupId := cast.ToInt(rule.Params)
-	switch groupId {
-	case models.INBOX:
-		_, err := db.Instance.Table(&models.Email{}).Where("id=?", email.MessageId).
-			Cols("type").Update(map[string]interface{}{"type": consts.EmailTypeReceive})
-		if err != nil {
-			log.WithContext(ctx).Errorf("sqlERror :%v", err)
-		}
-
-		_, err = db.Instance.Table(&models.UserEmail{}).Where("email_id=? and user_id=?", email.MessageId, rule.UserId).
-			Cols("group_id", "status").Update(map[string]interface{}{"group_id": 0, "status": 0})
-		if err != nil {
-			log.WithContext(ctx).Errorf("sqlERror :%v", err)
-		}
-	case models.Sent:
-		_, err := db.Instance.Table(&models.Email{}).Where("id=?", email.MessageId).
-			Cols("type").Update(map[string]interface{}{"type": consts.EmailTypeSend})
-		if err != nil {
-			log.WithContext(ctx).Errorf("sqlERror :%v", err)
-		}
-
-		_, err = db.Instance.Table(&models.UserEmail{}).Where("email_id=? and user_id=?", email.MessageId, rule.UserId).
-			Cols("group_id", "status").Update(map[string]interface{}{"group_id": 0, "status": 0})
-		if err != nil {
-			log.WithContext(ctx).Errorf("sqlERror :%v", err)
-		}
-
-	case models.Drafts:
-		_, err := db.Instance.Table(&models.UserEmail{}).Where("email_id=? and user_id=?", email.MessageId, rule.UserId).
-			Cols("group_id", "status").Update(map[string]interface{}{"group_id": 0, "status": consts.EmailStatusDrafts})
-		if err != nil {
-			log.WithContext(ctx).Errorf("sqlERror :%v", err)
-		}
-
-	case models.Deleted:
-		_, err := db.Instance.Table(&models.UserEmail{}).Where("email_id=? and user_id=?", email.MessageId, rule.UserId).
-			Cols("group_id", "status").Update(map[string]interface{}{"group_id": 0, "status": consts.EmailStatusDel})
-		if err != nil {
-			log.WithContext(ctx).Errorf("sqlERror :%v", err)
-		}
-	case models.Junk:
-		_, err := db.Instance.Table(&models.UserEmail{}).Where("email_id=? and user_id=?", email.MessageId, rule.UserId).
-			Cols("group_id", "status").Update(map[string]interface{}{"group_id": 0, "status": consts.EmailStatusJunk})
-		if err != nil {
-			log.WithContext(ctx).Errorf("sqlERror :%v", err)
-		}
-
-	default:
-
-		_, err := db.Instance.Table(&models.UserEmail{}).Where("email_id=? and user_id=?", email.MessageId, rule.UserId).Cols("group_id").Update(map[string]interface{}{"group_id": groupId})
-		if err != nil {
-			log.WithContext(ctx).Errorf("sqlERror :%v", err)
-		}
+func doMove(ctx *context.Context, r *dto.Rule, email *parsemail.Email, user *models.User) {
+	if user == nil || email == nil || email.MessageId <= 0 || r.UserId != user.ID {
+		return
 	}
-
+	owner := *ctx
+	owner.UserID = user.ID
+	id := cast.ToInt(r.Params)
+	if !group.ValidMoveTarget(&owner, id) {
+		log.WithContext(ctx).Warn("ignoring mail rule with invalid destination group")
+		return
+	}
+	if name, exists := models.GroupCodeToName[id]; exists {
+		if err := group.Move2DefaultBox(&owner, []int{int(email.MessageId)}, name); err != nil {
+			log.WithContext(ctx).Warnf("rule group move: %v", err)
+		}
+	} else {
+		group.MoveMailToGroup(&owner, []int{int(email.MessageId)}, id)
+	}
 }

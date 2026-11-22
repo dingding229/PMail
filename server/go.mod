@@ -7,7 +7,6 @@ require (
 	github.com/alexedwards/scs/postgresstore v0.0.0-20261119174900-ed2e92329119
 	github.com/alexedwards/scs/sqlite3store v0.0.0-20261119174900-ed2e92329119
 	github.com/alexedwards/scs/v2 v2.9.0
-	github.com/dlclark/regexp2 v1.12.0
 	github.com/emersion/go-imap/v2 v2.0.0-beta.9
 	github.com/emersion/go-message v0.18.2
 	github.com/emersion/go-msgauth v0.7.0

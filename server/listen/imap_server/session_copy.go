@@ -1,131 +1,95 @@
 package imap_server
 
 import (
-	"github.com/Jinnrry/pmail/consts"
-	"github.com/Jinnrry/pmail/db"
-	"github.com/Jinnrry/pmail/dto/response"
+	"errors"
+
 	"github.com/Jinnrry/pmail/models"
-	"github.com/Jinnrry/pmail/services/group"
-	"github.com/Jinnrry/pmail/services/list"
-	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/emersion/go-imap/v2"
-	"github.com/spf13/cast"
+	"xorm.io/xorm"
 )
 
-func (s *serverSession) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) {
+func (s *serverSession) transfer(set imap.NumSet, dest string, move bool) (*imap.CopyData, []mailboxEntry, error) {
+	var removed []mailboxEntry
+	var copied *imap.CopyData
+	err := mailboxTx(s.ctx, func(tx *xorm.Session) error {
+		removed = nil
+		copied = nil
+		src, err := findBox(tx, s.ctx.UserID, s.currentMailbox)
+		if err != nil {
+			return err
+		}
+		target, err := findBox(tx, s.ctx.UserID, dest)
+		if err != nil {
+			return err
+		}
+		if move && src.key == target.key {
+			return errors.New("move destination must be a different mailbox")
+		}
+		from, err := syncMailbox(tx, src)
+		if err != nil {
+			return err
+		}
+		selected := s.selectSet(from.items, set)
+		if len(selected) == 0 {
+			return nil
+		}
+		ar := make([]int, 0, len(selected))
+		for _, entry := range selected {
+			original := entry.row
+			next := models.UserEmail{UserID: s.ctx.UserID, EmailID: original.EmailID, IsRead: original.IsRead, IsStarred: original.IsStarred, IMAPDeleted: original.IMAPDeleted, GroupId: target.group, Status: target.status}
+			if move {
+				next.IMAPDeleted = false
+			}
+			if _, err := tx.Insert(&next); err != nil {
+				return err
+			}
+			ar = append(ar, next.ID)
+			if move {
+				n, err := src.scope(tx).ID(original.ID).Delete(&models.UserEmail{})
+				if err != nil {
+					return err
+				}
+				if n != 1 {
+					return errors.New("source membership changed")
+				}
+				removed = append(removed, entry)
+			}
+		}
+		if move {
+			if _, err := syncMailbox(tx, src); err != nil {
+				return err
+			}
+		}
+		to, err := syncMailbox(tx, target)
+		if err != nil {
+			return err
+		}
+		ids := map[int]imap.UID{}
+		for _, entry := range to.items {
+			ids[entry.row.ID] = entry.uid
+		}
+		copied = &imap.CopyData{UIDValidity: to.validity}
+		for i, entry := range selected {
+			uid := ids[ar[i]]
+			if uid == 0 {
+				return errors.New("destination UID was not assigned")
+			}
+			copied.SourceUIDs.AddNum(entry.uid)
+			copied.DestUIDs.AddNum(uid)
+		}
+		return nil
+	})
+	return copied, removed, err
+}
+
+func (s *serverSession) Copy(set imap.NumSet, dest string) (*imap.CopyData, error) {
 	if err := s.requireSession(); err != nil {
 		return nil, err
 	}
-
-	var emailList []*response.EmailResponseData
-
-	switch numSet.(type) {
-	case imap.SeqSet:
-		seqSet := numSet.(imap.SeqSet)
-		for _, seq := range seqSet {
-			emailList = list.GetEmailListByGroup(s.ctx, s.currentMailbox, list.ImapListReq{
-				Star: cast.ToInt(seq.Start),
-				End:  cast.ToInt(seq.Stop),
-			}, false)
-		}
-	case imap.UIDSet:
-		uidSet := numSet.(imap.UIDSet)
-		for _, uid := range uidSet {
-			emailList = list.GetEmailListByGroup(s.ctx, s.currentMailbox, list.ImapListReq{
-				Star: cast.ToInt(uint32(uid.Start)),
-				End:  cast.ToInt(uint32(uid.Stop)),
-			}, true)
-		}
-	}
-
-	if len(emailList) == 0 {
-		return nil, &imap.Error{
-			Type: imap.StatusResponseTypeNo,
-			Text: "Email Not Found",
-		}
-	}
-
-	var err error
-	destUid := []int{}
-	UIDValidity := 0
-	if group.IsDefaultBox(dest) {
-		UIDValidity, destUid, err = copy2defaultbox(s.ctx, emailList, dest)
-	} else {
-		UIDValidity, destUid, err = copy2userbox(s.ctx, emailList, dest)
-	}
-	data := imap.CopyData{}
-	data.UIDValidity = cast.ToUint32(UIDValidity)
-	data.DestUIDs = imap.UIDSet{}
-	data.SourceUIDs = imap.UIDSet{}
-	for _, uid := range destUid {
-		data.DestUIDs = append(data.DestUIDs, imap.UIDRange{Start: imap.UID(cast.ToUint32(uid)), Stop: imap.UID(cast.ToUint32(uid))})
-	}
-
-	for _, email := range emailList {
-		data.SourceUIDs = append(data.SourceUIDs, imap.UIDRange{Start: imap.UID(cast.ToUint32(email.UeId)), Stop: imap.UID(cast.ToUint32(email.UeId))})
-	}
-
-	return &data, err
-}
-
-func copy2defaultbox(ctx *context.Context, mails []*response.EmailResponseData, dest string) (int, []int, error) {
-
-	var destUid []int
-	for _, email := range mails {
-
-		newUe := models.UserEmail{
-			UserID:    ctx.UserID,
-			EmailID:   email.Id,
-			IsRead:    email.IsRead,
-			IsStarred: email.IsStarred,
-			GroupId:   0,
-		}
-		switch dest {
-		case "Deleted Messages":
-			newUe.Status = consts.EmailStatusDel
-		case "INBOX":
-			newUe.Status = consts.EmailStatusWait
-		case "Sent Messages":
-			newUe.Status = consts.EmailStatusSent
-		case "Drafts":
-			newUe.Status = consts.EmailStatusDrafts
-		case "Junk":
-			newUe.Status = consts.EmailStatusJunk
-		}
-		db.Instance.Insert(&newUe)
-		destUid = append(destUid, newUe.ID)
-	}
-
-	return models.GroupNameToCode[dest], destUid, nil
-}
-
-func copy2userbox(ctx *context.Context, mails []*response.EmailResponseData, dest string) (int, []int, error) {
-	groupInfo, err := group.GetGroupByFullPath(ctx, dest)
+	copied, _, err := s.transfer(set, dest, false)
 	if err != nil {
-		return 0, nil, &imap.Error{
-			Type: imap.StatusResponseTypeNo,
-			Text: err.Error(),
-		}
+		return nil, protocolNO(err)
 	}
-	if groupInfo == nil || groupInfo.ID == 0 {
-		return 0, nil, &imap.Error{
-			Type: imap.StatusResponseTypeNo,
-			Text: "Group not found",
-		}
-	}
-	var destUid []int
-	for _, email := range mails {
-		newUe := models.UserEmail{
-			UserID:    ctx.UserID,
-			EmailID:   email.Id,
-			IsRead:    email.IsRead,
-			IsStarred: email.IsStarred,
-			GroupId:   groupInfo.ID,
-			Status:    email.Status,
-		}
-		db.Instance.Insert(&newUe)
-		destUid = append(destUid, newUe.ID)
-	}
-
-	return groupInfo.ID, destUid, nil
+	notifyUser(s.ctx.UserID)
+	return copied, nil
 }

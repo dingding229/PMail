@@ -14,6 +14,7 @@ import (
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/mailbudget"
 	"github.com/Jinnrry/pmail/utils/send"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cast"
@@ -49,10 +50,14 @@ type attachment struct {
 
 func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	var reqData sendRequest
-	if !readMailJSON(ctx, w, req, &reqData, false) {
+	if !readComposeJSON(ctx, w, req, &reqData) {
 		return
 	}
 	log.WithContext(ctx).Infof("发送邮件")
+	if len(reqData.To)+len(reqData.Cc)+len(reqData.Bcc) > mailbudget.Recipients {
+		mailTooLarge(ctx, w)
+		return
+	}
 
 	var savedDraft models.Email
 	if reqData.DraftID != 0 {
@@ -173,6 +178,10 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	}
 	raw, buildErr := e.BuildBytes(ctx, true)
 	if buildErr != nil {
+		if stderrors.Is(buildErr, mailbudget.ErrLimit) {
+			mailTooLarge(ctx, w)
+			return
+		}
 		response.Localized(ctx, response.ParamsError, "mail_invalid_header").FPrintStatus(w, http.StatusBadRequest)
 		return
 	}

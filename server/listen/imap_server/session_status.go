@@ -1,43 +1,36 @@
 package imap_server
 
-import (
-	"github.com/Jinnrry/pmail/services/group"
-	"github.com/emersion/go-imap/v2"
-	"github.com/spf13/cast"
-)
+import "github.com/emersion/go-imap/v2"
 
 func (s *serverSession) Status(mailbox string, options *imap.StatusOptions) (*imap.StatusData, error) {
 	if err := s.requireSession(); err != nil {
 		return nil, err
 	}
-	category := []string{}
-	if options.UIDNext {
-		category = append(category, "UIDNEXT")
+	state, err := mailboxSnapshot(s.ctx, mailbox)
+	if err != nil {
+		return nil, protocolNO(err)
 	}
-	if options.NumMessages {
-		category = append(category, "MESSAGES")
+	count := uint32(len(state.items))
+	var unseen uint32
+	for _, item := range state.items {
+		if item.row.IsRead == 0 {
+			unseen++
+		}
 	}
-	if options.UIDValidity {
-		category = append(category, "UIDVALIDITY")
+	data := &imap.StatusData{Mailbox: mailbox}
+	if options != nil {
+		if options.NumMessages {
+			data.NumMessages = &count
+		}
+		if options.NumUnseen {
+			data.NumUnseen = &unseen
+		}
+		if options.UIDNext {
+			data.UIDNext = state.next
+		}
+		if options.UIDValidity {
+			data.UIDValidity = state.validity
+		}
 	}
-	if options.NumUnseen {
-		category = append(category, "UNSEEN")
-	}
-
-	_, data := group.GetGroupStatus(s.ctx, mailbox, category)
-
-	numMessages := cast.ToUint32(data["MESSAGES"])
-	numUnseen := cast.ToUint32(data["UNSEEN"])
-	numValidity := cast.ToUint32(data["UIDVALIDITY"])
-	numUIDNext := cast.ToUint32(data["UIDNEXT"])
-
-	ret := &imap.StatusData{
-		Mailbox:     mailbox,
-		NumMessages: &numMessages,
-		UIDNext:     imap.UID(numUIDNext),
-		UIDValidity: numValidity,
-		NumUnseen:   &numUnseen,
-	}
-
-	return ret, nil
+	return data, nil
 }

@@ -23,7 +23,65 @@ type GroupItem struct {
 	Children []*GroupItem `json:"children"`
 }
 
+const maxGroupDepth = 16
+
+var ErrInvalidParent = errors2.New("invalid parent or group hierarchy")
+
+func parentPath(owner, parent int, excluded int) (string, error) {
+	seen := map[int]bool{}
+	var parts []string
+	for parent != 0 {
+		if parent < 0 || parent == excluded || seen[parent] || len(parts) >= maxGroupDepth-1 {
+			return "", ErrInvalidParent
+		}
+		seen[parent] = true
+		var g models.Group
+		ok, err := db.Instance.ID(parent).Where("user_id=?", owner).Get(&g)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return "", ErrInvalidParent
+		}
+		parts = append(parts, g.Name)
+		parent = g.ParentId
+	}
+	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
+		parts[i], parts[j] = parts[j], parts[i]
+	}
+	return strings.Join(parts, "/"), nil
+}
+
+func GroupPath(ctx *context.Context, row *models.Group) (string, error) {
+	if row.UserId != ctx.UserID {
+		return "", ErrInvalidParent
+	}
+	path, err := parentPath(ctx.UserID, row.ParentId, row.ID)
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return row.Name, nil
+	}
+	return path + "/" + row.Name, nil
+}
+
+func ValidMoveTarget(ctx *context.Context, id int) bool {
+	if _, ok := models.GroupCodeToName[id]; ok {
+		return true
+	}
+	if id <= 0 {
+		return false
+	}
+	ok, err := db.Instance.ID(id).Where("user_id=?", ctx.UserID).Exist(&models.Group{})
+	return err == nil && ok
+}
+
 func CreateGroup(ctx *context.Context, name string, parentId int) (*models.Group, error) {
+	prefix, pathErr := parentPath(ctx.UserID, parentId, 0)
+	if pathErr != nil {
+		return nil, pathErr
+	}
 	// 先查询是否存在
 	var group models.Group
 	found, err := db.Instance.Where("name = ? and user_id = ?", name, ctx.UserID).Get(&group)
@@ -36,7 +94,10 @@ func CreateGroup(ctx *context.Context, name string, parentId int) (*models.Group
 	group.Name = name
 	group.ParentId = parentId
 	group.UserId = ctx.UserID
-	group.FullPath = getLayerName(ctx, &group, true)
+	group.FullPath = name
+	if prefix != "" {
+		group.FullPath = prefix + "/" + name
+	}
 
 	_, err = db.Instance.Insert(&group)
 	return &group, err
@@ -51,7 +112,14 @@ func Rename(ctx *context.Context, oldName, newName string) error {
 		return errors2.New("group not found")
 	}
 	oldGroupInfo.Name = newName
-	oldGroupInfo.FullPath = getLayerName(ctx, oldGroupInfo, true)
+	prefix, err := parentPath(ctx.UserID, oldGroupInfo.ParentId, oldGroupInfo.ID)
+	if err != nil {
+		return err
+	}
+	oldGroupInfo.FullPath = newName
+	if prefix != "" {
+		oldGroupInfo.FullPath = prefix + "/" + newName
+	}
 	_, err = db.Instance.ID(oldGroupInfo.ID).Update(oldGroupInfo)
 	return err
 }
@@ -122,11 +190,14 @@ func DelGroup(ctx *context.Context, groupId int) (bool, error) {
 
 // GetGroupInfoList 获取全部的分组
 func GetGroupInfoList(ctx *context.Context) []*GroupItem {
-	return buildChildren(ctx, 0)
+	return buildChildren(ctx, 0, 0)
 }
 
 // MoveMailToGroup 将某封邮件移动到某个分组中
 func MoveMailToGroup(ctx *context.Context, mailId []int, groupId int) bool {
+	if !ValidMoveTarget(ctx, groupId) {
+		return false
+	}
 	res, err := db.Instance.Exec(db.WithContext(ctx,
 		fmt.Sprintf("update user_email set group_id=? where email_id in (%s) and user_id =?", array.Join(mailId, ","))),
 		groupId, ctx.UserID)
@@ -143,7 +214,10 @@ func MoveMailToGroup(ctx *context.Context, mailId []int, groupId int) bool {
 	return rowNum > 0
 }
 
-func buildChildren(ctx *context.Context, parentId int) []*GroupItem {
+func buildChildren(ctx *context.Context, parentId, depth int) []*GroupItem {
+	if depth >= maxGroupDepth {
+		return nil
+	}
 	var ret []*GroupItem
 	var rootGroup []*models.Group
 	err := db.Instance.Table("group").Where("parent_id=? and user_id=?", parentId, ctx.UserID).Find(&rootGroup)
@@ -157,7 +231,7 @@ func buildChildren(ctx *context.Context, parentId int) []*GroupItem {
 			Id:       group.ID,
 			Label:    group.Name,
 			Tag:      dto.SearchTag{GroupId: group.ID, Status: -1, Type: -1}.ToString(),
-			Children: buildChildren(ctx, group.ID),
+			Children: buildChildren(ctx, group.ID, depth+1),
 		})
 	}
 
@@ -175,18 +249,6 @@ func hasChildren(ctx *context.Context, id int) bool {
 	var parent []*models.Group
 	db.Instance.Table("group").Where("parent_id=?", id).Find(&parent)
 	return len(parent) > 0
-}
-
-func getLayerName(ctx *context.Context, item *models.Group, allPath bool) string {
-	if item.ParentId == 0 {
-		return item.Name
-	}
-	var parent models.Group
-	_, _ = db.Instance.Table("group").Where("id=?", item.ParentId).Get(&parent)
-	if allPath {
-		return getLayerName(ctx, &parent, allPath) + "/" + item.Name
-	}
-	return getLayerName(ctx, &parent, allPath)
 }
 
 func IsDefaultBox(box string) bool {

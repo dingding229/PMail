@@ -2,7 +2,6 @@ package parsemail
 
 import (
 	"bytes"
-	"io"
 	"mime"
 	"path/filepath"
 	"regexp"
@@ -290,5 +289,3 @@ func PreviewText(att *Attachment) (TextPreview, bool) {
 	}
 	return TextPreview{Filename: att.Filename, Language: lang, Charset: charset, Truncated: truncated, Size: len(att.Content), Content: text}, true
 }
-
-func readMIMEBody(reader io.Reader) []byte { body, _ := io.ReadAll(reader); return body }

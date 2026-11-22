@@ -2,10 +2,8 @@ package email
 
 import (
 	"database/sql"
-	"encoding/json"
 	stderrors "errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -20,6 +18,7 @@ import (
 	"github.com/Jinnrry/pmail/services/detail"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/mailbudget"
 	"github.com/Jinnrry/pmail/utils/send"
 	log "github.com/sirupsen/logrus"
 )
@@ -36,7 +35,14 @@ type forwardRequest struct {
 
 func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	var body forwardRequest
-	if err := json.NewDecoder(io.LimitReader(req.Body, 64<<10)).Decode(&body); err != nil || body.EmailID <= 0 {
+	if !readComposeJSON(ctx, w, req, &body) {
+		return
+	}
+	if len(body.To)+len(body.Cc) > mailbudget.Recipients {
+		mailTooLarge(ctx, w)
+		return
+	}
+	if body.EmailID <= 0 {
 		response.Localized(ctx, response.ParamsError, "invalid_json").FPrint(w)
 		return
 	}
@@ -75,6 +81,10 @@ func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request
 	e.MsgID = parsemail.GenerateMsgID(fromDomain(fromAddress))
 	raw, buildErr := e.BuildBytes(ctx, true)
 	if buildErr != nil {
+		if stderrors.Is(buildErr, mailbudget.ErrLimit) {
+			mailTooLarge(ctx, w)
+			return
+		}
 		response.Localized(ctx, response.ParamsError, "mail_invalid_header").FPrintStatus(w, http.StatusBadRequest)
 		return
 	}

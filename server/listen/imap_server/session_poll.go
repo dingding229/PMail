@@ -1,23 +1,48 @@
 package imap_server
 
 import (
-	"github.com/Jinnrry/pmail/db"
-	"github.com/Jinnrry/pmail/models"
+	"slices"
+
+	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
-	"github.com/spf13/cast"
 )
 
 func (s *serverSession) Poll(w *imapserver.UpdateWriter, allowExpunge bool) error {
 	if err := s.requireSession(); err != nil {
 		return err
 	}
-
-	var ue []models.UserEmail
-	db.Instance.Table("user_email").Where("user_id=? and "+db.Instance.Quote("create")+" >=?", s.ctx.UserID, s.connectTime).Find(&ue)
-
-	if len(ue) > 0 {
-		w.WriteNumMessages(cast.ToUint32(len(ue)))
+	if s.currentMailbox == "" {
+		return nil
 	}
-
+	state, err := mailboxSnapshot(s.ctx, s.currentMailbox)
+	if err != nil {
+		return protocolNO(err)
+	}
+	current := uids(state.items)
+	if slices.Equal(s.announced, current) {
+		return nil
+	}
+	live := make(map[imap.UID]bool, len(current))
+	for _, uid := range current {
+		live[uid] = true
+	}
+	var removals []mailboxEntry
+	for i, uid := range s.announced {
+		if !live[uid] {
+			removals = append(removals, mailboxEntry{seq: uint32(i + 1), uid: uid})
+		}
+	}
+	if len(removals) > 0 && !allowExpunge {
+		return nil
+	}
+	if err := s.removeAnnounced(removals, w.WriteExpunge); err != nil {
+		return err
+	}
+	if len(current) != len(s.announced) {
+		if err := w.WriteNumMessages(uint32(len(current))); err != nil {
+			return err
+		}
+	}
+	s.announced = current
 	return nil
 }

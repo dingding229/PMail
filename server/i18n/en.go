@@ -143,4 +143,8 @@ var en = map[string]string{
 	"external_credential_conflict":        "External mailbox settings changed. Refresh and try again.",
 	"external_control_characters":         "External mailbox credentials or folder contain invalid control characters.",
 	"mail_invalid_header":                 "An email address, header, or attachment MIME value is invalid.",
+	"mail_resource_limit":                 "The request or message exceeds a size, attachment, MIME part, or recipient limit.",
+	"rule_count_limit":                    "Use up to 100 rules per account and 32 conditions per rule.",
+	"rule_invalid_regex":                  "Use a Go regular expression of at most 1024 bytes; lookaround and backreferences are unsupported.",
+	"group_invalid_parent_or_target":      "The parent or destination group must belong to the current user and fit the allowed depth.",
 }

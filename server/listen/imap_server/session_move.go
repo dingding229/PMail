@@ -1,85 +1,29 @@
 package imap_server
 
 import (
-	"github.com/Jinnrry/pmail/dto/response"
-	"github.com/Jinnrry/pmail/services/group"
-	"github.com/Jinnrry/pmail/services/list"
-	"github.com/Jinnrry/pmail/utils/context"
+	"errors"
+
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
-	"github.com/spf13/cast"
 )
 
-func (s *serverSession) Move(w *imapserver.MoveWriter, numSet imap.NumSet, dest string) error {
+func (s *serverSession) Move(w *imapserver.MoveWriter, set imap.NumSet, dest string) error {
 	if err := s.requireSession(); err != nil {
 		return err
 	}
-
-	var emailList []*response.EmailResponseData
-
-	switch numSet.(type) {
-	case imap.SeqSet:
-		seqSet := numSet.(imap.SeqSet)
-		for _, seq := range seqSet {
-			emailList = list.GetEmailListByGroup(s.ctx, s.currentMailbox, list.ImapListReq{
-				Star: cast.ToInt(seq.Start),
-				End:  cast.ToInt(seq.Stop),
-			}, false)
-		}
-	case imap.UIDSet:
-		uidSet := numSet.(imap.UIDSet)
-		for _, uid := range uidSet {
-			emailList = list.GetEmailListByGroup(s.ctx, s.currentMailbox, list.ImapListReq{
-				Star: cast.ToInt(uint32(uid.Start)),
-				End:  cast.ToInt(uint32(uid.Stop)),
-			}, true)
-		}
+	if s.readOnly {
+		return protocolNO(errors.New("mailbox is read-only"))
 	}
-
-	var mailIds []int
-	for _, email := range emailList {
-		mailIds = append(mailIds, email.Id)
+	copied, removed, err := s.transfer(set, dest, true)
+	if err != nil {
+		return protocolNO(err)
 	}
-
-	if mailIds == nil || len(mailIds) == 0 {
+	if copied == nil {
 		return nil
 	}
-
-	if group.IsDefaultBox(dest) {
-		return move2defaultbox(s.ctx, mailIds, dest)
-	} else {
-		return move2userbox(s.ctx, mailIds, dest)
+	if err := w.WriteCopyData(copied); err != nil {
+		return err
 	}
-
-}
-
-func move2defaultbox(ctx *context.Context, mailIds []int, dest string) error {
-	err := group.Move2DefaultBox(ctx, mailIds, dest)
-	if err != nil {
-		return &imap.Error{
-			Type: imap.StatusResponseTypeNo,
-			Text: err.Error(),
-		}
-	}
-	return nil
-}
-
-func move2userbox(ctx *context.Context, mailIds []int, dest string) error {
-	groupInfo, err := group.GetGroupByFullPath(ctx, dest)
-	if err != nil {
-		return &imap.Error{
-			Type: imap.StatusResponseTypeNo,
-			Text: err.Error(),
-		}
-	}
-	if groupInfo == nil || groupInfo.ID == 0 {
-		return &imap.Error{
-			Type: imap.StatusResponseTypeNo,
-			Text: "Group not found",
-		}
-	}
-
-	group.MoveMailToGroup(ctx, mailIds, groupInfo.ID)
-
-	return nil
+	notifyUser(s.ctx.UserID)
+	return s.removeAnnounced(removed, w.WriteExpunge)
 }

@@ -1,10 +1,10 @@
 package imap_server
 
 import (
+	"errors"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/id"
 	"github.com/emersion/go-imap/v2"
-	log "github.com/sirupsen/logrus"
 	"sync"
 	"time"
 
@@ -38,7 +38,8 @@ type serverSession struct {
 	status         Status
 	currentMailbox string
 	connectTime    time.Time
-	deleteUidList  []int
+	announced      []imap.UID
+	readOnly       bool
 	remoteAddr     string
 }
 
@@ -70,11 +71,12 @@ func (s *serverSession) Unsubscribe(mailbox string) error {
 }
 
 func (s *serverSession) Append(mailbox string, r imap.LiteralReader, options *imap.AppendOptions) (*imap.AppendData, error) {
-	log.WithContext(s.ctx).Errorf("Append Not Implemented")
-	return nil, nil
+	return nil, protocolNO(errors.New("APPEND is not supported"))
 }
 
 func (s *serverSession) Unselect() error {
 	s.currentMailbox = ""
+	s.announced = nil
+	s.readOnly = false
 	return nil
 }

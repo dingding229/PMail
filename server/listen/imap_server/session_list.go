@@ -3,6 +3,7 @@ package imap_server
 import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/group"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
@@ -51,19 +52,23 @@ func matchGroup(ctx *context.Context, w *imapserver.ListWriter, basePath, patter
 		db.Instance.Table("group").Where("user_id=? and full_path like ?", ctx.UserID, pattern).Find(&groups)
 
 	}
-	for _, group := range groups {
+	for _, row := range groups {
 
 		data := &imap.ListData{
 			Attrs:   []imap.MailboxAttr{},
-			Mailbox: group.Name,
+			Mailbox: row.Name,
 			Delim:   '/',
 		}
 
-		if hasChildren(ctx, group.ID) {
+		if hasChildren(ctx, row.ID) {
 			data.Attrs = append(data.Attrs, imap.MailboxAttrHasChildren)
 		}
 
-		data.Mailbox = getLayerName(ctx, group, true)
+		path, err := group.GroupPath(ctx, row)
+		if err != nil {
+			continue
+		}
+		data.Mailbox = path
 
 		w.WriteList(data)
 
@@ -73,21 +78,9 @@ func matchGroup(ctx *context.Context, w *imapserver.ListWriter, basePath, patter
 
 func hasChildren(ctx *context.Context, id int) bool {
 	var parent []*models.Group
-	db.Instance.Table("group").Where("parent_id=?", id).Find(&parent)
+	db.Instance.Table("group").Where("parent_id=? AND user_id=?", id, ctx.UserID).Find(&parent)
 	return len(parent) > 0
 }
-func getLayerName(ctx *context.Context, item *models.Group, allPath bool) string {
-	if item.ParentId == 0 {
-		return item.Name
-	}
-	var parent models.Group
-	_, _ = db.Instance.Table("group").Where("id=?", item.ParentId).Get(&parent)
-	if allPath {
-		return getLayerName(ctx, &parent, allPath) + "/" + item.Name
-	}
-	return getLayerName(ctx, &parent, allPath)
-}
-
 func (s *serverSession) List(w *imapserver.ListWriter, ref string, patterns []string, options *imap.ListOptions) error {
 	if err := s.requireSession(); err != nil {
 		return err

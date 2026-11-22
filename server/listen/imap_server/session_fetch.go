@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/dto/response"
-	"github.com/Jinnrry/pmail/services/detail"
+	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/list"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -114,19 +115,16 @@ func (s *serverSession) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, opt
 	if err := s.requireSession(); err != nil {
 		return err
 	}
-	selected := list.GetUEListByUID(s.ctx, s.currentMailbox, 0, 0, nil)
-	maxSeq, maxUID := mailboxLimits(selected)
-	var matched []*response.UserEmailUIDData
-	for _, row := range selected {
-		if storeContains(numSet, uint32(row.SerialNumber), uint32(row.ID), maxSeq, maxUID) {
-			matched = append(matched, row)
-		}
+	state, err := mailboxSnapshot(s.ctx, s.currentMailbox)
+	if err != nil {
+		return protocolNO(err)
 	}
+	matched := present(s.selectSet(state.items, numSet))
 	emails, err := list.LoadMailboxEmails(matched)
 	if err != nil {
 		return &imap.Error{Type: imap.StatusResponseTypeNo, Text: "could not read mailbox messages"}
 	}
-	return write(s.ctx, w, emails, options)
+	return write(s.ctx, w, emails, options, s.readOnly)
 }
 
 // 纯文本 text/plain
@@ -217,7 +215,7 @@ func bsMixedWithAttachments(alt *imap.BodyStructureMultiPart, extend bool, atts 
 	}
 }
 
-func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*response.EmailResponseData, options *imap.FetchOptions) error {
+func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*response.EmailResponseData, options *imap.FetchOptions, readOnly ...bool) error {
 	for _, email := range emailList {
 		traEmail := parsemail.NewEmailFromModel(email.Email)
 		var emailContent []byte
@@ -263,14 +261,17 @@ func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*respons
 			writer.WriteRFC822Size(cast.ToInt64(len(emailContent)))
 		}
 		for _, section := range options.BodySection {
-			if !section.Peek && email.IsRead == 0 {
-				detail.MakeRead(ctx, email.Id, true)
-				email.IsRead = 1
+			if !section.Peek && email.IsRead == 0 && (len(readOnly) == 0 || !readOnly[0]) {
+				if email.LinkID > 0 {
+					if _, err := db.Instance.ID(email.LinkID).Where("user_id=?", ctx.UserID).Cols("is_read").Update(&models.UserEmail{IsRead: 1}); err == nil {
+						email.IsRead = 1
+					}
+				}
 				break
 			}
 		}
 		if options.Flags {
-			writer.WriteFlags(mailFlags(email.IsRead == 1, email.IsStarred, email.MailboxStatus))
+			writer.WriteFlags(mailFlags(email.IsRead == 1, email.IsStarred, email.MailboxStatus, email.IMAPDeleted))
 		}
 		if options.InternalDate {
 			writer.WriteInternalDate(email.CreateTime)

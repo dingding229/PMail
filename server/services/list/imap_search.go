@@ -62,7 +62,11 @@ type IMAPSearchResult struct {
 // SearchEmails performs IMAP search based on criteria
 func SearchEmails(ctx *context.Context, groupName string, criteria *imap.SearchCriteria) ([]*response.UserEmailUIDData, error) {
 	// First get the base list for the mailbox
-	baseList := GetUEListByUID(ctx, groupName, 0, 0, nil)
+	return SearchRows(ctx, GetUEListByUID(ctx, groupName, 0, 0, nil), criteria)
+}
+
+func SearchRows(ctx *context.Context, baseList []*response.UserEmailUIDData, criteria *imap.SearchCriteria) ([]*response.UserEmailUIDData, error) {
+	snapshot := baseList
 	if len(baseList) == 0 {
 		return baseList, nil
 	}
@@ -103,13 +107,13 @@ func SearchEmails(ctx *context.Context, groupName string, criteria *imap.SearchC
 	// Handle NOT criteria
 	if len(criteria.Not) > 0 {
 		for _, notCriteria := range criteria.Not {
-			baseList = applyNotCriteria(ctx, groupName, baseList, &notCriteria)
+			baseList = applyNotCriteria(ctx, snapshot, baseList, &notCriteria)
 		}
 	}
 
 	// Handle OR criteria
 	if len(criteria.Or) > 0 {
-		baseList = applyOrCriteria(ctx, groupName, baseList, criteria.Or)
+		baseList = applyOrCriteria(ctx, snapshot, baseList, criteria.Or)
 	}
 
 	return baseList, nil
@@ -411,9 +415,9 @@ func matchesText(email *models.Email, pattern string) bool {
 }
 
 // applyNotCriteria applies NOT criteria
-func applyNotCriteria(ctx *context.Context, groupName string, list []*response.UserEmailUIDData, notCriteria *imap.SearchCriteria) []*response.UserEmailUIDData {
+func applyNotCriteria(ctx *context.Context, all, list []*response.UserEmailUIDData, notCriteria *imap.SearchCriteria) []*response.UserEmailUIDData {
 	// Get the list of items that match the NOT criteria
-	matchedList, _ := SearchEmails(ctx, groupName, notCriteria)
+	matchedList, _ := SearchRows(ctx, all, notCriteria)
 
 	// Build a set of matched UIDs
 	matchedUIDs := make(map[int]bool)
@@ -433,7 +437,7 @@ func applyNotCriteria(ctx *context.Context, groupName string, list []*response.U
 }
 
 // applyOrCriteria applies OR criteria
-func applyOrCriteria(ctx *context.Context, groupName string, list []*response.UserEmailUIDData, orCriteria [][2]imap.SearchCriteria) []*response.UserEmailUIDData {
+func applyOrCriteria(ctx *context.Context, all, list []*response.UserEmailUIDData, orCriteria [][2]imap.SearchCriteria) []*response.UserEmailUIDData {
 	if len(orCriteria) == 0 {
 		return list
 	}
@@ -449,7 +453,7 @@ func applyOrCriteria(ctx *context.Context, groupName string, list []*response.Us
 
 	for _, pair := range orCriteria {
 		// Get matches for first condition
-		matches1, _ := SearchEmails(ctx, groupName, &pair[0])
+		matches1, _ := SearchRows(ctx, all, &pair[0])
 		for _, item := range matches1 {
 			if currentUIDs[item.ID] {
 				resultUIDs[item.ID] = true
@@ -457,7 +461,7 @@ func applyOrCriteria(ctx *context.Context, groupName string, list []*response.Us
 		}
 
 		// Get matches for second condition
-		matches2, _ := SearchEmails(ctx, groupName, &pair[1])
+		matches2, _ := SearchRows(ctx, all, &pair[1])
 		for _, item := range matches2 {
 			if currentUIDs[item.ID] {
 				resultUIDs[item.ID] = true

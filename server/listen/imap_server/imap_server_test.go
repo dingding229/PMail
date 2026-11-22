@@ -441,22 +441,27 @@ func TestClose(t *testing.T) {
 
 }
 func TestExpunge(t *testing.T) {
-
-	clientLogin.Select("INBOX", &imap.SelectOptions{}).Wait()
-
-	res, err := clientLogin.UIDExpunge(imap.UIDSetNum(1, 2)).Collect()
-
-	if err != nil {
-		t.Errorf("%+v", err)
+	if _, err := clientLogin.Select("INBOX", nil).Wait(); err != nil {
+		t.Fatal(err)
 	}
-	t.Logf("%+v", res)
-	var ues []models.UserEmail
-	db.Instance.Table("user_email").Where("id=1 or id=2").Find(&ues)
-	if len(ues) > 0 {
-		t.Errorf("TestExpunge Error")
+	rows, err := clientLogin.Fetch(imap.SeqSetNum(1, 2), &imap.FetchOptions{UID: true}).Collect()
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("expunge fixtures: count=%d %v", len(rows), err)
 	}
-
+	if _, err := clientLogin.Store(imap.UIDSetNum(rows[0].UID), &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{imap.FlagDeleted}}, nil).Collect(); err != nil {
+		t.Fatal(err)
+	}
+	// The UID set includes one unmarked message, which must survive.
+	changes, err := clientLogin.UIDExpunge(imap.UIDSetNum(rows[0].UID, rows[1].UID)).Collect()
+	if err != nil || len(changes) != 1 {
+		t.Fatalf("UID EXPUNGE: %v %v", changes, err)
+	}
+	surviving, err := clientLogin.Fetch(imap.UIDSetNum(rows[0].UID, rows[1].UID), &imap.FetchOptions{UID: true}).Collect()
+	if err != nil || len(surviving) != 1 || surviving[0].UID != rows[1].UID {
+		t.Fatalf("unmarked mail removed: %+v %v", surviving, err)
+	}
 }
+
 func TestExamine(t *testing.T) {
 
 }
@@ -672,6 +677,11 @@ func TestIdleNotice(t *testing.T) {
 	// before publishing the notification to avoid a test-only race.
 	waitIdleConnectionsRegistered(t, user.ID)
 
+	link := models.UserEmail{UserID: user.ID, EmailID: 1}
+	if _, err := db.Instance.Insert(&link); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = db.Instance.ID(link.ID).Delete(&models.UserEmail{}) })
 	ctx := &pcontext.Context{UserID: user.ID}
 	if err = IdleNotice(ctx, user.ID, &models.Email{Id: 1}); err != nil {
 		t.Fatal(err)
@@ -679,8 +689,8 @@ func TestIdleNotice(t *testing.T) {
 
 	select {
 	case numMessages := <-updates:
-		if numMessages != selected.NumMessages {
-			t.Fatalf("unexpected IDLE EXISTS update: got %d, want %d", numMessages, selected.NumMessages)
+		if numMessages != selected.NumMessages+1 {
+			t.Fatalf("unexpected IDLE EXISTS update: got %d, want %d", numMessages, selected.NumMessages+1)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for IDLE update")
@@ -711,7 +721,10 @@ func waitIdleConnectionsRegistered(t *testing.T, userId int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, ok := userConnects.Load(userId); ok {
+		idleQueue.Lock()
+		n := len(idleQueue.subscribers[userId])
+		idleQueue.Unlock()
+		if n > 0 {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -723,7 +736,10 @@ func waitIdleConnectionsDeleted(t *testing.T, userId int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, ok := userConnects.Load(userId); !ok {
+		idleQueue.Lock()
+		n := len(idleQueue.subscribers[userId])
+		idleQueue.Unlock()
+		if n == 0 {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

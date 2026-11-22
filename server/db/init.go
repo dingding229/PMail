@@ -121,7 +121,7 @@ func initializeSchemaAndData(engine *xorm.Engine, version string, preserveUsers 
 func SyncSchema(engine *xorm.Engine) error {
 	for _, model := range []any{
 		&models.User{}, &models.Email{}, &models.Group{}, &models.Rule{},
-		&models.Sessions{}, &models.UserEmail{}, &models.Version{}, &models.Domain{}, &models.MailboxAddress{}, &models.APIToken{}, &models.OutboundQueue{}, &models.ForwardSetting{}, &models.ExternalAccount{}, &models.ExternalSeen{}, &models.BounceNotice{}, &models.RegistrationGuard{},
+		&models.Sessions{}, &models.UserEmail{}, &models.IMAPMailbox{}, &models.IMAPMailboxUID{}, &models.Version{}, &models.Domain{}, &models.MailboxAddress{}, &models.APIToken{}, &models.OutboundQueue{}, &models.ForwardSetting{}, &models.ExternalAccount{}, &models.ExternalSeen{}, &models.ExternalCursor{}, &models.BounceNotice{}, &models.RegistrationGuard{},
 	} {
 		if err := engine.Sync2(model); err != nil {
 			return fmt.Errorf("sync schema for %T: %w", model, err)

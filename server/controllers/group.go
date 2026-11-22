@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -78,6 +79,10 @@ func AddGroup(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	newGroup, err := group.CreateGroup(ctx, reqData.Name, reqData.ParentId)
 
 	if err != nil {
+		if errors.Is(err, group.ErrInvalidParent) {
+			apiError(ctx, w, 400, response.ParamsError, "group_invalid_parent_or_target")
+			return
+		}
 		if db.IsUniqueViolation(err) {
 			serviceError(ctx, w, err)
 			return

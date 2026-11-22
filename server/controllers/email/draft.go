@@ -19,6 +19,7 @@ import (
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/mailbudget"
 	log "github.com/sirupsen/logrus"
 	"xorm.io/xorm"
 )
@@ -41,16 +42,24 @@ var (
 )
 
 func decodeComposeAttachments(attrs []attachment) ([]*parsemail.Attachment, error) {
+	if len(attrs)+4 > mailbudget.Parts {
+		return nil, mailbudget.ErrLimit
+	}
 	out := make([]*parsemail.Attachment, 0, len(attrs))
+	total := 0
 	for _, att := range attrs {
 		raw, dataURL := strings.CutPrefix(att.Data, "data:")
 		contentType, data, encoded := strings.Cut(raw, ";base64,")
 		if media, _, err := mime.ParseMediaType(contentType); !dataURL || !encoded || err != nil || !strings.Contains(media, "/") {
 			return nil, errAttachmentData
 		}
-		content, err := base64.StdEncoding.DecodeString(data)
+		content, err := mailbudget.Read(base64.NewDecoder(base64.StdEncoding, strings.NewReader(data)), int64(min(mailbudget.Part, mailbudget.Attachments-total)))
 		if err != nil {
 			return nil, err
+		}
+		total += len(content)
+		if len(content) > mailbudget.Part || total > mailbudget.Attachments {
+			return nil, mailbudget.ErrLimit
 		}
 		out = append(out, &parsemail.Attachment{Filename: att.Name, ContentType: contentType, Content: content})
 	}
@@ -67,7 +76,11 @@ func composeUsers(input []user) []*parsemail.User {
 
 func SaveDraft(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var body draftRequest
-	if !readMailJSON(ctx, w, r, &body, false) {
+	if !readComposeJSON(ctx, w, r, &body) {
+		return
+	}
+	if len(body.To)+len(body.Cc)+len(body.Bcc) > mailbudget.Recipients || len(body.Text) > mailbudget.Part || len(body.HTML) > mailbudget.Part {
+		mailTooLarge(ctx, w)
 		return
 	}
 	if body.ID < 0 {
@@ -113,6 +126,9 @@ func persistDraft(draft *models.Email, keepAttachments bool) error {
 			draft.MsgID = parsemail.GenerateMsgID(domain.DefaultName())
 			draft.CronSendTime = now
 			draft.Size = len(draft.Text.String) + len(draft.Html.String) + len(draft.Attachments)
+			if draft.Size > mailbudget.Message {
+				return mailbudget.ErrLimit
+			}
 			if _, err := tx.Insert(draft); err != nil {
 				return err
 			}
@@ -132,6 +148,9 @@ func persistDraft(draft *models.Email, keepAttachments bool) error {
 			draft.Attachments = stored.Attachments
 		}
 		draft.Size = len(draft.Text.String) + len(draft.Html.String) + len(draft.Attachments)
+		if draft.Size > mailbudget.Message {
+			return mailbudget.ErrLimit
+		}
 		updates := map[string]any{"from_address": draft.FromAddress, "from_name": draft.FromName, "sender": draft.Sender, "subject": draft.Subject, "to": draft.To, "cc": draft.Cc, "bcc": draft.Bcc, "text": draft.Text.String, "html": draft.Html.String, "text_format": draft.TextFormat, "attachments": draft.Attachments, "size": draft.Size, "send_date": now}
 		if _, err := tx.Table(&models.Email{}).ID(draft.Id).Where("send_user_id=? AND status=?", draft.SendUserID, consts.EmailStatusDrafts).Update(updates); err != nil {
 			return err
@@ -221,6 +240,10 @@ func DeleteDraft(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 }
 
 func attachmentError(ctx *context.Context, w http.ResponseWriter, err error) {
+	if errors.Is(err, mailbudget.ErrLimit) {
+		mailTooLarge(ctx, w)
+		return
+	}
 	if errors.Is(err, errAttachmentData) {
 		response.Localized(ctx, response.ParamsError, "attachment_encoding_invalid").FPrint(w)
 		return
@@ -229,6 +252,10 @@ func attachmentError(ctx *context.Context, w http.ResponseWriter, err error) {
 }
 
 func draftError(ctx *context.Context, w http.ResponseWriter, err error) {
+	if errors.Is(err, mailbudget.ErrLimit) {
+		mailTooLarge(ctx, w)
+		return
+	}
 	if errors.Is(err, errDraftNotFound) {
 		response.Localized(ctx, response.ParamsError, "mail_draft_not_found").FPrintStatus(w, http.StatusNotFound)
 		return

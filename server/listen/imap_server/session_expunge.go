@@ -1,50 +1,62 @@
 package imap_server
 
 import (
-	"github.com/Jinnrry/pmail/services/del_email"
+	"errors"
+
+	"github.com/Jinnrry/pmail/models"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
-	"github.com/spf13/cast"
-	"log/slog"
+	"xorm.io/xorm"
 )
+
+func (s *serverSession) expunge(set imap.NumSet, emit func(uint32) error) error {
+	if s.readOnly {
+		return protocolNO(errors.New("mailbox is read-only"))
+	}
+	var removed []mailboxEntry
+	err := mailboxTx(s.ctx, func(tx *xorm.Session) error {
+		removed = nil
+		b, err := findBox(tx, s.ctx.UserID, s.currentMailbox)
+		if err != nil {
+			return err
+		}
+		state, err := syncMailbox(tx, b)
+		if err != nil {
+			return err
+		}
+		for _, item := range s.selectSet(state.items, set) {
+			if !item.row.IMAPDeleted {
+				continue
+			}
+			n, err := b.scope(tx).ID(item.row.ID).Where("imap_deleted=?", true).Delete(&models.UserEmail{})
+			if err != nil {
+				return err
+			}
+			if n > 0 {
+				removed = append(removed, item)
+			}
+		}
+		if len(removed) > 0 {
+			_, err = syncMailbox(tx, b)
+		}
+		return err
+	})
+	if err != nil {
+		return protocolNO(err)
+	}
+	if len(removed) > 0 {
+		notifyUser(s.ctx.UserID)
+	}
+	return s.removeAnnounced(removed, emit)
+}
 
 func (s *serverSession) Expunge(w *imapserver.ExpungeWriter, uids *imap.UIDSet) error {
 	if err := s.requireSession(); err != nil {
 		return err
 	}
-	if uids == nil && len(s.deleteUidList) == 0 {
-		return nil
-	}
-	uidList := []int{}
-
+	var set imap.NumSet
 	if uids != nil {
-		for _, uidRange := range *uids {
-			if uidRange.Start > 0 && uidRange.Stop > 0 {
-				for i := uidRange.Start; i <= uidRange.Stop; i++ {
-					uidList = append(uidList, cast.ToInt(uint32(i)))
-				}
-			}
-		}
+		set = *uids
 	}
-
-	if len(s.deleteUidList) > 0 {
-		uidList = append(uidList, s.deleteUidList...)
-	}
-
-	if len(uidList) == 0 {
-		return nil
-	}
-
-	slog.Debug("DeleteUidList:", slog.Any("uidList", uidList))
-
-	err := del_email.DelByUID(s.ctx, uidList)
-	s.deleteUidList = []int{}
-	if err != nil {
-		return &imap.Error{
-			Type: imap.StatusResponseTypeNo,
-			Text: err.Error(),
-		}
-	}
-
-	return nil
+	return s.expunge(set, w.WriteExpunge)
 }
