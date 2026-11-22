@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -17,12 +18,61 @@ func InitDatabasePassword(path, password string) error {
 	if strings.HasSuffix(password, "\n") {
 		return fmt.Errorf("POSTGRES_PASSWORD must not end with a newline when using a password file")
 	}
+	uid, err := postgresSecretID("PMAIL_DB_SECRET_UID")
+	if err != nil {
+		return err
+	}
+	gid, err := postgresSecretID("PMAIL_DB_SECRET_GID")
+	if err != nil {
+		return err
+	}
+	if err := ensureSearchableSecretDir(filepath.Dir(path)); err != nil {
+		return err
+	}
 	value, err := loadOrCreateSecret(path, password, 24)
 	if err != nil {
 		return err
 	}
 	if password != "" && value != password {
 		return fmt.Errorf("POSTGRES_PASSWORD differs from the persisted password in %s; restore the matching credential (the database password was not changed)", path)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if err := file.Chmod(0600); err != nil {
+		return fmt.Errorf("set database password file permissions: %w", err)
+	}
+	if err := file.Chown(uid, gid); err != nil {
+		return fmt.Errorf("set database password file owner to %d:%d: %w", uid, gid, err)
+	}
+	return nil
+}
+
+func postgresSecretID(name string) (int, error) {
+	// postgres:17-alpine uses UID and GID 70.
+	id, err := strconv.Atoi(envDefault(name, "70"))
+	if err != nil || id < 0 || uint64(id) >= 0xffffffff {
+		return 0, fmt.Errorf("%s must be a valid numeric UID or GID", name)
+	}
+	return id, nil
+}
+
+func ensureSearchableSecretDir(dir string) error {
+	if err := os.MkdirAll(dir, 0711); err != nil {
+		return err
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	// Let PostgreSQL traverse the mount, including an existing root-owned
+	// 0700 directory. Do not grant directory listing or file read access.
+	if info.Mode().Perm()&0111 != 0111 {
+		if err := os.Chmod(dir, info.Mode()|0111); err != nil {
+			return fmt.Errorf("allow access through database secrets directory: %w", err)
+		}
 	}
 	return nil
 }

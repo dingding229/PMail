@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -63,6 +64,7 @@ func TestWebModeDefaultsAndOverrides(t *testing.T) {
 }
 
 func TestPostgresPasswordFileAndExplicitDSN(t *testing.T) {
+	useCurrentDBSecretOwner(t)
 	cleanEffectiveConfigEnv(t)
 	const raw = "has space:@/?#%+&$ "
 	file := filepath.Join(t.TempDir(), "db_password")
@@ -100,6 +102,7 @@ func TestPostgresPasswordFileAndExplicitDSN(t *testing.T) {
 }
 
 func TestAutomaticDatabasePasswordPersists(t *testing.T) {
+	useCurrentDBSecretOwner(t)
 	file := filepath.Join(t.TempDir(), "db_password")
 	if err := InitDatabasePassword(file, ""); err != nil {
 		t.Fatal(err)
@@ -118,5 +121,46 @@ func TestAutomaticDatabasePasswordPersists(t *testing.T) {
 	info, err := os.Stat(file)
 	if err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("password file must be mode 0600: %v", err)
+	}
+}
+
+func useCurrentDBSecretOwner(t *testing.T) {
+	t.Helper()
+	uid, gid := os.Geteuid(), os.Getegid()
+	if uid < 0 || gid < 0 {
+		t.Skip("database secret ownership requires numeric Unix user and group IDs")
+	}
+	t.Setenv("PMAIL_DB_SECRET_UID", strconv.Itoa(uid))
+	t.Setenv("PMAIL_DB_SECRET_GID", strconv.Itoa(gid))
+}
+
+func TestInitDatabasePasswordRepairsExistingPermissions(t *testing.T) {
+	useCurrentDBSecretOwner(t)
+	dir := filepath.Join(t.TempDir(), "secrets")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "db_password")
+	const original = "existing-password\n"
+	if err := os.WriteFile(file, []byte(original), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(file, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := InitDatabasePassword(file, ""); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(file)
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("existing file was not reset to mode 0600: %v", err)
+	}
+	info, err = os.Stat(dir)
+	if err != nil || info.Mode().Perm() != 0711 {
+		t.Fatalf("existing directory must permit traversal without granting listing: %v", err)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil || string(data) != original {
+		t.Fatalf("permission repair must not change the existing password: %v", err)
 	}
 }
