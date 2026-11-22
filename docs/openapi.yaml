@@ -404,7 +404,7 @@ paths:
                 - {$ref: '#/components/schemas/Error100402403500'}
               examples:
                 c8AnalysisProjection:
-                  summary: Planned inbound analysis example.
+                  summary: Inbound analysis example.
                   value:
                     errorNo: 0
                     errorMsg: ''
@@ -473,7 +473,7 @@ paths:
                 - {$ref: '#/components/schemas/Error100402403500'}
               examples:
                 c8AnalysisProjection:
-                  summary: Planned inbound analysis example.
+                  summary: Inbound analysis example.
                   value:
                     errorNo: 0
                     errorMsg: ''
@@ -2164,8 +2164,8 @@ paths:
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
       - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
-      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
-      x-planned-i18n-error-codes: [risk_confirmation_required]
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405], '409': [100]}
+      x-i18n-error-codes: [risk_confirmation_required]
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -2195,7 +2195,7 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '409':
           $ref: '#/components/responses/C8RiskConfirmationRequired'
-          x-status: planned
+
     head:
       tags: [Attachments]
       x-permission: owner
@@ -2206,8 +2206,8 @@ paths:
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
       - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
-      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
-      x-planned-i18n-error-codes: [risk_confirmation_required]
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405], '409': [100]}
+      x-i18n-error-codes: [risk_confirmation_required]
       operationId: inlineAttachmentHead
       summary: Retrieve an attachment (only whitelisted image types are inline) (headers only)
       responses:
@@ -2220,7 +2220,7 @@ paths:
             Cache-Control:
               schema: {const: 'private, no-store'}
         '403': {description: Error (no body).}
-        '409': {description: 'Planned: high-risk attachment requires explicit acknowledgement (no body).', x-status: planned}
+        '409': {description: 'High-risk attachment requires explicit acknowledgement (no body).'}
   /api/attachments/download/{id}:
     get:
       operationId: downloadAttachment
@@ -2234,8 +2234,8 @@ paths:
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
       - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
-      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
-      x-planned-i18n-error-codes: [risk_confirmation_required]
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405], '409': [100]}
+      x-i18n-error-codes: [risk_confirmation_required]
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -2253,7 +2253,7 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '409':
           $ref: '#/components/responses/C8RiskConfirmationRequired'
-          x-status: planned
+
     head:
       tags: [Attachments]
       x-permission: owner
@@ -2264,8 +2264,8 @@ paths:
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
       - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
-      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
-      x-planned-i18n-error-codes: [risk_confirmation_required]
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405], '409': [100]}
+      x-i18n-error-codes: [risk_confirmation_required]
       operationId: downloadAttachmentHead
       summary: Download an attachment as application/octet-stream (headers only)
       responses:
@@ -2278,7 +2278,7 @@ paths:
             Cache-Control:
               schema: {const: 'private, no-store'}
         '403': {description: Error (no body).}
-        '409': {description: 'Planned: high-risk attachment requires explicit acknowledgement (no body).', x-status: planned}
+        '409': {description: 'High-risk attachment requires explicit acknowledgement (no body).'}
   /attachments/{emailId}/{cid}:
     get:
       operationId: legacyInlineAttachmentGet
@@ -2293,8 +2293,8 @@ paths:
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentCid'}
       - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
-      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
-      x-planned-i18n-error-codes: [risk_confirmation_required]
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405], '409': [100]}
+      x-i18n-error-codes: [risk_confirmation_required]
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -2335,8 +2335,8 @@ paths:
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentCid'}
       - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
-      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
-      x-planned-i18n-error-codes: [risk_confirmation_required]
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405], '409': [100]}
+      x-i18n-error-codes: [risk_confirmation_required]
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -2366,7 +2366,7 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '409':
           $ref: '#/components/responses/C8RiskConfirmationRequired'
-          x-status: planned
+
       deprecated: true
     head:
       tags: [Attachments]
@@ -2379,8 +2379,8 @@ paths:
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentCid'}
       - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
-      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
-      x-planned-i18n-error-codes: [risk_confirmation_required]
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405], '409': [100]}
+      x-i18n-error-codes: [risk_confirmation_required]
       operationId: legacyInlineAttachmentGetHead
       summary: Retrieve an attachment (only whitelisted image types are inline) (headers only)
       responses:
@@ -2393,7 +2393,7 @@ paths:
             Cache-Control:
               schema: {const: 'private, no-store'}
         '403': {description: Error (no body).}
-        '409': {description: 'Planned: high-risk attachment requires explicit acknowledgement (no body).', x-status: planned}
+        '409': {description: 'High-risk attachment requires explicit acknowledgement (no body).'}
       deprecated: true
   /attachments/download/{emailId}/{index}:
     get:
@@ -2409,8 +2409,8 @@ paths:
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentIndex'}
       - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
-      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
-      x-planned-i18n-error-codes: [risk_confirmation_required]
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405], '409': [100]}
+      x-i18n-error-codes: [risk_confirmation_required]
       responses:
         '200':
           description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
@@ -2428,7 +2428,7 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '409':
           $ref: '#/components/responses/C8RiskConfirmationRequired'
-          x-status: planned
+
       deprecated: true
     head:
       tags: [Attachments]
@@ -2441,8 +2441,8 @@ paths:
       - {$ref: '#/components/parameters/AttachmentEmailId'}
       - {$ref: '#/components/parameters/AttachmentIndex'}
       - {$ref: '#/components/parameters/ConfirmAttachmentRisk'}
-      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
-      x-planned-i18n-error-codes: [risk_confirmation_required]
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405], '409': [100]}
+      x-i18n-error-codes: [risk_confirmation_required]
       operationId: legacyDownloadAttachmentHead
       summary: Download an attachment as application/octet-stream (headers only)
       responses:
@@ -2455,7 +2455,7 @@ paths:
             Cache-Control:
               schema: {const: 'private, no-store'}
         '403': {description: Error (no body).}
-        '409': {description: 'Planned: high-risk attachment requires explicit acknowledgement (no body).', x-status: planned}
+        '409': {description: 'High-risk attachment requires explicit acknowledgement (no body).'}
       deprecated: true
   /api/attachments/preview/{id}:
     get:
@@ -2470,7 +2470,7 @@ paths:
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
       x-error-codes: {'200': [402, 403, 500], '403': [405], '404': [100], '415': [100]}
-      x-planned-i18n-error-codes: [risk_preview_forbidden]
+      x-i18n-error-codes: [risk_preview_forbidden]
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -2481,7 +2481,7 @@ paths:
                 - {$ref: '#/components/schemas/AttachmentPreviewSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
         '403':
-          description: Authorization failure, or planned rejection of a high-risk attachment.
+          description: Authorization failure, or rejection of a high-risk attachment.
           content:
             application/json:
               schema:
@@ -2513,7 +2513,7 @@ paths:
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
       x-error-codes: {'200': [402, 403, 500], '403': [405], '404': [100], '415': [100]}
-      x-planned-i18n-error-codes: [risk_preview_forbidden]
+      x-i18n-error-codes: [risk_preview_forbidden]
       operationId: previewAttachmentHead
       summary: Preview the decoded text of a text/code attachment (headers only)
       responses:
@@ -2558,13 +2558,12 @@ paths:
       summary: Mark or unmark spam
       tags:
       - Inbound analysis
-      x-status: planned
       x-permission: owner
       parameters:
       - $ref: '#/components/parameters/PMailLang'
       - $ref: '#/components/parameters/AcceptLanguage'
       description: Train the caller’s Bayesian model when enabled and move messages to Junk, or back to Inbox when
-        cleared. A repeated identical classification must not double-train; resolve all IDs in the caller’s mailbox.
+        cleared. A repeated identical classification does not double-train. Updates all copies in the caller’s mailbox, never another owner’s links. Outbound messages and drafts cannot be marked.
       requestBody:
         required: true
         content:
@@ -2633,7 +2632,6 @@ paths:
       summary: Read effective user spam settings
       tags:
       - Inbound analysis
-      x-status: planned
       x-permission: user
       parameters:
       - $ref: '#/components/parameters/PMailLang'
@@ -2676,7 +2674,6 @@ paths:
       summary: Replace user spam settings
       tags:
       - Inbound analysis
-      x-status: planned
       x-permission: user
       parameters:
       - $ref: '#/components/parameters/PMailLang'
@@ -2747,7 +2744,6 @@ paths:
       summary: List the caller’s allow/block rules
       tags:
       - Inbound analysis
-      x-status: planned
       x-permission: user
       parameters:
       - $ref: '#/components/parameters/PMailLang'
@@ -2791,7 +2787,6 @@ paths:
       summary: Create an allow/block rule
       tags:
       - Inbound analysis
-      x-status: planned
       x-permission: user
       parameters:
       - $ref: '#/components/parameters/PMailLang'
@@ -2869,7 +2864,6 @@ paths:
       summary: Delete an allow/block rule
       tags:
       - Inbound analysis
-      x-status: planned
       x-permission: owner
       parameters:
       - $ref: '#/components/parameters/PMailLang'
@@ -2940,7 +2934,6 @@ paths:
       summary: Read global inbound analysis settings
       tags:
       - Inbound analysis
-      x-status: planned
       x-permission: admin
       parameters:
       - $ref: '#/components/parameters/PMailLang'
@@ -2986,7 +2979,6 @@ paths:
       summary: Replace global inbound analysis settings
       tags:
       - Inbound analysis
-      x-status: planned
       x-permission: admin
       parameters:
       - $ref: '#/components/parameters/PMailLang'
@@ -3073,8 +3065,7 @@ components:
       in: query
       required: false
       schema: {type: string, const: '1'}
-      x-status: planned
-      description: Required to download high-risk bytes. Does not grant access or enable inline rendering; use attachment disposition for acknowledged high-risk files.
+      description: Required to download high-risk bytes. Does not grant access or enable inline rendering. Risky bytes are always served as an attachment.
     PMailLang:
       name: X-PMail-Lang
       in: header
@@ -3722,6 +3713,7 @@ components:
             type: integer
             minimum: 1
           minItems: 1
+          maxItems: 50
           uniqueItems: true
         is_spam:
           type: boolean
@@ -3780,6 +3772,8 @@ components:
           type: boolean
         dnsbl_zones:
           type: array
+          maxItems: 8
+          description: DNSBL zone names; at least one zone is required when DNSBL is enabled.
           items:
             type: string
         default_spam_threshold:
@@ -3791,8 +3785,23 @@ components:
           type: boolean
         clamd_addr:
           type: string
+          maxLength: 255
+          description: Trusted scanner endpoint, as host:port or unix:/absolute/path. Required when enabled.
         risk_block_dangerous_attachments:
           type: boolean
+          description: Additionally audit high-risk access attempts. Confirmation and preview rejection always apply.
+        warnings:
+          type: array
+          readOnly: true
+          items: {$ref: '#/components/schemas/InboundWarning'}
+      additionalProperties: false
+    InboundWarning:
+      type: object
+      required: [code, message]
+      properties:
+        code: {type: string, enum: [dnsbl_unavailable, dnsbl_resolver_refused, clamd_unavailable]}
+        zone: {type: string, description: DNSBL provider zone if applicable.}
+        message: {type: string, description: Localized operational warning.}
       additionalProperties: false
     SpamRule:
       type: object
@@ -3917,7 +3926,7 @@ components:
               - risk_preview_forbidden
           additionalProperties: false
       additionalProperties: false
-      x-status: planned
+
     Envelope:
       type: object
       required: [errorNo, errorMsg, data]
@@ -4169,6 +4178,9 @@ components:
       - dangerous
       - auth_status
       - auth_results
+      - spam
+      - risk
+      - verification_code
       - is_starred
       - title
       - desc
@@ -4182,15 +4194,16 @@ components:
           oneOf:
           - $ref: '#/components/schemas/MailSpamSummary'
           - type: 'null'
-          x-status: planned
         risk:
-          $ref: '#/components/schemas/MailRiskSummary'
-          x-status: planned
+          description: Null if the message has not been analyzed.
+          oneOf:
+          - $ref: '#/components/schemas/MailRiskSummary'
+          - type: 'null'
         verification_code:
           oneOf:
           - $ref: '#/components/schemas/MailVerificationCodeSummary'
           - type: 'null'
-          x-status: planned
+
         id: {type: integer}
         to_list:
           type: array
@@ -4262,15 +4275,16 @@ components:
           oneOf:
           - $ref: '#/components/schemas/MailSpamAssessment'
           - type: 'null'
-          x-status: planned
         risk:
-          $ref: '#/components/schemas/MailRiskAssessment'
-          x-status: planned
+          description: Null if the message has not been analyzed.
+          oneOf:
+          - $ref: '#/components/schemas/MailRiskAssessment'
+          - type: 'null'
         verification_code:
           oneOf:
           - $ref: '#/components/schemas/MailVerificationCode'
           - type: 'null'
-          x-status: planned
+
         id: {type: integer}
         to_list:
           type: array
@@ -4403,6 +4417,9 @@ components:
       - dangerous
       - auth_status
       - auth_results
+      - spam
+      - risk
+      - verification_code
       - is_read
       - is_starred
       - mailbox_status

@@ -1,33 +1,32 @@
-# Planned C8 inbound analysis persistence
+# C8 inbound analysis persistence
 
-This design and the planned OpenAPI operations do not activate scoring, training,
-scanning, quarantine, or new routes. Use the OpenAPI request/response `examples`
-for MSW. Error responses from the new endpoints localize `errorMsg` and expose
-`data.code`; clients must not parse the localized message. Existing attachment
-routes retain their legacy errors and add only the planned risk errors.
+The runtime OpenAPI operations use localized `errorMsg` and stable `data.code`
+for errors. The models are additive; the migration never scans existing mail.
 
-- Add user settings keyed by `user_id`, a singleton inbound settings row, and
-  owner-scoped rules with a unique index on `(user_id, action, kind, value_hash)`.
-  Normalize addresses/domains and keyword whitespace before hashing; serialize
-  create per user to enforce the 500-row cap under concurrent requests. Scanner
-  endpoints and DNSBL zones are administrator configuration only.
-- Put content risk and extracted codes on immutable email/content records (with
-  a scan version and stable attachment indices); keep verdict, scores, reasons,
-  and training state per owner and email. Never expose another owner's verdict
-  through a shared message or apply its labels to that owner's inbox.
-- Keep Bayesian counters per user. A spam toggle updates the classification,
-  counters and the caller's mailbox links atomically. Use the previous label as
-  the compare/update guard; identical requests must not retrain. A bulk request
-  validates every owner link before making changes.
-- Add portable tables/nullable columns first via the existing schema sync for
-  SQLite, MySQL and PostgreSQL. Legacy rows start with `spam: null`, `risk:
-  {level: none, findings: []}` and `verification_code: null`; absence of a scan
-  is not a clean scan verdict internally. Do not train on legacy mail. If enabled,
-  analyze old mail in resumable PK batches off the request path, with bounded
-  scan size and concurrency. Do not persist verification codes to logs. Excerpts
-  are truncated after escaping; download acknowledgements are not authorization.
-- Enforce high-risk download/preview consistently on new and legacy attachment
-  routes, including HEAD and inline aliases; after explicit acknowledgement serve
-  high-risk bytes as a download, not inline. Rollback disables analysis reads and
-  writes without dropping tables or changing existing mailbox data. Deploy with
-  behavior disabled until migrations finish, then enable by policy.
+- `email.inbound_analysis` stores versioned shared evidence (base reasons, code,
+  risk findings, and the authoritative high-risk part indices). Only the
+  bounded list/detail projections reach the API. `user_email.inbound_spam`
+  stores the link owner's verdict, score and reasons. IMAP copies inherit the
+  same owner's classification; manually relabeling applies to that owner's
+  copies only. An administrator's optional delegated mail read does not acquire
+  another owner's personal verdict.
+- `inbound_settings` holds global settings (singleton ID 1); every subsequent
+  analysis reads committed settings. `spam_preference` holds user overrides.
+  `spam_rule` stores normalized owner rules with a unique key and a transactional
+  500-rule cap. No configuration or mail bytes are written to scanner warnings.
+- `spam_training`, `spam_totals` and `spam_token` retain per-owner training labels
+  and hashed token-presence counts. Label reversal undoes the previous sample;
+  re-submitting the same label does not re-train. Bulk actions validate and
+  mutate in one transaction. Learning retains counts even if the sampled mail
+  is later deleted, and does not store whole original bodies in training tables.
+- `db.SyncSchema` adds nullable evidence columns and these tables on SQLite,
+  MySQL and PostgreSQL. Legacy rows have null `spam`, `risk`, and
+  `verification_code` until explicitly reclassified (a manual move adds only
+  the owner's spam label). An inspected clean message, unlike one not scanned,
+  has risk `{level: none, findings: []}`. The offline SQLite/MySQL-to-PG importer
+  preserves these tables if they exist and skips them when importing old schemas.
+- High-risk confirmations never authorize access, including on legacy aliases;
+  confirmed bytes are served as a forced download. No scan or risk data is
+  written back into original MIME. A rollback can restore the prior snapshot;
+  do not assume an old binary enforces C8's attachment protection even if the
+  additive columns remain present.
