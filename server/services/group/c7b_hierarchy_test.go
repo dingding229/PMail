@@ -46,6 +46,16 @@ func TestC7bGroupOwnerDepthAndCycle(t *testing.T) {
 	if _, err := CreateGroup(own, "too-deep", parent); err == nil {
 		t.Fatal("deep nesting accepted")
 	}
+	tree := GetGroupInfoList(own)
+	for i := 0; i < maxGroupDepth; i++ {
+		if len(tree) != 1 || tree[0].Label != fmt.Sprintf("box-%d", i) {
+			t.Fatalf("unexpected owner/depth at %d: %v", i, tree)
+		}
+		tree = tree[0].Children
+	}
+	if len(tree) != 0 {
+		t.Fatal("group tree exceeded limit")
+	}
 	if _, err := e.ID(root).Cols("parent_id").Update(&models.Group{ParentId: root}); err != nil {
 		t.Fatal(err)
 	}

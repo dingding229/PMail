@@ -160,10 +160,6 @@ func Authenticate(raw string) (models.User, string, error) {
 	if err != nil || u.Disabled != 0 || u.AuthVersion != t.AuthVersion {
 		return models.User{}, "", ErrInvalid
 	}
-	now := time.Now()
-	if _, err := db.Instance.Table(&models.APIToken{}).ID(t.ID).Cols("last_used_at").Update(map[string]any{"last_used_at": now}); err != nil {
-		log.Errorf("update API token %d last_used_at failed: %v", t.ID, err)
-	}
 	scope := Scope(t)
 	if scope == Admin && u.IsAdmin != 1 {
 		return models.User{}, "", ErrInvalid
@@ -171,5 +167,16 @@ func Authenticate(raw string) (models.User, string, error) {
 	if scope != Admin && scope != Legacy && scope != Read && scope != Send {
 		return models.User{}, "", ErrInvalid
 	}
+	now := time.Now().UTC().Truncate(time.Second)
+	cutoff := now.Add(-time.Minute)
+	// The integer CAS is portable even when legacy last_used_at rows have
+	// mixed timestamp encodings. Keep the human-facing timestamp for the API.
+	if (t.LastUsedEpoch > 0 && t.LastUsedEpoch <= cutoff.Unix()) || (t.LastUsedEpoch == 0 && (t.LastUsedAt == nil || !t.LastUsedAt.After(cutoff))) {
+		next := models.APIToken{LastUsedAt: &now, LastUsedEpoch: now.Unix()}
+		if _, err := db.Instance.ID(t.ID).Where("last_used_epoch<=?", cutoff.Unix()).Cols("last_used_at", "last_used_epoch").Update(&next); err != nil {
+			log.Errorf("update API token %d last_used_at failed: %v", t.ID, err)
+		}
+	}
+
 	return u, scope, nil
 }

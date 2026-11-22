@@ -190,7 +190,16 @@ func DelGroup(ctx *context.Context, groupId int) (bool, error) {
 
 // GetGroupInfoList 获取全部的分组
 func GetGroupInfoList(ctx *context.Context) []*GroupItem {
-	return buildChildren(ctx, 0, 0)
+	var rows []models.Group
+	if err := db.Instance.Where("user_id=?", ctx.UserID).Asc("id").Find(&rows); err != nil {
+		log.WithContext(ctx).Errorf("read groups: %v", err)
+		return nil
+	}
+	byParent := map[int][]models.Group{}
+	for _, r := range rows {
+		byParent[r.ParentId] = append(byParent[r.ParentId], r)
+	}
+	return buildChildren(byParent, map[int]bool{}, 0, 0)
 }
 
 // MoveMailToGroup 将某封邮件移动到某个分组中
@@ -214,29 +223,19 @@ func MoveMailToGroup(ctx *context.Context, mailId []int, groupId int) bool {
 	return rowNum > 0
 }
 
-func buildChildren(ctx *context.Context, parentId, depth int) []*GroupItem {
+func buildChildren(byParent map[int][]models.Group, seen map[int]bool, parent, depth int) []*GroupItem {
 	if depth >= maxGroupDepth {
 		return nil
 	}
-	var ret []*GroupItem
-	var rootGroup []*models.Group
-	err := db.Instance.Table("group").Where("parent_id=? and user_id=?", parentId, ctx.UserID).Find(&rootGroup)
-
-	if err != nil {
-		log.WithContext(ctx).Errorf("SQL Error:%v", err)
+	var out []*GroupItem
+	for _, g := range byParent[parent] {
+		if seen[g.ID] {
+			continue
+		}
+		seen[g.ID] = true
+		out = append(out, &GroupItem{Id: g.ID, Label: g.Name, Tag: dto.SearchTag{GroupId: g.ID, Status: -1, Type: -1}.ToString(), Children: buildChildren(byParent, seen, g.ID, depth+1)})
 	}
-
-	for _, group := range rootGroup {
-		ret = append(ret, &GroupItem{
-			Id:       group.ID,
-			Label:    group.Name,
-			Tag:      dto.SearchTag{GroupId: group.ID, Status: -1, Type: -1}.ToString(),
-			Children: buildChildren(ctx, group.ID, depth+1),
-		})
-	}
-
-	return ret
-
+	return out
 }
 
 func GetGroupList(ctx *context.Context) []*models.Group {

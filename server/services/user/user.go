@@ -92,12 +92,12 @@ func Views(rows []models.User) ([]View, error) {
 	if err != nil {
 		return nil, err
 	}
+	addresses, err := address.ListByUsers(ids)
+	if err != nil {
+		return nil, err
+	}
 	for _, u := range rows {
-		addresses, err := address.List(u.ID)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, View{User: u, DisplayName: u.Name, Addresses: addresses, UsedBytes: use[u.ID]})
+		out = append(out, View{User: u, DisplayName: u.Name, Addresses: addresses[u.ID], UsedBytes: use[u.ID]})
 	}
 	return out, nil
 }

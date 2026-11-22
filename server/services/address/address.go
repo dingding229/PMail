@@ -112,16 +112,46 @@ func ToView(row models.MailboxAddress) View {
 }
 
 func List(userID int) ([]View, error) {
+	rows, err := ListByUsers([]int{userID})
+	return rows[userID], err
+}
+
+// ListByUsers keeps address and domain lookup batched and preserves the
+// primary-first, then ID ordering used by the single-user view.
+func ListByUsers(ids []int) (map[int][]View, error) {
 	if db.Instance == nil {
 		return nil, errors.New("database is not initialized")
 	}
-	var rows []models.MailboxAddress
-	if err := db.Instance.Where("user_id = ?", userID).Desc("is_primary").Asc("id").Find(&rows); err != nil {
-		return nil, err
+	out := make(map[int][]View, len(ids))
+	for _, id := range ids {
+		out[id] = []View{}
 	}
-	out := make([]View, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, ToView(row))
+	domainNames := map[int]string{}
+	for start := 0; start < len(ids); start += 400 {
+		var rows []models.MailboxAddress
+		if err := db.Instance.In("user_id", ids[start:min(start+400, len(ids))]).Desc("is_primary").Asc("id").Find(&rows); err != nil {
+			return nil, err
+		}
+		var missing []int
+		for _, a := range rows {
+			if _, ok := domainNames[a.DomainID]; !ok {
+				domainNames[a.DomainID] = ""
+				missing = append(missing, a.DomainID)
+			}
+		}
+		for n := 0; n < len(missing); n += 400 {
+			var ds []models.Domain
+			if err := db.Instance.Cols("id", "name").In("id", missing[n:min(n+400, len(missing))]).Find(&ds); err != nil {
+				return nil, err
+			}
+			for _, d := range ds {
+				domainNames[d.ID] = d.Name
+			}
+		}
+		for _, a := range rows {
+			name := domainNames[a.DomainID]
+			out[a.UserID] = append(out[a.UserID], View{MailboxAddress: a, Domain: name, Address: a.LocalPart + "@" + name})
+		}
 	}
 	return out, nil
 }
