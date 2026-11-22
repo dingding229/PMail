@@ -16,9 +16,18 @@ AURORA_SECRET
 .env.*
 !.env.example
 backups/
-fe/node_modules/
-fe/auto-imports.d.ts
-fe/components.d.ts
 
-# Keep the Go embed directory present in source/test copies; frontend build output replaces it.
-dist/*
+# Generated/local frontend artifacts (report screenshots may live under docs/reports/).
+/web/node_modules/
+/web/dist/
+/web/test-results/
+/web/playwright-report/
+/web/coverage/
+/web/.vite/
+/web/tmp/
+/web/screenshots/
+/web/.env*
+/web/**/*.tmp
+/web/**/*.log
+/web/**/*.tsbuildinfo
+*.local

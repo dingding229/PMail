@@ -1,0 +1,452 @@
+import { useCallback, useEffect, useRef } from 'react'
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+} from '@tanstack/react-query'
+import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
+import {
+  authApi,
+  groupApi,
+  mailApi,
+  userApi,
+  SYSTEM_GROUP_IDS,
+  type DraftSaveRequest,
+  type EmailDetail,
+  type EmailListItem,
+  type EmailListResponse,
+} from '@/api'
+import { getSearchTagForFolder, type FolderSelection } from '@/features/mail/types'
+
+export const PAGE_SIZE = 50
+
+export const queryKeys = {
+  bootstrap: ['bootstrap'] as const,
+  userMe: ['user', 'me'] as const,
+  addresses: ['user', 'addresses'] as const,
+  sidebarGroups: ['groups', 'sidebar'] as const,
+  groupOptions: ['groups', 'list'] as const,
+  emailList: (tag: string, keyword: string) => ['emails', 'list', tag, keyword] as const,
+  emailDetail: (id: number) => ['emails', 'detail', id] as const,
+  forward: ['settings', 'forward'] as const,
+  rules: ['settings', 'rules'] as const,
+  externalAccounts: ['settings', 'external'] as const,
+  externalPresets: ['settings', 'external', 'presets'] as const,
+  tokens: ['settings', 'tokens'] as const,
+  queue: ['queue', 'list'] as const,
+  users: (page: number, pageSize: number) => ['admin', 'users', page, pageSize] as const,
+  userAddresses: (userId: number) => ['admin', 'addresses', userId] as const,
+  domains: ['admin', 'domains'] as const,
+  domainDns: (id: number) => ['admin', 'domains', 'dns', id] as const,
+}
+
+export function useBootstrapQuery() {
+  return useQuery({
+    queryKey: queryKeys.bootstrap,
+    queryFn: () => authApi.bootstrap(),
+    staleTime: 60_000,
+    retry: 1,
+  })
+}
+
+export function useUserMeQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.userMe,
+    queryFn: () => userApi.me(),
+    enabled,
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function useAddressesQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.addresses,
+    queryFn: () => userApi.listAddresses(),
+    enabled,
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function useSidebarGroupsQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.sidebarGroups,
+    queryFn: () => groupApi.sidebarTree(),
+    enabled,
+    staleTime: 30_000,
+  })
+}
+
+export function useGroupOptionsQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.groupOptions,
+    queryFn: () => groupApi.list(),
+    enabled,
+    staleTime: 30_000,
+  })
+}
+
+export function useEmailInfiniteList(folder: FolderSelection, keyword: string) {
+  const tag = getSearchTagForFolder(folder)
+  const trimmedKeyword = keyword.trim()
+
+  return useInfiniteQuery({
+    queryKey: queryKeys.emailList(tag, trimmedKeyword),
+    initialPageParam: 1,
+    queryFn: ({ pageParam, signal }) =>
+      mailApi.list(
+        {
+          tag,
+          keyword: trimmedKeyword,
+          current_page: pageParam,
+          page_size: PAGE_SIZE,
+        },
+        signal,
+      ),
+    getNextPageParam: (lastPage) => {
+      if (!lastPage) return undefined
+      if (lastPage.current_page < lastPage.total_page) {
+        return lastPage.current_page + 1
+      }
+      return undefined
+    },
+    staleTime: 20_000,
+  })
+}
+
+export function useEmailDetailQuery(id: number | null) {
+  return useQuery({
+    queryKey: queryKeys.emailDetail(id ?? 0),
+    queryFn: ({ signal }) => mailApi.detail(id!, signal),
+    enabled: id !== null && id > 0,
+    staleTime: 2 * 60_000,
+  })
+}
+
+export function usePrefetchEmailDetail() {
+  const queryClient = useQueryClient()
+  const timerRef = useRef<number | null>(null)
+
+  const prefetch = useCallback(
+    (id: number) => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current)
+      }
+      timerRef.current = window.setTimeout(() => {
+        void queryClient.prefetchQuery({
+          queryKey: queryKeys.emailDetail(id),
+          queryFn: ({ signal }) => mailApi.detail(id, signal),
+          staleTime: 2 * 60_000,
+        })
+      }, 65)
+    },
+    [queryClient],
+  )
+
+  const cancel = useCallback(() => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }, [])
+
+  useEffect(() => cancel, [cancel])
+
+  return { prefetch, cancel }
+}
+
+type EmailListCache = InfiniteData<EmailListResponse, number>
+
+function updateEmailListsInCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  updater: (items: EmailListItem[], queryKey: readonly unknown[]) => EmailListItem[],
+) {
+  const snapshots = queryClient.getQueriesData<EmailListCache>({
+    queryKey: ['emails', 'list'],
+  })
+
+  for (const [key, old] of snapshots) {
+    if (!old) continue
+    queryClient.setQueryData<EmailListCache>(key, {
+      ...old,
+      pages: old.pages.map((page) => ({
+        ...page,
+        list: page.list ? updater(page.list, key) : page.list,
+      })),
+    })
+  }
+
+  return snapshots
+}
+
+function restoreSnapshots(
+  queryClient: ReturnType<typeof useQueryClient>,
+  snapshots: [readonly unknown[], EmailListCache | undefined][],
+) {
+  for (const [key, data] of snapshots) {
+    queryClient.setQueryData(key, data)
+  }
+}
+
+export function useStarEmailsMutation() {
+  const queryClient = useQueryClient()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: async ({ ids, starred }: { ids: number[]; starred: boolean; silent?: boolean }) => {
+      return mailApi.star(ids, starred)
+    },
+    onMutate: async ({ ids, starred }) => {
+      await queryClient.cancelQueries({ queryKey: ['emails', 'list'] })
+      const idSet = new Set(ids)
+      const snapshots = updateEmailListsInCache(queryClient, (list, qKey) => {
+        const tag = String(qKey[2] ?? '')
+        const isStarredFolder = tag.includes('"starred":true')
+        if (isStarredFolder && !starred) {
+          return list.filter((item) => !idSet.has(item.id))
+        }
+        return list.map((item) =>
+          idSet.has(item.id) ? { ...item, is_starred: starred } : item,
+        )
+      })
+      for (const id of ids) {
+        queryClient.setQueryData<EmailDetail>(queryKeys.emailDetail(id), (old) =>
+          old ? { ...old, is_starred: starred } : old,
+        )
+      }
+      return { snapshots }
+    },
+    onError: (err, _vars, ctx) => {
+      if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots)
+      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+    },
+    onSuccess: (_res, vars, ctx) => {
+      if (!vars.silent) {
+        toast(vars.starred ? t('mail.toast.starred') : t('mail.toast.unstarred'), {
+          action: {
+            label: t('common.undo'),
+            onClick: () => {
+              if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots)
+              void mailApi.star(vars.ids, !vars.starred).finally(() => {
+                void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+              })
+              toast.success(t('common.undone'))
+            },
+          },
+        })
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+    },
+  })
+}
+
+export function useMarkReadMutation() {
+  const queryClient = useQueryClient()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: async ({ ids, isRead }: { ids: number[]; isRead: boolean; silent?: boolean }) => {
+      return mailApi.markRead(ids, isRead)
+    },
+    onMutate: async ({ ids, isRead }) => {
+      await queryClient.cancelQueries({ queryKey: ['emails', 'list'] })
+      const idSet = new Set(ids)
+      const snapshots = updateEmailListsInCache(queryClient, (list) =>
+        list.map((item) => (idSet.has(item.id) ? { ...item, is_read: isRead } : item)),
+      )
+      for (const id of ids) {
+        queryClient.setQueryData<EmailDetail>(queryKeys.emailDetail(id), (old) =>
+          old ? { ...old, is_read: isRead ? 1 : 0 } : old,
+        )
+      }
+      return { snapshots }
+    },
+    onError: (err, _vars, ctx) => {
+      if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots)
+      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+    },
+    onSuccess: (_res, vars, ctx) => {
+      if (!vars.silent) {
+        toast(vars.isRead ? t('mail.toast.markedRead') : t('mail.toast.markedUnread'), {
+          action: {
+            label: t('common.undo'),
+            onClick: () => {
+              if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots)
+              void mailApi.markRead(vars.ids, !vars.isRead)
+              toast.success(t('common.undone'))
+            },
+          },
+        })
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+    },
+  })
+}
+
+export function useDeleteEmailsMutation() {
+  const queryClient = useQueryClient()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: async ({
+      ids,
+      forcedDel = false,
+    }: {
+      ids: number[]
+      forcedDel?: boolean
+      restoreGroupId?: number
+    }) => {
+      return mailApi.remove(ids, forcedDel)
+    },
+    onMutate: async ({ ids }) => {
+      await queryClient.cancelQueries({ queryKey: ['emails', 'list'] })
+      const idSet = new Set(ids)
+      const snapshots = updateEmailListsInCache(queryClient, (list) =>
+        list.filter((item) => !idSet.has(item.id)),
+      )
+      return { snapshots }
+    },
+    onError: (err, _vars, ctx) => {
+      if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots)
+      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+    },
+    onSuccess: (_res, vars, ctx) => {
+      if (vars.forcedDel) {
+        toast.success(t('mail.toast.deletedForever', { count: vars.ids.length }))
+      } else {
+        const restoreTarget = vars.restoreGroupId ?? SYSTEM_GROUP_IDS.INBOX
+        toast(t('mail.toast.deleted', { count: vars.ids.length }), {
+          action: {
+            label: t('common.undo'),
+            onClick: async () => {
+              if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots)
+              try {
+                await mailApi.move(vars.ids, restoreTarget)
+                toast.success(t('common.undone'))
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : t('common.unknownError'))
+              } finally {
+                void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+                void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+              }
+            },
+          },
+        })
+      }
+      void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+    },
+  })
+}
+
+export function useMoveEmailsMutation() {
+  const queryClient = useQueryClient()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: async ({
+      ids,
+      groupId,
+    }: {
+      ids: number[]
+      groupId: number
+      targetLabel: string
+      restoreGroupId?: number
+    }) => {
+      return mailApi.move(ids, groupId)
+    },
+    onMutate: async ({ ids }) => {
+      await queryClient.cancelQueries({ queryKey: ['emails', 'list'] })
+      const idSet = new Set(ids)
+      const snapshots = updateEmailListsInCache(queryClient, (list) =>
+        list.filter((item) => !idSet.has(item.id)),
+      )
+      return { snapshots }
+    },
+    onError: (err, _vars, ctx) => {
+      if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots)
+      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+    },
+    onSuccess: (_res, vars, ctx) => {
+      const restoreTarget = vars.restoreGroupId ?? SYSTEM_GROUP_IDS.INBOX
+      toast(t('mail.toast.moved', { count: vars.ids.length, target: vars.targetLabel }), {
+        action: {
+          label: t('common.undo'),
+          onClick: async () => {
+            if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots)
+            try {
+              await mailApi.move(vars.ids, restoreTarget)
+              toast.success(t('common.undone'))
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : t('common.unknownError'))
+            } finally {
+              void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+              void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+            }
+          },
+        },
+      })
+      void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+    },
+  })
+}
+
+export function useSaveDraftMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: DraftSaveRequest) => mailApi.saveDraft(payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+    },
+  })
+}
+
+export function useDeleteDraftMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => mailApi.deleteDraft(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+    },
+  })
+}
+
+export function useCreateGroupMutation() {
+  const queryClient = useQueryClient()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: (payload: { name: string; parent_id?: number }) => groupApi.add(payload),
+    onSuccess: (_id, payload) => {
+      toast.success(t('nav.groupCreated', { name: payload.name }))
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.groupOptions })
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+    },
+  })
+}
+
+export function useDeleteGroupMutation() {
+  const queryClient = useQueryClient()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: ({ id }: { id: number; name: string }) => groupApi.remove(id),
+    onSuccess: (_ok, { name }) => {
+      toast.success(t('nav.groupDeleted', { name }))
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.groupOptions })
+      void queryClient.invalidateQueries({ queryKey: ['emails', 'list'] })
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+    },
+  })
+}

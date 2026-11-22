@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PMail Pro HTTP API
-  version: 4.0.0-dev
+  version: 4.0.0-beta.1
   description: |-
     C3 runtime contract. Cookie, Bearer token, and the legacy Token header are alternative credentials; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource; any admin override is stated per operation.
 

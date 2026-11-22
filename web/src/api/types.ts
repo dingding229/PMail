@@ -1,0 +1,453 @@
+export interface ApiEnvelope<T = unknown> {
+  errorNo: number
+  errorMsg: string
+  data: T
+}
+
+/** GET /api/bootstrap returns raw JSON (not wrapped in { errorNo, errorMsg, data }) */
+export interface BootstrapResponse {
+  version: string
+  need_register: boolean
+  logged_in: boolean
+  default_lang: string
+  web_domain: string
+  domains: string[]
+  features: {
+    register_key?: boolean
+  }
+}
+
+export interface RegisterRequest {
+  registration_key: string
+  account: string
+  password: string
+  display_name?: string
+}
+
+export interface LoginRequest {
+  account: string
+  password: string
+}
+
+export interface AuthSessionUser {
+  account: string
+  name: string
+  is_admin: number
+  domains: string[]
+}
+
+export interface MailboxAddress {
+  id: number
+  user_id: number
+  local_part: string
+  domain_id: number
+  is_primary: boolean
+  can_send: boolean
+  domain: string
+  address: string
+  created: string
+}
+
+export interface UserProfile {
+  id: number
+  account: string
+  name: string
+  display_name: string
+  disabled: number
+  is_admin: number
+  quota_mb: number
+  used_bytes: number
+  lang?: string
+  addresses: MailboxAddress[] | null
+  created: string
+  last_login_at: string | null
+}
+
+export interface UserPageResponse {
+  current_page: number
+  total_page: number
+  list: UserProfile[]
+}
+
+export interface MailParticipant {
+  Name: string
+  EmailAddress: string
+}
+
+/** C3 normalized address object */
+export interface NormalizedAddress {
+  name: string
+  address: string
+}
+
+/** C3 normalized attachment object */
+export interface NormalizedAttachment {
+  index: number
+  filename: string
+  content_type: string
+  size: number
+  content_id?: string
+  inline?: boolean
+  previewable?: boolean
+}
+
+export interface SearchTag {
+  type: number // -1 any, 0 received, 1 sent
+  status: number // -1 any, 0 inbox, 1 sent, 3 deleted, 4 draft, 5 junk
+  group_id: number // -1 any, 0 default
+  starred?: boolean
+}
+
+export interface EmailListRequest {
+  keyword?: string
+  tag: string
+  current_page: number
+  page_size: number
+}
+
+export interface EmailListItem {
+  id: number
+  title: string
+  desc: string
+  datetime: string
+  is_read: boolean
+  is_starred?: boolean
+  sender: MailParticipant
+  to: MailParticipant[] | null
+  to_list?: NormalizedAddress[]
+  attachments_list?: NormalizedAttachment[]
+  dangerous: boolean
+  error: string
+  has_attachments?: boolean
+  group_id?: number
+}
+
+export interface EmailListResponse {
+  current_page: number
+  total_page: number
+  total?: number
+  list: EmailListItem[] | null
+}
+
+export interface EmailAttachment {
+  Filename: string
+  ContentType: string
+  Index: number
+  Size?: number
+  ContentID?: string
+}
+
+export interface EmailDetail {
+  id: number
+  type: number
+  subject: string
+  reply_to: string
+  from_name: string
+  from_address: string
+  to: string
+  bcc: string
+  cc: string
+  to_list?: NormalizedAddress[]
+  cc_list?: NormalizedAddress[]
+  bcc_list?: NormalizedAddress[]
+  reply_to_list?: NormalizedAddress[]
+  text: string
+  html: string
+  sender: string
+  attachments: EmailAttachment[]
+  attachments_list?: NormalizedAttachment[]
+  spf_check: number
+  dkim_check: number
+  status: number
+  cron_send_time?: string
+  send_time: string
+  send_date: string
+  update_time: string
+  create_time: string
+  send_user_id?: number
+  size: number
+  error: string
+  msg_id: string
+  is_read?: number
+  is_starred?: boolean
+  text_format?: 'plain' | 'flowed' | 'markdown' | 'patch'
+  has_code?: boolean
+}
+
+export interface SendEmailParticipant {
+  name: string
+  email: string
+}
+
+export interface SendEmailAttachment {
+  name: string
+  data: string // data:<mime>;base64,<content>
+}
+
+export interface SendEmailRequest {
+  from?: SendEmailParticipant
+  from_address?: string
+  to: SendEmailParticipant[]
+  cc?: SendEmailParticipant[]
+  bcc?: SendEmailParticipant[]
+  reply_to?: SendEmailParticipant[]
+  subject: string
+  text?: string
+  html?: string
+  attrs?: SendEmailAttachment[]
+  draft_id?: number
+}
+
+export interface DraftSaveRequest {
+  id?: number
+  from_address?: string
+  to: SendEmailParticipant[]
+  cc?: SendEmailParticipant[]
+  bcc?: SendEmailParticipant[]
+  subject: string
+  html?: string
+  text?: string
+  attrs?: SendEmailAttachment[]
+}
+
+export interface DraftSaveResponse {
+  id: number
+}
+
+export interface ForwardEmailRequest {
+  email_id: number
+  to: string[]
+  cc?: string[]
+  text?: string
+  html?: string
+  from_address?: string
+  include_attachments?: boolean
+}
+
+export interface RecipientDeliveryResult {
+  address: string
+  status: 'delivered' | 'queued' | 'failed'
+  error: string
+}
+
+export interface SendEmailResponse {
+  status: 'sent' | 'queued' | 'failed'
+  recipients: RecipientDeliveryResult[]
+}
+
+export interface GroupTreeItem {
+  id: number
+  label: string
+  tag: string
+  unread?: number
+  children?: GroupTreeItem[] | null
+}
+
+export interface GroupOption {
+  id: number
+  name: string
+  parent_id: number
+  full_path: string
+}
+
+export interface AttachmentPreviewResponse {
+  filename: string
+  language: string
+  charset: string
+  truncated: boolean
+  size: number
+  content: string
+}
+
+/* ==================== Settings & Admin Schemas (openapi.yaml) ==================== */
+
+export interface ForwardSetting {
+  user_id: number
+  enabled: boolean
+  targets: string
+  keep_copy: boolean
+  updated: string
+}
+
+export interface ForwardSettingsView {
+  setting: ForwardSetting
+  targets: string[] | null
+}
+
+export interface ForwardSettingsRequest {
+  enabled: boolean
+  targets: string[]
+  keep_copy: boolean
+}
+
+export type RuleConditionField = 'From' | 'Subject' | 'To' | 'Cc' | 'Text' | 'Html' | 'Content'
+export type RuleConditionType = 'contains' | 'equal' | 'regex'
+export type RuleActionCode = 1 | 2 | 3 | 4 // 1 mark read, 2 forward, 3 delete, 4 move to group
+
+export interface RuleCondition {
+  field: RuleConditionField
+  type: RuleConditionType
+  rule: string
+}
+
+export interface MailRule {
+  id: number
+  user_id: number
+  name: string
+  rules: RuleCondition[] | null
+  action: RuleActionCode
+  params: string
+  sort: number
+}
+
+export interface RuleRequest {
+  id?: number
+  name: string
+  rules: RuleCondition[]
+  action: RuleActionCode
+  params?: string
+  sort?: number
+}
+
+export type ExternalProtocol = 'imap' | 'pop3'
+export type ExternalTlsMode = 'tls' | 'starttls' | 'none'
+
+export interface ExternalAccount {
+  id: number
+  user_id: number
+  name: string
+  protocol: ExternalProtocol
+  host: string
+  port: number
+  tls_mode: ExternalTlsMode
+  username: string
+  folder: string
+  interval_minutes: number
+  initial_days: number
+  delete_remote: boolean
+  target_group_id: number
+  enabled: boolean
+  insecure_skip_verify: boolean
+  last_sync_at: string | null
+  last_success_at: string | null
+  last_error: string
+  created: string
+  updated: string
+}
+
+export interface ExternalAccountPayload {
+  id?: number
+  name?: string
+  protocol: ExternalProtocol
+  host: string
+  port?: number
+  tls_mode: ExternalTlsMode
+  username: string
+  password?: string
+  folder?: string
+  interval_minutes?: number
+  initial_days?: number
+  delete_remote?: boolean
+  target_group_id?: number
+  enabled?: boolean
+  insecure_skip_verify?: boolean
+}
+
+export interface ExternalPreset {
+  name: string
+  protocol: ExternalProtocol
+  host: string
+  port: number
+  tls_mode: ExternalTlsMode
+}
+
+export interface ExternalTestResult {
+  folders: string[] | null
+}
+
+export interface ExternalSyncResult {
+  status: string
+  message: string
+}
+
+export interface ApiTokenItem {
+  id: number
+  user_id: number
+  name: string
+  prefix: string
+  last_used_at: string | null
+  expires_at: string | null
+  created: string
+}
+
+export interface TokenCreatedResponse {
+  token: string
+  item: ApiTokenItem
+}
+
+export type QueueStatus = 'pending' | 'sending' | 'sent' | 'failed'
+export type QueueKind = 'send' | 'forward' | 'bounce'
+
+export interface QueueItem {
+  id: number
+  kind: QueueKind
+  user_id: number
+  email_id?: number
+  mail_from: string
+  rcpt_to: string
+  attempts: number
+  max_attempts: number
+  next_retry_at: string
+  status: QueueStatus
+  last_error: string
+  created: string
+  updated: string
+}
+
+export interface MailDomain {
+  id: number
+  name: string
+  is_default: boolean
+  dkim_selector: string
+  created: string
+  updated: string
+}
+
+export type DnsRecordStatus = 'ok' | 'missing' | 'mismatch' | 'error' | 'advice'
+
+export interface DnsRecord {
+  key: string
+  purpose: string
+  type: string
+  host: string
+  fqdn: string
+  value: string
+  value_chunks?: string[]
+  suggested_value?: string
+  priority?: number
+  ttl: number
+  required: boolean
+  status: DnsRecordStatus
+  actual: string[]
+  description: string
+  fix_hint?: string
+}
+
+export interface DomainDnsResponse {
+  domain: string
+  mail_host: string
+  web_domain: string
+  server_ipv4?: string
+  server_ipv6?: string
+  all_required_ok: boolean
+  checked_at: string
+  records: DnsRecord[]
+}
+
+export const SYSTEM_GROUP_IDS = {
+  INBOX: 2000000000,
+  SENT: 2000000001,
+  DRAFTS: 2000000002,
+  DELETED: 2000000003,
+  JUNK: 2000000004,
+} as const

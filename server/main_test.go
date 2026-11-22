@@ -333,6 +333,21 @@ func TestMaster(t *testing.T) {
 	user1, user2 := testClient(t), testClient(t)
 	testLogin(t, user1, "user1", "user1", 0)
 	testLogin(t, user2, "user2", "user2New", 0)
+	if !t.Run("testSendEmail2User2ForSpam", func(t *testing.T) {
+		var sent struct {
+			Status string `json:"status"`
+		}
+		res := postIntegration(t, user2, sendPath, map[string]any{
+			"from_address": "user2@" + testDomain, "to": []map[string]string{{"email": testAdmin + "@" + testDomain}},
+			"subject": "spam", "text": "NeedMove", "html": "<div>text</div>",
+		}, &sent)
+		if sent.Status != "sent" {
+			t.Fatalf("known-recipient message was not delivered: %s", res.Body)
+		}
+		findMail(t, mailList(t, admin, "", inbox), "spam")
+	}) {
+		t.FailNow()
+	}
 	user2Inbox := mailList(t, user2, "", inbox)
 	findMail(t, user2Inbox, "User two only")
 	sharedID := findMail(t, user2Inbox, "Shared fixture")

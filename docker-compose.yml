@@ -1,7 +1,7 @@
 name: ${PMAIL_PROJECT_NAME:-pmail}
 
 # 同一镜像用于运行服务及初始化数据库密码。
-x-pmail-image: &pmail-image ${PMAIL_IMAGE:-dingding229/pmail-pro:3.0.0-beta.4}
+x-pmail-image: &pmail-image ${PMAIL_IMAGE:-dingding229/pmail-pro:4.0.0-beta.1}
 
 services:
   init-secrets:

@@ -1,16 +1,16 @@
 # syntax=docker/dockerfile:1
 FROM --platform=$BUILDPLATFORM node:22.23.5-alpine3.24 AS frontend
-WORKDIR /build/fe
-COPY fe/package.json fe/package-lock.json ./
+WORKDIR /build/web
+COPY web/package.json web/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts --no-audit --no-fund
-COPY fe/ ./
-RUN npm run build
+COPY web/ ./
+RUN VITE_MOCK=0 npm run build
 
 FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine3.24 AS backend
 ARG TARGETOS
 ARG TARGETARCH
 ARG TARGETVARIANT
-ARG VERSION=dev
+ARG VERSION=4.0.0-beta.1
 ARG GITHASH=unknown
 WORKDIR /build/server
 COPY server/go.mod server/go.sum ./
@@ -30,7 +30,7 @@ RUN apk add --no-cache ca-certificates tzdata \
     && echo Asia/Shanghai > /etc/timezone \
     && mkdir -m 700 /work/config
 COPY --from=backend /out/pmail /work/pmail
-COPY --from=frontend /build/fe/dist/ /work/web/
+COPY --from=frontend /build/web/dist/ /work/web/
 VOLUME ["/work/config"]
 EXPOSE 25 80 110 143 443 465 587 993 995
 HEALTHCHECK --interval=30s --timeout=5s --start-period=75s --retries=3 CMD ["/work/pmail", "healthcheck"]

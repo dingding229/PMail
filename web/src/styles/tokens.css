@@ -1,0 +1,123 @@
+/* PMail Pro v4 Design System Tokens */
+:root {
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans SC", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+
+  /* Surfaces (Light - Apple Mail / Superhuman inspired crisp neutral) */
+  --surface-canvas: #ffffff;
+  --surface-sidebar: #f6f7f9;
+  --surface-list: #ffffff;
+  --surface-reading: #ffffff;
+  --surface-elevated: #ffffff;
+  --surface-subtle: #f3f5f8;
+  --surface-hover: #eff2f6;
+  --surface-active: #e8f0fe;
+  --surface-selected: #eef4ff;
+
+  /* Borders */
+  --border-hairline: rgba(15, 23, 42, 0.08);
+  --border-subtle: rgba(15, 23, 42, 0.12);
+  --border-strong: rgba(15, 23, 42, 0.2);
+
+  /* Ink / Text */
+  --ink-primary: #0f172a;
+  --ink-secondary: #475569;
+  --ink-muted: #526075;
+  --ink-subtle: #64748b;
+  --ink-inverse: #ffffff;
+
+  /* Brand & Semantic */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: rgba(37, 99, 235, 0.1);
+  --accent-ring: rgba(37, 99, 235, 0.28);
+
+  --unread-dot: #2563eb;
+  --star-active: #f59e0b;
+
+  --success: #059669;
+  --success-soft: rgba(5, 150, 105, 0.1);
+  --warning: #d97706;
+  --warning-soft: rgba(217, 119, 6, 0.12);
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --danger-soft: rgba(220, 38, 38, 0.1);
+
+  /* Radius */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 2px 6px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09), 0 2px 6px rgba(15, 23, 42, 0.05);
+  --shadow-lg: 0 20px 50px rgba(15, 23, 42, 0.16), 0 4px 12px rgba(15, 23, 42, 0.06);
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-base: 180ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Safe areas (iOS notch / home indicator) */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Surfaces (Dark - deep calm slate, zero muddy brown) */
+  --surface-canvas: #0c0f14;
+  --surface-sidebar: #0e1219;
+  --surface-list: #11161f;
+  --surface-reading: #141923;
+  --surface-elevated: #1a2130;
+  --surface-subtle: #18202d;
+  --surface-hover: #1d2636;
+  --surface-active: rgba(59, 130, 246, 0.18);
+  --surface-selected: rgba(59, 130, 246, 0.14);
+
+  /* Borders */
+  --border-hairline: rgba(248, 250, 252, 0.075);
+  --border-subtle: rgba(248, 250, 252, 0.12);
+  --border-strong: rgba(248, 250, 252, 0.22);
+
+  /* Ink / Text */
+  --ink-primary: #f1f5f9;
+  --ink-secondary: #a1b0c4;
+  --ink-muted: #8a9ab0;
+  --ink-subtle: #64748b;
+  --ink-inverse: #0f172a;
+
+  /* Brand & Semantic */
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-soft: rgba(59, 130, 246, 0.16);
+  --accent-ring: rgba(96, 165, 250, 0.34);
+
+  --unread-dot: #60a5fa;
+  --star-active: #fbbf24;
+
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.14);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.14);
+  --danger: #f87171;
+  --danger-hover: #ef4444;
+  --danger-soft: rgba(248, 113, 113, 0.14);
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.65);
+}

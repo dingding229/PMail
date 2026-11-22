@@ -1,28 +1,29 @@
+VERSION ?= 4.0.0-beta.1
 GITHASH ?= unknown
 
-build: build_fe build_server package
+build: package
 
 clean:
 	rm -rf output
 
 
-build_fe:
-	cd fe && npm ci --ignore-scripts && npm run build
+build_web:
+	cd web && npm ci --ignore-scripts && npm run build
 
 build_server:
-	cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(GITHASH)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail_linux_amd64  main.go
-	cd server && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(GITHASH)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail_windows_amd64.exe  main.go
-	cd server && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(GITHASH)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail_mac_amd64  main.go
-	cd server && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(GITHASH)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail_mac_arm64  main.go
+	cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X 'main.version=$(VERSION)' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(GITHASH)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail_linux_amd64  main.go
+	cd server && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X 'main.version=$(VERSION)' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(GITHASH)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail_windows_amd64.exe  main.go
+	cd server && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X 'main.version=$(VERSION)' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(GITHASH)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail_mac_amd64  main.go
+	cd server && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X 'main.version=$(VERSION)' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(GITHASH)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail_mac_arm64  main.go
 
-package: clean
+package: build_web build_server clean
 	mkdir output
 	mv server/pmail* output/
 	mkdir output/config
 	cp -r server/config/dkim output/config/
 	cp -r server/config/ssl output/config/
 	cp -r server/config/config.json output/config/
-	cp -R fe/dist output/web
+	cp -R web/dist output/web
 	cp README.md output/
 
 test:
@@ -34,7 +35,7 @@ test_mysql:
 test_postgres:
 	export PMAIL_TEST_PG_DSN="$${PMAIL_TEST_PG_DSN:-postgres://postgres:githubTest@postgres:5432/pmail?sslmode=disable}" && cd server && go test -tags integration -v -p 1 ./... -args postgres
 
-.PHONY: docker compose-init compose-up compose-upgrade compose-backup compose-logs compose-status compose-down
+.PHONY: build clean build_web build_server package docker compose-init compose-up compose-upgrade compose-backup compose-logs compose-status compose-down
 docker:
 	docker build -t pmail:local .
 

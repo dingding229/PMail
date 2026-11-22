@@ -1,5 +1,7 @@
 # PMail Pro
 
+![版本 4.0.0-beta.1](https://img.shields.io/badge/PMail%20Pro-4.0.0--beta.1-2563eb)
+
 PMail Pro 是 [Jinnrry/PMail](https://github.com/Jinnrry/PMail) 的增强分支，是一套可自托管的邮件服务。发布镜像位于 Docker Hub：`dingding229/pmail-pro`。
 
 ## 功能
@@ -8,7 +10,8 @@ PMail Pro 是 [Jinnrry/PMail](https://github.com/Jinnrry/PMail) 的增强分支�
 - 支持 SMTP、IMAP 和 POP3；外发进入队列，支持重试、退信和本地投递。
 - 支持自动转发、多目标规则、手动转发、SRS 发件人改写与防循环。
 - 支持收取外部 IMAP/POP3 邮件、去重及加密保存凭据。
-- 管理页面支持 DNS 记录核对、API Token 管理和中英文切换；界面适配电脑、平板和手机。
+- React SPA 支持桌面三栏、移动端导航、星标、未读、服务器端草稿和代码/文本附件预览。
+- 管理页面提供 DNS 记录向导和 BIND 区域片段下载；界面与后端提示支持中文和英文。
 
 ## 安装：Docker Compose
 
@@ -34,7 +37,7 @@ sudo apt-get update && sudo apt-get install -y ca-certificates curl openssl dnsu
 
 ### 2. 下载、填写域名并启动
 
-无需克隆源码或生成密码。将 `example.com` 换成你的**主邮件域名**；网页域名自动为 `mail.example.com`。默认镜像是 `dingding229/pmail-pro:3.0.0-beta.4`，请在这个标签发布后使用。以下命令只用于**全新目录**，不要覆盖已有 `.env`。
+无需克隆源码或生成密码。将 `example.com` 换成你的**主邮件域名**；网页域名自动为 `mail.example.com`。默认镜像是 `dingding229/pmail-pro:4.0.0-beta.1`，请在这个标签发布后使用。以下命令只用于**全新目录**，不要覆盖已有 `.env`。
 
 ```bash
 mkdir pmail-pro && cd pmail-pro
@@ -64,7 +67,7 @@ docker compose up -d
 
 ### 3. 获取注册密钥并创建管理员
 
-此步骤适用于 v4 镜像。开发分支切换到 v4 网页前，请使用包含注册页的 v4 构建或按 [API 契约](docs/openapi.yaml) 联调。已有用户的升级部署直接登录，不会重新注册。
+v4 网页会自动进入首次注册页。已有用户的升级部署直接登录，不会重新注册。
 
 ```bash
 docker compose logs pmail | grep 注册密钥
@@ -280,7 +283,7 @@ docker compose down -v
 
 | 配置项 | 说明 |
 | --- | --- |
-| `PMAIL_IMAGE` | PMail 镜像标签，默认 `dingding229/pmail-pro:3.0.0-beta.4` |
+| `PMAIL_IMAGE` | PMail 镜像标签，默认 `dingding229/pmail-pro:4.0.0-beta.1` |
 | `PMAIL_PROJECT_NAME` | Compose 项目名，默认 `pmail`；决定命名卷所属项目 |
 | `PMAIL_DOMAIN` / `PMAIL_DOMAINS` / `PMAIL_WEB_DOMAIN` | 主邮件域名（必填）、逗号分隔的附加收信域名、网页域名（默认 `mail.<主域名>`） |
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | 数据库、账号默认 `pmail`；密码默认随机生成到 `secrets` 卷，已有部署可保留显式值 |
@@ -334,4 +337,22 @@ CI 的[工作流](.github/workflows/ci.yml)分别检查前后端、执行 Go 的
 
 ### Web 前端与 API
 
-同一镜像内，网页构建产物独立存放在 `/work/web`（C1 仍构建 `fe/`）；Go 二进制不再内嵌网页。若独立运行 Makefile 打包的二进制，请从解压目录设置 `PMAIL_WEB_ROOT=./web`。网页文件暂不可用时，API 仍工作。前端联调以 [OpenAPI 契约](docs/openapi.yaml) 为准；使用 `GET /api/bootstrap` 获取初始状态，无需先登录。
+`web/` 是独立的 React / TypeScript / Vite SPA，`server/` 是 Go API 与邮件服务。生产环境仍是一个镜像：前端产物放在 `PMAIL_WEB_ROOT`（默认 `/work/web`），Go 服务负责 SPA 回退和 API；Go 二进制不内嵌网页。若独立运行 Makefile 打包的二进制，请从解压目录设置 `PMAIL_WEB_ROOT=./web`。网页文件暂不可用时，API 仍可用。
+
+[OpenAPI 契约](docs/openapi.yaml)描述接口，`GET /api/bootstrap` 无需登录。`PMAIL_DEFAULT_LANG` 设置初始语言；`PMAIL_CORS_ORIGINS` 只在真正跨源时填写允许的源。DNS 向导使用 `PMAIL_PUBLIC_IPV4` / `PMAIL_PUBLIC_IPV6` 和 `PMAIL_DNS_RESOLVER`（见上方变量表）。
+
+真实后端联调（将端口替换为本地可访问的 PMail HTTP 地址）：
+
+```bash
+cd web
+npm ci --ignore-scripts
+PMAIL_API_TARGET=http://localhost:8080 npm run dev
+```
+
+Vite 在 `http://localhost:5173` 提供页面，将 `/api`（包括附件）代理给后端；该方式无需另配 CORS。仅做前端开发可运行 `npm run dev:mock`（等价于 `VITE_MOCK=1 npm run dev`），由 MSW 提供模拟接口，不必启动 Go 服务。默认生产构建不包含 MSW 或其 service worker。构建验证命令为 `npm run typecheck`、`npm run lint`、`npm run i18n:check` 和 `npm run build`。
+
+### 从 v3 升级到 v4
+
+- 升级前按上文备份数据库和配置卷。已有账号、邮件及域名继续使用，不需再次注册。全新实例不再生成 `initial_admin_password`，使用 [注册密钥](#3-获取注册密钥并创建管理员)；已有旧文件不会被删除，请继续妥善保护。
+- 插件设置、可执行插件、微信通知和外部垃圾邮件分类插件已移除。现有插件配置不再读取，不做破坏性数据库迁移；内置 catch-all SPF/DKIM 过滤仍保留。
+- 新客户端使用 `/api/attachments/{id}`、`/api/attachments/download/{id}` 和文本预览接口；旧 `/attachments/*` 仍兼容。详见 [更新日志](CHANGELOG.md#400-beta1)。

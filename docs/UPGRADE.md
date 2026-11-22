@@ -9,7 +9,7 @@
 3. **旧 Token 格式废弃。** 使用 `/api/token/create` 创建 API Token，通过 `Authorization: Bearer <token>` 使用。兼容的 `Token` 请求头仅接受新生成的 Token，不再支持旧的 MD5 派生凭据。
 4. **密码哈希改为 bcrypt。** 旧 MD5 密码在首次成功认证后自动升级；明文密码不写入日志或前端存储。
 5. **外发改用持久化队列。** 网页、587/465 提交的对外邮件先入队，由队列负责重试；本地收件人仍同步入库。可通过 `/api/queue/list` 核对状态。
-6. **前端改为 Vue 3 + Naive UI + Tiptap。** 路由采用 hash 模式，不再保留旧 Element Plus/wangEditor 页面。
+6. **Web 前端更换。** v4 使用 `web/` 中的 React SPA；与 Go API 一起部署，同一容器托管网页与 API。
 7. **新增数据表。** 包括 `domain`、`mailbox_address`、`api_token`、`outbound_queue`、`forward_setting`、`external_account`、`external_seen`，以及新增的用户配额和认证字段。
 
 ## 导入旧数据库
@@ -65,3 +65,9 @@ docker compose pull && docker compose up -d --wait postgres
 ## catch-all 与入站过滤
 
 `PMAIL_SPAM_FILTER_LEVEL` 只在开启 `PMAIL_CATCH_ALL` 且邮件没有匹配到任何已知本地收件人、准备回退投递给管理员时生效。已知收件人不受此等级影响，即使 SPF/DKIM 未通过也不由此设置过滤。关闭 catch-all 后，未知收件人不会回退投递给管理员。
+
+## 升级到 v4
+
+已有数据库用户不受引导机制变化影响。空库不再自动生成 `initial_admin_password`；在 HTTPS 网页输入 `docker compose logs pmail | grep 注册密钥` 查到的一次性密钥，或显式设置 `PMAIL_ADMIN_PASSWORD`。升级不会删除旧密码文件。
+
+插件界面、加载框架、微信通知、外部垃圾邮件分类插件均不再可用，已有插件数据不会被迁移或删除。新附件路径为 `/api/attachments/{id}` 和 `/api/attachments/download/{id}`；旧 `/attachments/*` 仍兼容。各项配置与新前端开发入口见 [README](../README.md)，发布变化见 [CHANGELOG](../CHANGELOG.md)。

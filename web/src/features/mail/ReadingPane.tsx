@@ -1,0 +1,619 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  FolderInput,
+  Forward,
+  Image as ImageIcon,
+  Inbox,
+  Mail,
+  MailOpen,
+  MoreHorizontal,
+  Printer,
+  Reply,
+  ReplyAll,
+  ShieldAlert,
+  Star,
+  Trash2,
+} from 'lucide-react'
+import { SYSTEM_GROUP_IDS, type EmailDetail, type GroupOption } from '@/api'
+import { useEmailDetailQuery } from '@/hooks/useMailQueries'
+import { formatMailFullTime, formatRelativeTime } from '@/lib/date'
+import { formatBytes, resolveAddressList, resolveAttachmentsList } from '@/lib/format'
+import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { SenderAvatar } from '@/components/common/SenderAvatar'
+import { SandboxedHtmlFrame } from './SandboxedHtmlFrame'
+import { PlainTextMailView } from './PlainTextMailView'
+import { AttachmentSection } from './AttachmentSection'
+import type { FolderSelection } from './types'
+
+interface ReadingPaneProps {
+  emailId: number | null
+  folder: FolderSelection
+  unreadInboxCount: number
+  isStarred: boolean
+  isReadFallback?: boolean
+  groupOptions: GroupOption[]
+  isMobile: boolean
+  onBack?: () => void
+  onReply: (email: EmailDetail) => void
+  onReplyAll: (email: EmailDetail) => void
+  onForward: (email: EmailDetail) => void
+  onEditDraft?: (email: EmailDetail) => void
+  onToggleStar: (id: number, nextStarred: boolean) => void
+  onToggleRead: (id: number, nextRead: boolean) => void
+  onDelete: (id: number, forced: boolean) => void
+  onMove: (id: number, groupId: number, label: string) => void
+}
+
+export function ReadingPane({
+  emailId,
+  folder,
+  unreadInboxCount,
+  isStarred,
+  isReadFallback = true,
+  groupOptions,
+  isMobile,
+  onBack,
+  onReply,
+  onReplyAll,
+  onForward,
+  onEditDraft,
+  onToggleStar,
+  onToggleRead,
+  onDelete,
+  onMove,
+}: ReadingPaneProps) {
+  const { t, i18n } = useTranslation()
+  const { data: email, isLoading, isError, refetch } = useEmailDetailQuery(emailId)
+
+  const [detailsExpanded, setDetailsExpanded] = useState(false)
+  const [hasExternalImages, setHasExternalImages] = useState(false)
+  const [externalImagesAllowed, setExternalImagesAllowed] = useState(false)
+
+  // Reset per-message ephemeral states when switching messages
+  useEffect(() => {
+    setDetailsExpanded(false)
+    setHasExternalImages(false)
+    setExternalImagesAllowed(false)
+  }, [emailId])
+
+  const handleDetectExternal = useCallback((detected: boolean) => {
+    setHasExternalImages(detected)
+  }, [])
+
+  const toList = useMemo(
+    () => resolveAddressList(email?.to_list, email?.to),
+    [email?.to_list, email?.to],
+  )
+  const ccList = useMemo(
+    () => resolveAddressList(email?.cc_list, email?.cc),
+    [email?.cc_list, email?.cc],
+  )
+  const bccList = useMemo(
+    () => resolveAddressList(email?.bcc_list, email?.bcc),
+    [email?.bcc_list, email?.bcc],
+  )
+  const replyToList = useMemo(
+    () => resolveAddressList(email?.reply_to_list, email?.reply_to),
+    [email?.reply_to_list, email?.reply_to],
+  )
+  const normalizedAttachments = useMemo(
+    () => resolveAttachmentsList(email?.attachments_list, email?.attachments),
+    [email?.attachments_list, email?.attachments],
+  )
+
+  const isInTrash = folder.kind === 'system' && folder.key === 'trash'
+  const isDangerous = email ? email.spf_check === 0 && email.dkim_check === 0 : false
+
+  // Empty state (no message selected)
+  if (!emailId) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center bg-[var(--surface-reading)] px-8 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--surface-subtle)] text-[var(--ink-muted)]">
+          <Inbox className="h-6 w-6 stroke-[1.6]" />
+        </div>
+        <h2 className="mt-4 text-[15px] font-semibold text-[var(--ink-primary)]">
+          {t('mail.emptyReadingTitle')}
+        </h2>
+        <p className="mt-1.5 max-w-sm text-[13px] leading-relaxed text-[var(--ink-muted)]">
+          {t('mail.emptyReadingDesc')}
+        </p>
+        <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-[var(--border-hairline)] bg-[var(--surface-subtle)] px-3.5 py-1.5 text-[12px] text-[var(--ink-secondary)]">
+          <span
+            className={cn(
+              'h-2 w-2 rounded-full',
+              unreadInboxCount > 0 ? 'bg-[var(--unread-dot)]' : 'bg-[var(--success)]',
+            )}
+          />
+          {unreadInboxCount > 0
+            ? t('mail.unreadSummary', { count: unreadInboxCount })
+            : t('mail.allCaughtUp')}
+        </div>
+      </div>
+    )
+  }
+
+  // Instant skeleton (<100ms perceived transition)
+  if (isLoading) {
+    return (
+      <div className="flex h-full flex-col bg-[var(--surface-reading)]">
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--border-hairline)] px-4">
+          <div className="flex items-center gap-2">
+            {isMobile && onBack && (
+              <Button variant="ghost" size="iconSm" onClick={onBack} aria-label={t('common.back')}>
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            )}
+            <Skeleton className="h-7 w-20" />
+            <Skeleton className="h-7 w-20" />
+            <Skeleton className="h-7 w-20" />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Skeleton className="h-7 w-7" />
+            <Skeleton className="h-7 w-7" />
+          </div>
+        </div>
+        <div className="flex-1 space-y-5 p-6">
+          <Skeleton className="h-7 w-3/4" />
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-10 w-10 rounded-full" />
+            <div className="space-y-1.5">
+              <Skeleton className="h-4 w-44" />
+              <Skeleton className="h-3.5 w-64" />
+            </div>
+          </div>
+          <div className="space-y-2.5 pt-4">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-11/12" />
+            <Skeleton className="h-4 w-4/5" />
+            <Skeleton className="h-4 w-3/5" />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (isError || !email) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center bg-[var(--surface-reading)] px-6 text-center">
+        <p className="text-[14px] font-medium text-[var(--ink-primary)]">{t('mail.detailError')}</p>
+        <div className="mt-3 flex items-center gap-2">
+          {isMobile && onBack && (
+            <Button variant="outline" size="sm" onClick={onBack}>
+              {t('common.back')}
+            </Button>
+          )}
+          <Button variant="secondary" size="sm" onClick={() => void refetch()}>
+            {t('app.retry')}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  const isCurrentlyRead = email.is_read !== undefined ? email.is_read === 1 : isReadFallback
+  const effectiveStarred = email.is_starred !== undefined ? email.is_starred : isStarred
+  const isServerDraft = email.status === 4
+  const displayDate = email.send_date || email.create_time
+  const hasHtml = Boolean(email.html && email.html.trim().length > 0)
+
+  const handleMoveMenu = (groupId: number, label: string) => {
+    onMove(email.id, groupId, label)
+  }
+
+  return (
+    <div className="flex h-full flex-col bg-[var(--surface-reading)]">
+      {/* Sticky Toolbar */}
+      <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-[var(--border-hairline)] bg-[var(--surface-reading)]/95 px-3 backdrop-blur-sm sm:px-5 pt-safe">
+        <div className="flex items-center gap-1">
+          {isMobile && onBack && (
+            <Button
+              variant="ghost"
+              size="iconSm"
+              onClick={onBack}
+              aria-label={t('common.back')}
+              className="mr-1"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          )}
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm" onClick={() => onReply(email)}>
+                <Reply className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{t('mail.actions.reply')}</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('mail.actions.reply')} (r)</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm" onClick={() => onReplyAll(email)}>
+                <ReplyAll className="h-3.5 w-3.5" />
+                <span className="hidden xl:inline">{t('mail.actions.replyAll')}</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('mail.actions.replyAll')} (a)</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm" onClick={() => onForward(email)}>
+                <Forward className="h-3.5 w-3.5" />
+                <span className="hidden xl:inline">{t('mail.actions.forward')}</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('mail.actions.forward')} (f)</TooltipContent>
+          </Tooltip>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="iconSm"
+                onClick={() => onToggleStar(email.id, !effectiveStarred)}
+                aria-label={effectiveStarred ? t('mail.actions.unstar') : t('mail.actions.star')}
+              >
+                <Star
+                  className={cn(
+                    'h-4 w-4 transition-colors',
+                    effectiveStarred
+                      ? 'fill-[var(--star-active)] text-[var(--star-active)]'
+                      : 'text-[var(--ink-muted)]',
+                  )}
+                />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {effectiveStarred ? t('mail.actions.unstar') : t('mail.actions.star')} (s)
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="iconSm"
+                onClick={() => onToggleRead(email.id, !isCurrentlyRead)}
+                aria-label={
+                  isCurrentlyRead ? t('mail.actions.markUnread') : t('mail.actions.markRead')
+                }
+              >
+                {isCurrentlyRead ? (
+                  <Mail className="h-4 w-4" />
+                ) : (
+                  <MailOpen className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isCurrentlyRead ? t('mail.actions.markUnread') : t('mail.actions.markRead')}
+            </TooltipContent>
+          </Tooltip>
+
+          {/* Move to folder dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="iconSm"
+                aria-label={t('mail.actions.move')}
+                title={t('mail.actions.move')}
+              >
+                <FolderInput className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>{t('mail.actions.move')}</DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => handleMoveMenu(SYSTEM_GROUP_IDS.INBOX, t('nav.inbox'))}
+              >
+                {t('nav.inbox')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleMoveMenu(SYSTEM_GROUP_IDS.JUNK, t('nav.junk'))}
+              >
+                {t('nav.junk')}
+              </DropdownMenuItem>
+              {groupOptions
+                .filter((g) => g.id < SYSTEM_GROUP_IDS.INBOX)
+                .map((g) => (
+                  <DropdownMenuItem key={g.id} onClick={() => handleMoveMenu(g.id, g.name)}>
+                    {g.name}
+                  </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="dangerGhost"
+                size="iconSm"
+                onClick={() => onDelete(email.id, isInTrash)}
+                aria-label={
+                  isInTrash ? t('mail.actions.deleteForever') : t('mail.actions.delete')
+                }
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isInTrash ? t('mail.actions.deleteForever') : t('mail.actions.delete')} (#)
+            </TooltipContent>
+          </Tooltip>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="iconSm" aria-label={t('common.more')}>
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => window.print()}>
+                <Printer className="h-3.5 w-3.5 text-[var(--ink-muted)]" />
+                {t('mail.actions.print')}
+              </DropdownMenuItem>
+              {isInTrash && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => handleMoveMenu(SYSTEM_GROUP_IDS.INBOX, t('nav.inbox'))}
+                  >
+                    <Inbox className="h-3.5 w-3.5 text-[var(--ink-muted)]" />
+                    {t('mail.actions.restoreToInbox')}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </header>
+
+      {/* Scrollable Email Content */}
+      <article className="mail-scroll flex-1 overflow-y-auto px-4 py-5 sm:px-7 sm:py-6">
+        <div className="mx-auto max-w-3xl">
+          {/* Subject */}
+          <h1 className="text-[20px] font-semibold leading-snug tracking-tight text-[var(--ink-primary)] sm:text-[22px]">
+            {email.subject || t('mail.noSubject')}
+          </h1>
+
+          {/* SPF/DKIM security warning */}
+          {isDangerous && (
+            <div className="mt-4 flex items-start gap-2.5 rounded-[var(--radius-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] px-3.5 py-2.5 text-[13px] text-[var(--danger)]">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">{t('mail.security.dangerousTitle')}</p>
+                <p className="mt-0.5 text-[12.5px] opacity-90">{t('mail.security.dangerousDesc')}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Delivery error notice */}
+          {email.error && (
+            <div className="mt-4 flex items-start gap-2.5 rounded-[var(--radius-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] px-3.5 py-2.5 text-[13px] text-[var(--warning)]">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">{t('mail.security.deliveryErrorTitle')}</p>
+                <p className="mt-0.5 break-all font-mono text-[12px] opacity-90">{email.error}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Sender & Recipients Header */}
+          <div className="mt-5 flex items-start gap-3">
+            <SenderAvatar
+              name={email.from_name}
+              email={email.from_address}
+              size="lg"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                <div className="flex flex-wrap items-baseline gap-1.5 min-w-0">
+                  <span className="text-[14.5px] font-semibold text-[var(--ink-primary)] truncate">
+                    {email.from_name || email.from_address || t('mail.unknownSender')}
+                  </span>
+                  {email.from_address && (
+                    <span className="text-[12.5px] text-[var(--ink-muted)] truncate">
+                      &lt;{email.from_address}&gt;
+                    </span>
+                  )}
+                </div>
+                <time
+                  dateTime={displayDate}
+                  title={formatMailFullTime(displayDate, i18n.language)}
+                  className="shrink-0 text-[12px] tabular-nums text-[var(--ink-muted)]"
+                >
+                  {formatMailFullTime(displayDate, i18n.language)} · {formatRelativeTime(displayDate)}
+                </time>
+              </div>
+
+              {/* Compact recipients summary + expand button */}
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12.5px] text-[var(--ink-secondary)]">
+                <span className="text-[var(--ink-muted)]">{t('mail.header.to')}:</span>
+                <span className="truncate">
+                  {toList.length > 0
+                    ? toList
+                        .slice(0, 2)
+                        .map((r) => r.name || r.email)
+                        .join('、')
+                    : t('common.none')}
+                  {toList.length > 2 &&
+                    ` ${t('mail.header.toCount', { count: toList.length - 2 })}`}
+                </span>
+                {ccList.length > 0 && (
+                  <span className="text-[var(--ink-muted)]">
+                    · {t('mail.header.cc')} {ccList.length}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDetailsExpanded((v) => !v)}
+                  className="ml-1 inline-flex items-center gap-0.5 rounded-[var(--radius-xs)] px-1.5 py-0.5 text-[11.5px] text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--ink-primary)]"
+                >
+                  {detailsExpanded ? t('mail.header.hideDetails') : t('mail.header.showDetails')}
+                  {detailsExpanded ? (
+                    <ChevronUp className="h-3 w-3" />
+                  ) : (
+                    <ChevronDown className="h-3 w-3" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Expandable Full Header Metadata */}
+          {detailsExpanded && (
+            <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-subtle)]/70 px-3.5 py-3 text-[12.5px]">
+              <dt className="text-[var(--ink-muted)]">{t('mail.header.from')}</dt>
+              <dd className="min-w-0 break-all text-[var(--ink-primary)]">
+                {email.from_name ? `${email.from_name} <${email.from_address}>` : email.from_address}
+              </dd>
+
+              <dt className="text-[var(--ink-muted)]">{t('mail.header.to')}</dt>
+              <dd className="min-w-0 break-all text-[var(--ink-primary)]">
+                {toList.map((r) => (r.name ? `${r.name} <${r.email}>` : r.email)).join(', ') ||
+                  t('common.none')}
+              </dd>
+
+              {ccList.length > 0 && (
+                <>
+                  <dt className="text-[var(--ink-muted)]">{t('mail.header.cc')}</dt>
+                  <dd className="min-w-0 break-all text-[var(--ink-primary)]">
+                    {ccList.map((r) => (r.name ? `${r.name} <${r.email}>` : r.email)).join(', ')}
+                  </dd>
+                </>
+              )}
+
+              {bccList.length > 0 && (
+                <>
+                  <dt className="text-[var(--ink-muted)]">{t('mail.header.bcc')}</dt>
+                  <dd className="min-w-0 break-all text-[var(--ink-primary)]">
+                    {bccList.map((r) => (r.name ? `${r.name} <${r.email}>` : r.email)).join(', ')}
+                  </dd>
+                </>
+              )}
+
+              {replyToList.length > 0 && (
+                <>
+                  <dt className="text-[var(--ink-muted)]">{t('mail.header.replyTo')}</dt>
+                  <dd className="min-w-0 break-all text-[var(--ink-primary)]">
+                    {replyToList.map((r) => (r.name ? `${r.name} <${r.email}>` : r.email)).join(', ')}
+                  </dd>
+                </>
+              )}
+
+              <dt className="text-[var(--ink-muted)]">{t('mail.header.date')}</dt>
+              <dd className="tabular-nums text-[var(--ink-primary)]">
+                {formatMailFullTime(displayDate, i18n.language)}
+              </dd>
+
+              {email.size > 0 && (
+                <>
+                  <dt className="text-[var(--ink-muted)]">{t('mail.header.size')}</dt>
+                  <dd className="tabular-nums text-[var(--ink-primary)]">
+                    {formatBytes(email.size)}
+                  </dd>
+                </>
+              )}
+
+              {email.msg_id && (
+                <>
+                  <dt className="text-[var(--ink-muted)]">{t('mail.header.messageId')}</dt>
+                  <dd className="min-w-0 break-all font-mono text-[11.5px] text-[var(--ink-secondary)]">
+                    {email.msg_id}
+                  </dd>
+                </>
+              )}
+            </dl>
+          )}
+
+          {/* External Images Privacy Blocker Banner */}
+          {hasHtml && hasExternalImages && !externalImagesAllowed && (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--surface-subtle)] px-3.5 py-2 text-[12.5px]">
+              <div className="flex items-center gap-2 text-[var(--ink-secondary)]">
+                <ImageIcon className="h-4 w-4 shrink-0 text-[var(--ink-muted)]" />
+                <span>{t('mail.security.externalImagesBlocked')}</span>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                size="xs"
+                onClick={() => setExternalImagesAllowed(true)}
+              >
+                {t('mail.security.loadExternalImages')}
+              </Button>
+            </div>
+          )}
+
+          {/* Message Body */}
+          <div className="mt-5 border-t border-[var(--border-hairline)] pt-5">
+            {hasHtml ? (
+              <SandboxedHtmlFrame
+                html={email.html}
+                allowExternalImages={externalImagesAllowed}
+                onDetectExternalImages={handleDetectExternal}
+              />
+            ) : (
+              <PlainTextMailView
+                text={email.text || t('mail.noSnippet')}
+                textFormat={email.text_format}
+                hasCode={email.has_code}
+              />
+            )}
+          </div>
+
+          {/* Attachments */}
+          <AttachmentSection emailId={email.id} attachments={normalizedAttachments} />
+
+          {/* Quick Reply Actions Footer */}
+          <div className="mt-7 flex flex-wrap items-center gap-2 border-t border-[var(--border-hairline)] pt-5 pb-6">
+            {isServerDraft && onEditDraft ? (
+              <Button variant="primary" size="sm" onClick={() => onEditDraft(email)}>
+                {t('mail.draft.resume')}
+              </Button>
+            ) : (
+              <>
+                <Button variant="secondary" size="sm" onClick={() => onReply(email)}>
+                  <Reply className="h-3.5 w-3.5" />
+                  {t('mail.actions.reply')}
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => onReplyAll(email)}>
+                  <ReplyAll className="h-3.5 w-3.5" />
+                  {t('mail.actions.replyAll')}
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => onForward(email)}>
+                  <Forward className="h-3.5 w-3.5" />
+                  {t('mail.actions.forward')}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </article>
+    </div>
+  )
+}
