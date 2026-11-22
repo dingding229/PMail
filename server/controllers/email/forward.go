@@ -41,7 +41,7 @@ func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request
 		return
 	}
 	original, err := detail.GetEmailDetail(ctx, body.EmailID, false)
-	if err != nil {
+	if err != nil || original.MailboxStatus == consts.EmailStatusDrafts || original.Status == consts.EmailStatusDrafts {
 		response.Localized(ctx, response.NoAccessPrivileges, "mail_not_found").FPrintStatus(w, http.StatusForbidden)
 		return
 	}

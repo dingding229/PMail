@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"github.com/Jinnrry/pmail/dto/response"
+	"mime"
 	"net/http"
 	"strconv"
 
@@ -57,7 +59,8 @@ func DomainSetDefault(ctx *context.Context, w http.ResponseWriter, r *http.Reque
 }
 func DomainDNS(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ID int `json:"id"`
+		ID      int  `json:"id"`
+		Refresh bool `json:"refresh"`
 	}
 	if !adminOnly(ctx, w) || !readRequest(ctx, w, r, &body, true) {
 		return
@@ -67,6 +70,16 @@ func DomainDNS(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	}
 	if body.ID <= 0 {
 		serviceError(ctx, w, domain.ErrInvalid)
+		return
+	}
+	if r.Method == http.MethodPost {
+		w.Header().Set("Cache-Control", "no-store")
+		guide, err := domain.Guide(r.Context(), body.ID, body.Refresh, ctx.Lang)
+		if err != nil {
+			serviceError(ctx, w, err)
+			return
+		}
+		success(w, guide)
 		return
 	}
 	records, err := domain.DNS(r.Context(), body.ID)
@@ -81,4 +94,31 @@ func DomainDNS(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	success(w, records)
+}
+
+func DomainZone(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
+	if !adminOnly(ctx, w) {
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		apiError(ctx, w, http.StatusMethodNotAllowed, response.ParamsError, "method_not_allowed")
+		return
+	}
+	id, err := strconv.Atoi(r.URL.Query().Get("id"))
+	if err != nil || id <= 0 {
+		serviceError(ctx, w, domain.ErrInvalid)
+		return
+	}
+	name, text, err := domain.Zone(r.Context(), id, ctx.Lang)
+	if err != nil {
+		serviceError(ctx, w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name + ".zone"}))
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method != http.MethodHead {
+		_, _ = w.Write([]byte(text))
+	}
 }

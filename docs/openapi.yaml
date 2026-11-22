@@ -3,11 +3,11 @@ info:
   title: PMail Pro HTTP API
   version: 4.0.0-dev
   description: |-
-    C2 runtime contract. Cookie, Bearer token, and the legacy Token header are alternative credentials; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource; any admin override is stated per operation.
+    C3 runtime contract. Cookie, Bearer token, and the legacy Token header are alternative credentials; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource; any admin override is stated per operation.
 
     JSON responses use {errorNo, errorMsg, data} unless stated otherwise. Legacy failures can return HTTP 200. x-error-codes lists application codes by HTTP status. Don't infer success from HTTP status alone. Unregistered API URLs and unsupported attachment subpaths never return SPA HTML. The legacy setup endpoint is available only on the setup listener; when HTTPS is active the plain HTTP listener serves ping and ACME directly and redirects other requests to HTTPS. Listed GET/POST variants are supported contracts; incidental verbs accepted by some older handlers are not part of the contract.
 
-    x-status: planned means not available in C2; the in-place planned POST DNS replacement is nested under x-planned-replacement. With development CORS enabled, allowlisted origins can send credentialed requests and preflight API/attachment paths. Cookie SameSite behavior is unchanged. Localized errors use the saved user language when set, otherwise X-PMail-Lang, Accept-Language, then PMAIL_DEFAULT_LANG. During pending first registration, only bootstrap, register, ping and ACME are available; other API and attachment requests respond HTTP 403.
+    POST /api/domain/dns is the DNS guide; GET /api/domain/dns remains a legacy compatibility view. With development CORS enabled, allowlisted origins can send credentialed requests and preflight API/attachment paths. Cookie SameSite behavior is unchanged. Localized errors use the saved user language when set, otherwise X-PMail-Lang, Accept-Language, then PMAIL_DEFAULT_LANG. During pending first registration, only bootstrap, register, ping and ACME are available; other API and attachment requests respond HTTP 403.
 servers:
 - {url: /}
 security:
@@ -402,8 +402,8 @@ paths:
       tags: [Mail]
       summary: Read a message and mark it read
       x-permission: owner
-      description: Mailbox members or admins only. The legacy handler reports inaccessible mail as errorNo 500. See MailListItem
-        for the per-user read marker.
+      description: Mailbox members or admins; only mailbox members can read draft content. Inaccessible messages still
+        return HTTP 200 with errorNo 500. The read marker is in the response.
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
@@ -453,7 +453,7 @@ paths:
     post:
       operationId: readMail
       tags: [Mail]
-      summary: Mark messages read
+      summary: Set the read marker in the current mailbox
       x-permission: owner
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}
@@ -462,7 +462,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/MessageIdsRequest'}
+            schema: {$ref: '#/components/schemas/MarkReadRequest'}
       x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
       responses:
         '200':
@@ -474,6 +474,85 @@ paths:
                 - {$ref: '#/components/schemas/StringValueSuccess'}
                 - {$ref: '#/components/schemas/Error100402403500'}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /api/email/star:
+    post:
+      operationId: starMail
+      tags: [Mail]
+      summary: Set or clear stars in the current mailbox
+      x-permission: owner
+      parameters:
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StarRequest'}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/StringValueSuccess'}
+                - {$ref: '#/components/schemas/Error100402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/email/draft/save:
+    post:
+      operationId: saveDraft
+      tags: [Mail]
+      summary: Create or overwrite an owned server draft
+      x-permission: owner
+      parameters:
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DraftSaveRequest'}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405], '404': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/DraftSavedSuccess'}
+                - {$ref: '#/components/schemas/Error100402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/email/draft/delete:
+    post:
+      operationId: deleteDraft
+      tags: [Mail]
+      summary: Remove draft links from the current mailbox
+      x-permission: owner
+      description: Idempotent for absent or inaccessible links. Other mailbox links are not removed.
+      parameters:
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DraftDeleteRequest'}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/StringValueSuccess'}
+                - {$ref: '#/components/schemas/Error100402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/email/move:
     post:
       operationId: moveMail
@@ -515,7 +594,7 @@ paths:
         content:
           application/json:
             schema: {$ref: '#/components/schemas/SendMailRequest'}
-      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405], '404': [100], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -526,6 +605,8 @@ paths:
                 - {$ref: '#/components/schemas/DeliveryResultSuccess'}
                 - {$ref: '#/components/schemas/Error100402403500DeliveryData'}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/email/forward:
     post:
       operationId: forwardMail
@@ -1768,12 +1849,12 @@ paths:
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '500': {$ref: '#/components/responses/InternalError'}
     post:
-      operationId: domainDnsLegacy
+      operationId: domainDnsGuide
       tags: [Domains]
-      summary: Check the current MX/SPF/DKIM/DMARC records
+      summary: Check localized DNS setup records
       x-permission: admin
-      description: C2 currently returns a list of legacy records. C3 will replace the POST contract in place (see x-planned-replacement).
-        The planned response is not yet returned.
+      description: May reuse a result younger than 60 seconds unless refresh is true. The legacy GET still returns its
+        original record array.
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
@@ -1781,7 +1862,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/IdRequest'}
+            schema: {$ref: '#/components/schemas/DomainDnsRequest'}
       x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '500': [500]}
       responses:
         '200':
@@ -1790,47 +1871,27 @@ paths:
             application/json:
               schema:
                 oneOf:
-                - {$ref: '#/components/schemas/LegacyDomainDnsRecordListSuccess'}
+                - {$ref: '#/components/schemas/DomainDnsSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '500': {$ref: '#/components/responses/InternalError'}
-      x-planned-replacement:
-        x-status: planned
-        summary: Localized DNS setup and verification guide
-        requestBody:
-          required: true
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/DomainDnsRequest'}
-        responses:
-          '200':
-            description: DNS guidance in the standard envelope.
-            content:
-              application/json:
-                schema: {$ref: '#/components/schemas/DomainDnsSuccess'}
-          '400': {$ref: '#/components/responses/BadRequest'}
-          '403': {$ref: '#/components/responses/Forbidden'}
-          '404': {$ref: '#/components/responses/NotFound'}
-          '405': {$ref: '#/components/responses/MethodNotAllowed'}
-          '500': {$ref: '#/components/responses/InternalError'}
   /api/domain/dns/zone:
     get:
       operationId: exportDomainZone
       tags: [Domains]
-      summary: Download a BIND zone file
+      summary: Download a BIND zone fragment
       x-permission: admin
-      x-status: planned
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/DnsDomainId'}
-      x-error-codes: {'400': [100], '403': [405], '404': [100], '500': [500]}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '500': [500]}
       responses:
         '200':
-          description: BIND zone file.
+          description: BIND forward-zone suggestions. Merge with an existing SOA/NS and SPF policy.
           headers:
             Content-Disposition:
               description: Attachment download disposition and filename (present on downloads and non-inline types).
@@ -1842,6 +1903,27 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '500': {$ref: '#/components/responses/InternalError'}
+    head:
+      tags: [Domains]
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      - {$ref: '#/components/parameters/DnsDomainId'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '500': [500]}
+      operationId: exportDomainZoneHead
+      summary: Download a BIND zone fragment (headers only)
+      responses:
+        '200':
+          description: BIND forward-zone suggestions. Merge with an existing SOA/NS and SPF policy.
+          headers:
+            Content-Disposition:
+              description: Attachment download disposition and filename (present on downloads and non-inline types).
+              schema: {type: string}
+        '400': {description: Error (no body).}
+        '403': {description: Error (no body).}
+        '404': {description: Error (no body).}
+        '500': {description: Error (no body).}
   /api/token/list:
     get:
       operationId: listTokensGet
@@ -2219,18 +2301,42 @@ paths:
       tags: [Attachments]
       summary: Preview the decoded text of a text/code attachment
       x-permission: user
-      description: Signed-in mailbox owner or admin. Planned for C3.
-      x-status: planned
+      description: Same ownership rules as download; text only. The content is at most 512 KiB of UTF-8. Render as text,
+        not HTML.
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
       - {$ref: '#/components/parameters/AttachmentId'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405], '404': [100], '415': [100]}
       responses:
         '200':
-          description: Success.
+          description: Success or legacy application error; inspect errorNo.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/AttachmentPreviewSuccess'}
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/AttachmentPreviewSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+    head:
+      tags: [Attachments]
+      x-permission: user
+      description: Same ownership rules as download; text only. The content is at most 512 KiB of UTF-8. Render as text,
+        not HTML.
+      parameters:
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      - {$ref: '#/components/parameters/AttachmentId'}
+      x-error-codes: {'200': [402, 403, 500], '403': [405], '404': [100], '415': [100]}
+      operationId: previewAttachmentHead
+      summary: Preview the decoded text of a text/code attachment (headers only)
+      responses:
+        '200': {description: Success or legacy application error; inspect errorNo.}
+        '403': {description: Error (no body).}
+        '404': {description: Error (no body).}
+        '415': {description: Error (no body).}
   /.well-known/acme-challenge/{token}:
     get:
       operationId: acmeChallenge
@@ -2353,6 +2459,11 @@ components:
           schema: {$ref: '#/components/schemas/Error100EmptyData'}
     Conflict:
       description: Operation conflicts with the resource state or uniqueness constraints.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error100EmptyData'}
+    UnsupportedMediaType:
+      description: Attachment is not supported as text.
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error100EmptyData'}
@@ -2517,7 +2628,6 @@ components:
       - required: [password]
     SearchTag:
       type: object
-      required: [type, status, group_id]
       properties:
         type: {type: integer, enum: [-1, 0, 1], description: -1 any; 0 received; 1 sent.}
         status:
@@ -2525,6 +2635,7 @@ components:
           description: 'Mailbox status: -1 any, 0 inbox/waiting, 1 sent, 2 failed, 3 deleted, 4 draft, 5 junk, 6 delivery
             pending.'
         group_id: {type: integer, description: -1 any; 0 default; positive custom group ID.}
+        starred: {type: boolean, description: 'True selects starred messages outside Deleted, ignoring group_id/type/status.'}
     MailListRequest:
       type: object
       properties:
@@ -2533,27 +2644,59 @@ components:
           type: string
           contentMediaType: application/json
           contentSchema: {$ref: '#/components/schemas/SearchTag'}
-          examples: ['{"type":0,"status":-1,"group_id":0}']
+          examples: ['{"type":0,"status":-1,"group_id":0}', '{"starred":true}']
           description: A JSON-encoded SearchTag string, not a JSON object. Use the tag returned by /api/group.
         current_page:
           type: integer
-          description: One-based when supplied; zero/omission requests the first offset and the response echoes 0.
-        page_size:
-          type: integer
-          default: 15
-          description: Supply page_size explicitly with current_page > 1; the controller calculates the offset before
-            applying its size default.
+          minimum: 0
+          maximum: 1000000
+          description: One-based when supplied; zero/omission selects the first offset and the response echoes 0.
+        page_size: {type: integer, minimum: 1, maximum: 100, default: 15}
     MailAddress:
       type: object
       required: [Name, EmailAddress]
       properties:
         Name: {type: string}
         EmailAddress: {type: string}
+    NormalizedMailAddress:
+      type: object
+      required: [name, address]
+      properties:
+        name: {type: string}
+        address: {type: string}
+    NormalizedMailAttachment:
+      type: object
+      required: [index, filename, content_type, size, content_id, inline, previewable]
+      properties:
+        index: {type: integer, minimum: 0}
+        filename: {type: string}
+        content_type: {type: string}
+        size: {type: integer, minimum: 0}
+        content_id: {type: string}
+        inline: {type: boolean}
+        previewable: {type: boolean}
     MailListItem:
       type: object
-      required: [id, title, desc, datetime, is_read, sender, to, dangerous, error]
+      required: [id, to_list, cc_list, bcc_list, reply_to_list, attachments_list, is_starred, title, desc, datetime, is_read,
+        sender, to, dangerous, error]
       properties:
         id: {type: integer}
+        to_list:
+          type: array
+          items: {$ref: '#/components/schemas/NormalizedMailAddress'}
+        cc_list:
+          type: array
+          items: {$ref: '#/components/schemas/NormalizedMailAddress'}
+        bcc_list:
+          type: array
+          items: {$ref: '#/components/schemas/NormalizedMailAddress'}
+        reply_to_list:
+          type: array
+          items: {$ref: '#/components/schemas/NormalizedMailAddress'}
+        attachments_list:
+          type: array
+          items: {$ref: '#/components/schemas/NormalizedMailAttachment'}
+        is_starred: {type: boolean}
         title: {type: string}
         desc: {type: string}
         datetime:
@@ -2588,6 +2731,24 @@ components:
       type: object
       properties:
         id: {type: integer}
+        to_list:
+          type: array
+          items: {$ref: '#/components/schemas/NormalizedMailAddress'}
+        cc_list:
+          type: array
+          items: {$ref: '#/components/schemas/NormalizedMailAddress'}
+        bcc_list:
+          type: array
+          items: {$ref: '#/components/schemas/NormalizedMailAddress'}
+        reply_to_list:
+          type: array
+          items: {$ref: '#/components/schemas/NormalizedMailAddress'}
+        attachments_list:
+          type: array
+          items: {$ref: '#/components/schemas/NormalizedMailAttachment'}
+        is_read: {type: boolean}
+        is_starred: {type: boolean}
+        mailbox_status: {type: integer}
         type: {enum: [0, 1]}
         subject: {type: string}
         reply_to:
@@ -2620,10 +2781,10 @@ components:
             type: [array, 'null']
             items: {$ref: '#/components/schemas/MailAddress'}
           description: Legacy string containing JSON (or an empty string in older stored mail); decode before use.
-        text: {type: string}
+        text: {type: string, description: 'UTF-8 plain source, including literal markup characters.'}
         html:
           type: string
-          description: Stored HTML with cid links rewritten to the protected attachment API; render it in an isolated/sanitized
+          description: Sanitized HTML with cid links rewritten to the protected attachment API; render it in an isolated/sanitized
             reader.
         sender:
           type: string
@@ -2664,10 +2825,17 @@ components:
         msg_id: {type: string, description: Persisted RFC Message-ID.}
         text_format:
           enum: [plain, flowed, markdown, patch]
-          x-status: planned
-        has_code: {type: boolean, x-status: planned}
+        has_code: {type: boolean}
       required:
       - id
+      - to_list
+      - cc_list
+      - bcc_list
+      - reply_to_list
+      - attachments_list
+      - is_read
+      - is_starred
+      - mailbox_status
       - type
       - subject
       - reply_to
@@ -2692,9 +2860,12 @@ components:
       - send_date
       - create_time
       - msg_id
+      - text_format
+      - has_code
       description: Only persisted/selected message headers are exposed here (Subject, From, Sender, Reply-To, To, Cc,
-        Bcc, send_date and Message-ID); there is no raw headers map. Legacy Email.MarshalJSON also omits the embedded
-        mailbox-only is_read, serial_number and ue_id fields.
+        Bcc, send_date and Message-ID); there is no raw headers map. Normalized address and attachment arrays are additional
+        fields; the original encodings are retained. Render text as plain text, not HTML. mailbox_status is the caller’s
+        per-folder status; serial_number and ue_id remain internal.
     AttachmentPreview:
       type: object
       required: [filename, language, charset, truncated, size, content]
@@ -2721,6 +2892,11 @@ components:
       type: object
       required: [to, subject]
       properties:
+        draft_id:
+          type: integer
+          minimum: 1
+          description: Optional owned draft ID. A sent or queued delivery removes that draft; a total failure keeps it.
+            Omitted attrs reuse its saved attachments.
         reply_to:
           type: array
           items: {$ref: '#/components/schemas/ComposeAddress'}
@@ -2752,6 +2928,64 @@ components:
         attrs:
           type: array
           items: {$ref: '#/components/schemas/ComposeAttachment'}
+    MarkReadRequest:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items: {type: integer, minimum: 1}
+          minItems: 1
+          maxItems: 500
+        is_read: {type: boolean, default: true}
+    StarRequest:
+      type: object
+      required: [ids, starred]
+      properties:
+        ids:
+          type: array
+          items: {type: integer, minimum: 1}
+          minItems: 1
+          maxItems: 500
+        starred: {type: boolean}
+    DraftSaveRequest:
+      type: object
+      properties:
+        id: {type: integer, minimum: 1}
+        from_address: {type: string}
+        to:
+          type: array
+          items: {$ref: '#/components/schemas/ComposeAddress'}
+        cc:
+          type: array
+          items: {$ref: '#/components/schemas/ComposeAddress'}
+        bcc:
+          type: array
+          items: {$ref: '#/components/schemas/ComposeAddress'}
+        subject: {type: string}
+        html: {type: string}
+        text: {type: string}
+        attrs:
+          type: array
+          items: {$ref: '#/components/schemas/ComposeAttachment'}
+          description: Omit to keep saved attachments when updating; an explicit empty array removes them.
+    DraftSaved:
+      type: object
+      required: [id]
+      properties:
+        id: {type: integer, minimum: 1}
+    DraftDeleteRequest:
+      type: object
+      properties:
+        id: {type: integer, minimum: 1}
+        ids:
+          type: array
+          items: {type: integer, minimum: 1}
+          minItems: 1
+          maxItems: 500
+      anyOf:
+      - required: [id]
+      - required: [ids]
     ForwardMailRequest:
       type: object
       required: [email_id, to]
@@ -2795,7 +3029,7 @@ components:
           type: string
           contentMediaType: application/json
           contentSchema: {$ref: '#/components/schemas/SearchTag'}
-          examples: ['{"type":0,"status":-1,"group_id":0}']
+          examples: ['{"type":0,"status":-1,"group_id":0}', '{"starred":true}']
           description: A JSON-encoded SearchTag string, not a JSON object. Use the tag returned by /api/group.
         children:
           type: [array, 'null']
@@ -3086,14 +3320,21 @@ components:
         refresh: {type: boolean, default: false}
     DnsRecord:
       type: object
-      required: [key, purpose, type, host, fqdn, value, ttl, required, status, actual, description]
+      required: [key, purpose, type, host, fqdn, zone, value, ttl, required, status, actual, description]
       properties:
         key: {type: string}
         purpose: {type: string}
         type: {type: string}
         host: {type: string, description: 'Relative name to enter in DNS: e.g. @, mail or default._domainkey.'}
         fqdn: {type: string}
+        zone: {type: string, description: DNS zone whose panel accepts the relative host (may differ for web hosts and
+            PTR).}
         value: {type: string}
+        value_chunks:
+          type: array
+          items: {type: string}
+          description: TXT chunks of at most 255 bytes each; concatenate without spaces before comparison.
+        matches: {type: boolean, description: 'PTR targets match the mail host for each probed family, when known.'}
         priority: {type: integer}
         ttl: {type: integer}
         required: {type: boolean}
@@ -3514,6 +3755,14 @@ components:
           errorNo: {const: 0}
           errorMsg: {const: ''}
           data: {$ref: '#/components/schemas/EmailDetail'}
+    DraftSavedSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/DraftSaved'}
     DeliveryResultSuccess:
       allOf:
       - {$ref: '#/components/schemas/Envelope'}

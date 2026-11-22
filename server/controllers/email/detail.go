@@ -39,9 +39,17 @@ func EmailDetail(ctx *context.Context, w http.ResponseWriter, req *http.Request)
 
 	// Rewrite inline URLs only for the HTTP representation; MIME forwarding
 	// and POP3 still need the original cid references.
-	email.Html.String = inlineAttachmentURLs(retData.ID, email.Html.String, email.Attachments)
+	email.Html.String = inlineAttachmentURLs(retData.ID, parsemail.SanitizeHTML(email.Html.String), email.Attachments)
 	email.Error.String = i18n.Delivery(ctx, "delivery_detail", email.Error.String)
-	response.NewSuccessResponse(email).FPrint(w)
+	if email.Text.String == "" && email.Html.String != "" {
+		email.Text.String = parsemail.HTMLText(email.Html.String)
+	}
+	view, err := enrichedDetail(&email.Email, email.IsRead == 1, email.IsStarred, email.MailboxStatus)
+	if err != nil {
+		response.Localized(ctx, response.ServerError, "internal_error").FPrint(w)
+		return
+	}
+	response.NewSuccessResponse(view).FPrint(w)
 }
 
 func inlineAttachmentURLs(emailID int, html, attachmentsJSON string) string {

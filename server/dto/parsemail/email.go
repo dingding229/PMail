@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/domain"
@@ -51,6 +52,7 @@ type Attachment struct {
 	ContentType string
 	Content     []byte
 	ContentID   string
+	Charset     string `json:",omitempty"`
 }
 
 // EmailAuthentication 表示收信时的发件人身份认证结果。
@@ -71,15 +73,16 @@ func NewEmailAuthentication(spfPassed, dkimPassed bool) *EmailAuthentication {
 
 // Email is the type used for email messages
 type Email struct {
-	ReplyTo []*User
-	From    *User
-	To      []*User
-	Bcc     []*User
-	Cc      []*User
-	Subject string
-	Text    []byte // Plaintext message (optional)
-	HTML    []byte // Html message (optional)
-	Sender  *User  // override From as SMTP envelope sender (optional)
+	ReplyTo    []*User
+	From       *User
+	To         []*User
+	Bcc        []*User
+	Cc         []*User
+	Subject    string
+	Text       []byte // Plaintext message (optional)
+	TextFormat string
+	HTML       []byte // Html message (optional)
+	Sender     *User  // override From as SMTP envelope sender (optional)
 	// Headers contains custom transport headers that must survive generated mail.
 	Headers        textproto.MIMEHeader
 	Attachments    []*Attachment
@@ -185,22 +188,28 @@ func init() {
 	relaxedPolicy.AllowElements("ul", "ol", "li")
 	relaxedPolicy.AllowElements("blockquote", "cite")
 
-	relaxedPolicy.AllowElements("table", "tbody", "thead", "tr", "td", "th")
+	relaxedPolicy.AllowElements("table", "tbody", "thead", "tfoot", "caption", "colgroup", "col", "tr", "td", "th")
+	relaxedPolicy.AllowElements("pre", "code", "kbd", "samp", "var", "tt")
+	codeClass := `((language|lang)-[A-Za-z0-9_+#.-]{1,32}|hljs|highlight|sourceCode)`
+	relaxedPolicy.AllowAttrs("class").Matching(regexp.MustCompile(`^`+codeClass+`([ \t]+`+codeClass+`)*$`)).OnElements("pre", "code")
+	relaxedPolicy.AllowStyles("white-space").Matching(regexp.MustCompile(`^(pre|pre-wrap|pre-line|break-spaces|normal|nowrap)$`)).OnElements("pre")
+	relaxedPolicy.AllowStyles("font-family").Matching(regexp.MustCompile(`^[A-Za-z0-9 ,_'"-]{1,128}$`)).OnElements("pre")
+	relaxedPolicy.AllowStyles("tab-size").Matching(regexp.MustCompile(`^([1-9]|[1-3][0-9])$`)).OnElements("pre")
+	relaxedPolicy.AllowStyles("color", "background-color", "text-align", "font-size", "font-weight", "font-style", "text-decoration", "border-collapse", "padding", "margin", "width", "height").OnElements("p", "div", "span", "table", "td", "th", "tr", "a", "img")
 	relaxedPolicy.AllowAttrs("width", "height", "border", "cellpadding", "cellspacing").OnElements("table")
 	relaxedPolicy.AllowAttrs("align", "valign", "colspan", "rowspan").OnElements("td", "th")
 	relaxedPolicy.AllowAttrs("align").OnElements("tr")
 
-	relaxedPolicy.AllowAttrs("style").Globally()
-	relaxedPolicy.AllowAttrs("class", "id").Globally()
+	relaxedPolicy.AllowAttrs("class").Matching(regexp.MustCompile(`^[A-Za-z0-9_ -]{1,240}$`)).OnElements("div", "span", "table", "thead", "tbody", "tr", "td", "th")
 
-	relaxedPolicy.AllowAttrs("bgcolor", "color", "background").Globally()
+	relaxedPolicy.AllowAttrs("bgcolor", "color").Globally()
 	relaxedPolicy.AllowAttrs("align").OnElements("p", "div", "h1", "h2", "h3", "h4", "h5", "h6")
 
 	relaxedPolicy.AllowElements("img")
-	relaxedPolicy.AllowAttrs("src", "alt", "width", "height", "style", "align").OnElements("img")
+	relaxedPolicy.AllowAttrs("src", "alt", "width", "height", "align").OnElements("img")
 
 	relaxedPolicy.AllowElements("a")
-	relaxedPolicy.AllowAttrs("href", "style").OnElements("a")
+	relaxedPolicy.AllowAttrs("href").OnElements("a")
 	relaxedPolicy.RequireNoReferrerOnLinks(true)
 	relaxedPolicy.AddTargetBlankToFullyQualifiedLinks(true)
 	relaxedPolicy.RequireNoFollowOnLinks(true)
@@ -208,12 +217,10 @@ func init() {
 	relaxedPolicy.AllowElements("font")
 	relaxedPolicy.AllowAttrs("size", "color", "face").OnElements("font")
 
-	relaxedPolicy.AllowElements("style")
-	relaxedPolicy.AllowAttrs("type").OnElements("style")
+	relaxedPolicy.RequireParseableURLs(true)
+	relaxedPolicy.AllowURLSchemes("http", "https", "mailto", "cid")
 
-	relaxedPolicy.AllowURLSchemes("http", "https", "mailto")
-
-	relaxedPolicy.SkipElementsContent("script", "object", "embed", "iframe", "frame", "frameset")
+	relaxedPolicy.SkipElementsContent("style", "script", "object", "embed", "iframe", "frame", "frameset")
 }
 
 // SanitizeHTML applies the same relaxed HTML policy used by inbound parsing.
@@ -225,22 +232,9 @@ func sanitizeHTML(htmlContent string) string {
 	}
 
 	sanitized := relaxedPolicy.Sanitize(htmlContent)
-
-	dataUrlRegex := regexp.MustCompile(`href\s*=\s*["']data:[^"']*["']`)
-	sanitized = dataUrlRegex.ReplaceAllString(sanitized, `rel="nofollow"`)
-
-	jsUrlRegex := regexp.MustCompile(`href\s*=\s*["']javascript:[^"']*["']`)
-	sanitized = jsUrlRegex.ReplaceAllString(sanitized, `rel="nofollow"`)
-
-	expressionRegex := regexp.MustCompile(`(?i)expression\s*\(.*?\)`)
-	sanitized = expressionRegex.ReplaceAllString(sanitized, "")
-
-	styleExpressionRegex := regexp.MustCompile(`(?i)style\s*=\s*["'][^"']*expression[^"']*["']`)
-	sanitized = styleExpressionRegex.ReplaceAllString(sanitized, "")
-
-	cssJsRegex := regexp.MustCompile(`(?i)javascript\s*:`)
-	sanitized = cssJsRegex.ReplaceAllString(sanitized, "")
-
+	if strings.Contains(htmlContent, "\r\n") && !strings.Contains(strings.ReplaceAll(htmlContent, "\r\n", ""), "\n") {
+		sanitized = strings.ReplaceAll(strings.ReplaceAll(sanitized, "\r\n", "\n"), "\n", "\r\n")
+	}
 	return sanitized
 }
 
@@ -302,6 +296,7 @@ func NewEmailFromModel(d models.Email) *Email {
 		To:          To,
 		Subject:     d.Subject,
 		Text:        []byte(d.Text.String),
+		TextFormat:  d.TextFormat,
 		HTML:        []byte(d.Html.String),
 		Sender:      Sender,
 		ReplyTo:     ReplyTo,
@@ -318,9 +313,9 @@ func NewEmailFromModel(d models.Email) *Email {
 
 func NewEmailFromReader(to []string, r io.Reader, size int) *Email {
 	ret := &Email{}
-	m, err := message.Read(r)
-	if err != nil {
-		log.Errorf("email解析错误！ Error %+v", err)
+	m, errRead := message.Read(r)
+	if errRead != nil {
+		log.Errorf("email解析错误！ Error %+v", errRead)
 	}
 
 	ret.Size = size
@@ -362,7 +357,7 @@ func NewEmailFromReader(to []string, r io.Reader, size int) *Email {
 	}
 
 	ret.Cc = buildUsers(m.Header.Values("Cc"))
-	ret.ReplyTo = buildUsers(m.Header.Values("ReplyTo"))
+	ret.ReplyTo = buildUsers(m.Header.Values("Reply-To"))
 	ret.Sender = buildUser(m.Header.Get("Sender"))
 	if ret.Sender == nil {
 		ret.Sender = ret.From
@@ -376,9 +371,16 @@ func NewEmailFromReader(to []string, r io.Reader, size int) *Email {
 		sendTime = time.Now()
 	}
 	ret.Date = sendTime.Format(time.RFC3339)
-	m.Walk(func(path []int, entity *message.Entity, err error) error {
-		return formatContent(entity, ret)
+	_ = m.Walk(func(path []int, entity *message.Entity, err error) error {
+		if len(path) == 0 {
+			err = errRead
+		}
+		return formatContent(entity, ret, err)
 	})
+	if len(ret.Text) == 0 && len(ret.HTML) != 0 {
+		ret.Text = []byte(HTMLText(string(ret.HTML)))
+	}
+	ret.TextFormat, _ = CodeMetadata(string(ret.Text), string(ret.HTML), ret.TextFormat)
 
 	if ret.From != nil {
 		ret.From.Name = strictPolicy.Sanitize(ret.From.Name)
@@ -388,73 +390,67 @@ func NewEmailFromReader(to []string, r io.Reader, size int) *Email {
 	return ret
 }
 
-func formatContent(entity *message.Entity, ret *Email) error {
-	contentType, p, err := entity.Header.ContentType()
-
-	if err != nil {
-		log.Errorf("email read error! %+v", err)
-		return err
+func formatContent(entity *message.Entity, ret *Email, walkErr error) error {
+	if entity == nil {
+		return nil
 	}
-	disp := strings.ToLower(entity.Header.Get("Content-Disposition"))
-	isAttachment := strings.Contains(disp, "attachment")
-	switch contentType {
-	case "multipart/alternative":
-	case "multipart/mixed":
-	case "text/plain":
-		body, _ := io.ReadAll(entity.Body)
-
-		if isAttachment {
-			fileName := getFileName(entity, p)
-
-			ret.Attachments = append(ret.Attachments, &Attachment{
-				Filename:    sanitizeText(fileName),
-				ContentType: sanitizeText(strings.TrimSpace(contentType)),
-				Content:     body,
-				ContentID:   strings.TrimPrefix(strings.TrimSuffix(entity.Header.Get("Content-Id"), ">"), "<"),
-			})
-
-			return nil
+	contentType, params, err := entity.Header.ContentType()
+	if err != nil || strings.HasPrefix(contentType, "multipart/") {
+		return nil
+	}
+	kind, _, _ := mime.ParseMediaType(entity.Header.Get("Content-Disposition"))
+	isAttachment := kind == "attachment"
+	body := readMIMEBody(entity.Body)
+	label := params["charset"]
+	if strings.HasPrefix(contentType, "text/") && label != "" && !message.IsUnknownCharset(walkErr) && utf8.Valid(body) {
+		// go-message has already decoded declared text charsets.
+		label = "utf-8"
+	}
+	addAttachment := func() {
+		filename := getFileName(entity, params)
+		if filename == "no_name_file" && patchMIME(contentType) {
+			filename = "inline.patch"
 		}
-
-		ret.Text = []byte(strictPolicy.Sanitize(string(body)))
-	case "text/html":
-		body, _ := io.ReadAll(entity.Body)
-
-		if isAttachment {
-			fileName := getFileName(entity, p)
-
-			ret.Attachments = append(ret.Attachments, &Attachment{
-				Filename:    sanitizeText(fileName),
-				ContentType: sanitizeText(strings.TrimSpace(contentType)),
-				Content:     body,
-				ContentID:   strings.TrimPrefix(strings.TrimSuffix(entity.Header.Get("Content-Id"), ">"), "<"),
-			})
-
-			return nil
+		ret.Attachments = append(ret.Attachments, &Attachment{Filename: sanitizeText(filename), ContentType: contentType, Content: body, Charset: label,
+			ContentID: strings.Trim(strings.TrimSpace(entity.Header.Get("Content-Id")), "<>")})
+	}
+	if isAttachment {
+		addAttachment()
+		return nil
+	}
+	switch {
+	case patchMIME(contentType):
+		text, _ := DecodeText(body, label)
+		if len(ret.Text) != 0 {
+			ret.Text = append(ret.Text, '\n')
+			ret.Text = append(ret.Text, text...)
+		} else {
+			ret.Text = []byte(text)
 		}
-
-		ret.HTML = []byte(relaxedPolicy.Sanitize(string(body)))
-	case "multipart/related":
-		entity.Walk(func(path []int, entity *message.Entity, err error) error {
-			if t, _, _ := entity.Header.ContentType(); t == "multipart/related" {
-				return nil
-			}
-			return formatContent(entity, ret)
-		})
+		ret.TextFormat = "patch"
+		addAttachment()
+	case contentType == "text/plain", contentType == "text/markdown", contentType == "text/x-markdown":
+		if ret.TextFormat == "patch" {
+			break
+		}
+		text, _ := DecodeText(body, label)
+		ret.TextFormat = "plain"
+		if strings.EqualFold(params["format"], "flowed") {
+			text = flowedText(text, strings.EqualFold(params["delsp"], "yes"))
+			ret.TextFormat = "flowed"
+		} else if contentType != "text/plain" {
+			ret.TextFormat = "markdown"
+		}
+		ret.Text = []byte(text)
+	case contentType == "text/html":
+		text, _ := DecodeText(body, label)
+		ret.HTML = []byte(sanitizeHTML(text))
 	default:
-		c, _ := io.ReadAll(entity.Body)
-		fileName := getFileName(entity, p)
-
-		ret.Attachments = append(ret.Attachments, &Attachment{
-			Filename:    sanitizeText(fileName),
-			ContentType: sanitizeText(strings.TrimSpace(contentType)),
-			Content:     c,
-			ContentID:   strings.TrimPrefix(strings.TrimSuffix(entity.Header.Get("Content-Id"), ">"), "<"),
-		})
+		addAttachment()
 	}
-
 	return nil
 }
+
 func getFileName(entity *message.Entity, p map[string]string) string {
 	fileName := p["name"]
 
@@ -463,6 +459,9 @@ func getFileName(entity *message.Entity, p map[string]string) string {
 	}
 
 	contentDisposition := entity.Header.Get("Content-Disposition")
+	if _, params, err := mime.ParseMediaType(contentDisposition); err == nil && params["filename"] != "" {
+		return params["filename"]
+	}
 
 	filenameRegex := regexp.MustCompile(`filename\s*=\s*"?([^";]+)"?`)
 	matches := filenameRegex.FindStringSubmatch(contentDisposition)
@@ -756,37 +755,31 @@ func (e *Email) BuildBytes(ctx *context.Context, dkim bool) []byte {
 		log.WithContext(ctx).Fatal(err)
 	}
 
-	if len(e.Text) > 0 {
+	if len(e.Text) > 0 || len(e.HTML) == 0 {
 		var th mail.InlineHeader
 		th.Header.Set("Content-Transfer-Encoding", "base64")
-		th.SetContentType("text/plain", map[string]string{
-			"charset": "UTF-8",
-		})
-		w, err := tw.CreatePart(th)
+		th.SetContentType("text/plain", map[string]string{"charset": "UTF-8"})
+		part, err := tw.CreatePart(th)
 		if err != nil {
 			log.Fatal(err)
 		}
-		io.WriteString(w, string(e.Text))
-		w.Close()
+		_, _ = part.Write(e.Text)
+		_ = part.Close()
 	}
 
-	var html mail.InlineHeader
-	html.SetContentType("text/html", map[string]string{
-		"charset": "UTF-8",
-	})
-	html.Header.Set("Content-Transfer-Encoding", "base64")
-	w, err := tw.CreatePart(html)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// Never put raw text/plain in a text/html part: code such as <script>
+	// is literal data and must not become markup when a message is rebuilt.
 	if len(e.HTML) > 0 {
-		io.WriteString(w, string(e.HTML))
-	} else {
-		io.WriteString(w, string(e.Text))
+		var body mail.InlineHeader
+		body.SetContentType("text/html", map[string]string{"charset": "UTF-8"})
+		body.Header.Set("Content-Transfer-Encoding", "base64")
+		part, err := tw.CreatePart(body)
+		if err != nil {
+			log.Fatal(err)
+		}
+		_, _ = part.Write(e.HTML)
+		_ = part.Close()
 	}
-
-	w.Close()
-
 	tw.Close()
 
 	// Create an attachment
@@ -794,7 +787,7 @@ func (e *Email) BuildBytes(ctx *context.Context, dkim bool) []byte {
 		var ah mail.AttachmentHeader
 		ah.Set("Content-Type", attachment.ContentType)
 		ah.SetFilename(attachment.Filename)
-		w, err = mw.CreateAttachment(ah)
+		w, err := mw.CreateAttachment(ah)
 		if err != nil {
 			log.WithContext(ctx).Fatal(err)
 			continue

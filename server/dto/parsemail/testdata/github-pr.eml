@@ -1,0 +1,9 @@
+From: sender@example.test
+To: reader@example.test
+Subject: code fixture
+MIME-Version: 1.0
+Content-Type: text/html; charset=UTF-8
+
+<h2>PR changes</h2><table class="blob-code" cellpadding="4"><tr><td colspan="2"><pre class="sourceCode" style="white-space:pre;tab-size:4;font-family:monospace" onclick="evil()"><code class="language-go hljs">if x &lt; 3 {
+	  fmt.Println(x)
+}</code></pre></td></tr></table><script>evil()</script>

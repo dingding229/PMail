@@ -1,0 +1,10 @@
+From: sender@example.test
+To: reader@example.test
+Subject: code fixture
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Example:
+```go
+	  x < y
+```

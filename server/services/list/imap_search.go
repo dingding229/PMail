@@ -218,7 +218,9 @@ func hasFlag(item *response.UserEmailUIDData, flag imap.Flag) bool {
 	case imap.FlagJunk:
 		return item.Status == 5
 	// For flags we don't track, return false
-	case imap.FlagAnswered, imap.FlagFlagged:
+	case imap.FlagFlagged:
+		return item.IsStarred
+	case imap.FlagAnswered:
 		return false
 	default:
 		return false

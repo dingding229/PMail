@@ -286,8 +286,8 @@ func TestNewEmailFromReader_XSS(t *testing.T) {
 	}
 
 	textContent := string(email.Text)
-	if strings.Contains(textContent, "<script>") {
-		t.Errorf("Text content should not contain any HTML tags, got: %q", textContent)
+	if !strings.Contains(textContent, "<script>") {
+		t.Errorf("text/plain should preserve literal code without placing it in HTML: %q", textContent)
 	}
 	if !strings.Contains(textContent, "Hello") || !strings.Contains(textContent, "World") {
 		t.Errorf("Text content should keep safe text, got: %q", textContent)
@@ -426,8 +426,8 @@ func TestXSSInMultipleFields(t *testing.T) {
 	}
 
 	textContent := string(email.Text)
-	if strings.Contains(textContent, "<script>") {
-		t.Errorf("Text content contains unsanitized script tag: %q", textContent)
+	if !strings.Contains(textContent, "<script>") || len(email.HTML) != 0 {
+		t.Errorf("the text/plain value must remain text, not be copied to HTML: %q", textContent)
 	}
 
 	if !strings.Contains(textContent, "Email body") || !strings.Contains(textContent, "content") {

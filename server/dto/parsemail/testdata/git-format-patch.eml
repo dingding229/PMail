@@ -1,0 +1,15 @@
+From: sender@example.test
+To: reader@example.test
+Subject: code fixture
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+From 524de790 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] Keep code
+
+diff --git a/test.go b/test.go
+--- a/test.go
++++ b/test.go
+@@ -1 +1 @@
+-	var i = 1
++	var i = 2

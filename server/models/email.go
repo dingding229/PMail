@@ -17,6 +17,7 @@ type Email struct {
 	Bcc          string         `xorm:"bcc text comment('密送')" json:"bcc"`
 	Cc           string         `xorm:"cc text comment('抄送')" json:"cc"`
 	Text         sql.NullString `xorm:"text text comment('文本内容')" json:"text"`
+	TextFormat   string         `xorm:"text_format varchar(12) notnull default('')" json:"-"`
 	Html         sql.NullString `xorm:"html mediumtext comment('html内容')" json:"html"`
 	Sender       string         `xorm:"sender text comment('发送人')" json:"sender"`
 	Attachments  string         `xorm:"attachments longtext comment('附件')" json:"attachments"`

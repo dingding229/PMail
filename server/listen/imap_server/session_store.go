@@ -1,70 +1,129 @@
 package imap_server
 
 import (
+	"slices"
+
+	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/services/del_email"
 	"github.com/Jinnrry/pmail/services/detail"
 	"github.com/Jinnrry/pmail/services/list"
-	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
-	"github.com/spf13/cast"
 )
 
-func (s *serverSession) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *imap.StoreFlags, options *imap.StoreOptions) error {
+func mailFlags(read, starred bool, status int8) []imap.Flag {
+	var flags []imap.Flag
+	if read {
+		flags = append(flags, imap.FlagSeen)
+	}
+	if starred {
+		flags = append(flags, imap.FlagFlagged)
+	}
+	if status == consts.EmailStatusDrafts {
+		flags = append(flags, imap.FlagDraft)
+	}
+	if status == consts.EmailStatusDel {
+		flags = append(flags, imap.FlagDeleted)
+	}
+	return flags
+}
+
+func flagChange(op imap.StoreFlagsOp, included bool) *bool {
+	if op == imap.StoreFlagsSet || included {
+		v := included && op != imap.StoreFlagsDel
+		return &v
+	}
+	return nil
+}
+
+func storeContains(set imap.NumSet, seq, uid, maxSeq, maxUID uint32) bool {
+	within := func(n, lo, hi, largest uint32) bool {
+		if lo == 0 {
+			lo = largest
+		}
+		if hi == 0 {
+			hi = largest
+		}
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		return n >= lo && n <= hi
+	}
+	switch set := set.(type) {
+	case imap.SeqSet:
+		for _, x := range set {
+			if within(seq, x.Start, x.Stop, maxSeq) {
+				return true
+			}
+		}
+	case imap.UIDSet:
+		for _, x := range set {
+			if within(uid, uint32(x.Start), uint32(x.Stop), maxUID) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func mailboxLimits(rows []*response.UserEmailUIDData) (maxSeq, maxUID uint32) {
+	for _, row := range rows {
+		maxUID = max(maxUID, uint32(row.ID))
+		maxSeq = max(maxSeq, uint32(row.SerialNumber))
+	}
+	return
+}
+
+func (s *serverSession) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *imap.StoreFlags, _ *imap.StoreOptions) error {
 	if err := s.requireSession(); err != nil {
 		return err
 	}
-
-	if flags.Op == imap.StoreFlagsSet {
-		return nil
-	}
-
-	var emailList []*response.EmailResponseData
-
-	switch numSet.(type) {
-	case imap.SeqSet:
-		seqSet := numSet.(imap.SeqSet)
-		for _, seq := range seqSet {
-			res := list.GetEmailListByGroup(s.ctx, s.currentMailbox, list.ImapListReq{
-				Star: cast.ToInt(seq.Start),
-				End:  cast.ToInt(seq.Stop),
-			}, false)
-			emailList = append(emailList, res...)
-		}
-
-	case imap.UIDSet:
-		uidSet := numSet.(imap.UIDSet)
-		for _, uid := range uidSet {
-			res := list.GetEmailListByGroup(s.ctx, s.currentMailbox, list.ImapListReq{
-				Star: cast.ToInt(uint32(uid.Start)),
-				End:  cast.ToInt(uint32(uid.Stop)),
-			}, true)
-			emailList = append(emailList, res...)
+	rows := list.GetUEListByUID(s.ctx, s.currentMailbox, 0, 0, nil)
+	maxSeq, maxUID := mailboxLimits(rows)
+	read := flagChange(flags.Op, slices.Contains(flags.Flags, imap.FlagSeen))
+	starred := flagChange(flags.Op, slices.Contains(flags.Flags, imap.FlagFlagged))
+	deleteFlag := slices.Contains(flags.Flags, imap.FlagDeleted) && flags.Op != imap.StoreFlagsDel
+	var ids, deleteUIDs []int
+	for _, row := range rows {
+		if storeContains(numSet, uint32(row.SerialNumber), uint32(row.ID), maxSeq, maxUID) {
+			ids = append(ids, row.EmailID)
+			if deleteFlag {
+				deleteUIDs = append(deleteUIDs, row.ID)
+			}
 		}
 	}
-
-	if array.InArray(imap.FlagSeen, flags.Flags) && flags.Op == imap.StoreFlagsAdd {
-		for _, data := range emailList {
-			detail.MakeRead(s.ctx, data.Id, flags.Op == imap.StoreFlagsAdd)
+	if err := detail.SetFlags(s.ctx, ids, read, starred); err != nil {
+		return &imap.Error{Type: imap.StatusResponseTypeNo, Text: "could not update message flags"}
+	}
+	if deleteFlag && len(deleteUIDs) > 0 {
+		if err := del_email.DelByUID(s.ctx, deleteUIDs); err != nil {
+			return &imap.Error{Type: imap.StatusResponseTypeNo, Text: "could not delete messages"}
 		}
 	}
-
-	if array.InArray(imap.FlagDeleted, flags.Flags) && flags.Op == imap.StoreFlagsAdd {
-		for _, data := range emailList {
-			s.deleteUidList = append(s.deleteUidList, data.UeId)
+	if !flags.Silent {
+		_, usingUID := numSet.(imap.UIDSet)
+		for _, row := range rows {
+			if !storeContains(numSet, uint32(row.SerialNumber), uint32(row.ID), maxSeq, maxUID) {
+				continue
+			}
+			seen, star, status := row.IsRead == 1, row.IsStarred, row.Status
+			if read != nil {
+				seen = *read
+			}
+			if starred != nil {
+				star = *starred
+			}
+			if deleteFlag {
+				status = consts.EmailStatusDel
+			}
+			writer := w.CreateMessage(uint32(row.SerialNumber))
+			if usingUID {
+				writer.WriteUID(imap.UID(row.ID))
+			}
+			writer.WriteFlags(mailFlags(seen, star, status))
+			writer.Close()
 		}
 	}
-
-	err := del_email.DelByUID(s.ctx, s.deleteUidList)
-	s.deleteUidList = []int{}
-
-	if err != nil {
-		return &imap.Error{
-			Type: imap.StatusResponseTypeNo,
-			Text: err.Error(),
-		}
-	}
-
 	return nil
 }

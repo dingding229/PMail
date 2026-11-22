@@ -13,7 +13,7 @@ import (
 
 // HasAuth 检查当前用户是否有某个邮件的auth
 func HasAuth(ctx *context.Context, email *models.Email) bool {
-	if ctx.IsAdmin {
+	if ctx.IsAdmin && email.Status != 4 {
 		return true
 	}
 	var ue []models.UserEmail

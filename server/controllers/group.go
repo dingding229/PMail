@@ -34,6 +34,10 @@ func GetUserGroup(ctx *context.Context, w http.ResponseWriter, req *http.Request
 			Tag:   dto.SearchTag{Type: 0, Status: -1, GroupId: 0}.ToString(),
 		},
 		{
+			Label: i18n.T(ctx, "starred"),
+			Tag:   dto.SearchTag{Type: -1, Status: -1, GroupId: -1, Starred: true}.ToString(),
+		},
+		{
 			Label: i18n.T(ctx, "outbox"),
 			Tag:   dto.SearchTag{Type: 1, Status: -1}.ToString(),
 		},

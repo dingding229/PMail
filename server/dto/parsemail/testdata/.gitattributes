@@ -1,0 +1,2 @@
+# RFC 5322 and RFC 3676 fixtures intentionally contain CRLF and trailing spaces.
+*.eml -text -whitespace

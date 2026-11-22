@@ -69,3 +69,18 @@ func serveAttachment(ctx *context.Context, w http.ResponseWriter, r *http.Reques
 		_, _ = w.Write(attachment.Content)
 	}
 }
+
+func PreviewAttachment(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "private, no-store")
+	att := lookupAttachment(ctx, r, true)
+	if att == nil {
+		apiError(ctx, w, http.StatusNotFound, response.ParamsError, "attachment_not_found")
+		return
+	}
+	preview, ok := parsemail.PreviewText(att)
+	if !ok {
+		apiError(ctx, w, http.StatusUnsupportedMediaType, response.ParamsError, "attachment_preview_unsupported")
+		return
+	}
+	success(w, preview)
+}

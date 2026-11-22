@@ -1,0 +1,13 @@
+From: sender@example.test
+To: reader@example.test
+Subject: code fixture
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8; format=flowed; delsp=yes
+
+One  
+paragraph.
+
+     if x < 3: 
+     	  do_work()
+-- 
+Signature

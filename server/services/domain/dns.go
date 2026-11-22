@@ -20,6 +20,7 @@ type DNSRecord struct {
 	LookupError string   `json:"lookup_error,omitempty"`
 }
 
+// DNS returns the legacy GET record format. New clients use Guide.
 func DNS(ctx context.Context, id int) ([]DNSRecord, error) {
 	row, ok := GetByID(id)
 	if !ok {

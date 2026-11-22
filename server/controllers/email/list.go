@@ -20,6 +20,8 @@ type emailListResponse struct {
 }
 
 type emilItem struct {
+	normalizedMail
+	IsStarred bool   `json:"is_starred"`
 	ID        int    `json:"id"`
 	Title     string `json:"title"`
 	Desc      string `json:"desc"`
@@ -50,14 +52,14 @@ func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	offset := 0
-	if retData.CurrentPage >= 1 {
-		offset = (retData.CurrentPage - 1) * retData.PageSize
-	}
-
 	if retData.PageSize == 0 {
 		retData.PageSize = 15
 	}
+	if retData.PageSize < 1 || retData.PageSize > 100 || retData.CurrentPage < 0 || retData.CurrentPage > 1000000 {
+		response.Localized(ctx, response.ParamsError, "invalid_pagination").FPrint(w)
+		return
+	}
+	offset := max(0, retData.CurrentPage-1) * retData.PageSize
 
 	var tagInfo dto.SearchTag = dto.SearchTag{
 		Type:    -1,
@@ -82,15 +84,17 @@ func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		authentication := parsemail.NewEmailAuthentication(email.SPFCheck == 1, email.DKIMCheck == 1)
 
 		lst = append(lst, &emilItem{
-			ID:        email.Id,
-			Title:     email.Subject,
-			Desc:      email.Text.String,
-			Datetime:  email.SendDate.Format("2006-01-02 15:04:05"),
-			IsRead:    email.IsRead == 1,
-			Sender:    sender,
-			To:        tos,
-			Dangerous: authentication.Dangerous,
-			Error:     i18n.Delivery(ctx, "delivery_detail", email.Error.String),
+			normalizedMail: normalizeMail(email.Email),
+			IsStarred:      email.IsStarred,
+			ID:             email.Id,
+			Title:          email.Subject,
+			Desc:           email.Text.String,
+			Datetime:       email.SendDate.Format("2006-01-02 15:04:05"),
+			IsRead:         email.IsRead == 1,
+			Sender:         sender,
+			To:             tos,
+			Dangerous:      authentication.Dangerous,
+			Error:          i18n.Delivery(ctx, "delivery_detail", email.Error.String),
 		})
 	}
 

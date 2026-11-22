@@ -37,30 +37,55 @@ func GetEmailDetail(ctx *context.Context, id int, markRead bool) (*response.Emai
 		return nil, errors.New("message not found")
 	}
 
+	if ue.ID == 0 && email.Status == 4 {
+		return nil, errors.New("Not authorized")
+	}
 	email.IsRead = ue.IsRead
+	email.IsStarred = ue.IsStarred
+	email.MailboxStatus = ue.Status
 
-	if markRead && ue.IsRead == 0 {
-		ue.IsRead = 1
-		_, err = db.Instance.Where("id=?", ue.ID).Update(&ue)
+	if markRead && ue.ID != 0 && ue.IsRead == 0 {
+		err = SetFlags(ctx, []int{id}, boolPtr(true), nil)
 		if err != nil {
 			log.WithContext(ctx).Errorf("SQL error:%+v", err)
+		} else {
+			email.IsRead = 1
 		}
 	}
 
 	return &email, nil
 }
 
-func MakeRead(ctx *context.Context, emailId int, hadRead bool) {
-	ue := models.UserEmail{
-		UserID:  ctx.UserID,
-		IsRead:  1,
-		EmailID: emailId,
-	}
-	if !hadRead {
-		ue.IsRead = 0
-	}
+func boolPtr(value bool) *bool { return &value }
 
-	db.Instance.Where("email_id = ? and user_id=?", emailId, ctx.UserID).Cols("is_read").Update(&ue)
+func MakeRead(ctx *context.Context, emailID int, read bool) {
+	if err := SetFlags(ctx, []int{emailID}, &read, nil); err != nil {
+		log.WithContext(ctx).Errorf("Set seen: %v", err)
+	}
+}
+
+// SetFlags updates only the caller's mailbox links, including any copies.
+func SetFlags(ctx *context.Context, ids []int, read, starred *bool) error {
+	values := map[string]any{}
+	if read != nil {
+		if *read {
+			values["is_read"] = 1
+		} else {
+			values["is_read"] = 0
+		}
+	}
+	if starred != nil {
+		values["is_starred"] = *starred
+	}
+	if ctx.UserID <= 0 || len(ids) == 0 || len(values) == 0 {
+		return nil
+	}
+	for start := 0; start < len(ids); start += 500 {
+		if _, err := db.Instance.Table(&models.UserEmail{}).Where("user_id = ?", ctx.UserID).In("email_id", ids[start:min(start+500, len(ids))]).Update(values); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func FindUE(ctx *context.Context, groupName string, req list.ImapListReq, uid bool) []models.UserEmail {

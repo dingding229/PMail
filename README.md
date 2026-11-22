@@ -291,6 +291,8 @@ docker compose down -v
 | `PMAIL_WEB_ROOT` | 静态前端构建产物目录，默认 `/work/web`；本地可用相对路径（相对进程工作目录） |
 | `PMAIL_CORS_ORIGINS` | 可选开发联调白名单，逗号分隔的完整源，例如 `http://localhost:5173`；默认禁用，不改变 Cookie SameSite |
 | `PMAIL_DEFAULT_LANG` | 引导接口提供的前端默认语言，默认 `zh-CN` |
+| `PMAIL_PUBLIC_IPV4` / `PMAIL_PUBLIC_IPV6` | 可选，DNS 向导使用的邮件服务器公网地址；未设置时分别从 IPv4/IPv6 出站接口探测并缓存一小时（默认 HTTPS 查询 ipify） |
+| `PMAIL_DNS_RESOLVER` | 可选，DNS 向导检测所用解析器的 `IP:端口`，IPv6 用方括号；省略时用系统解析器 |
 | `PMAIL_WEB_BIND` / `PMAIL_MAIL_BIND` | 宿主机网页和邮件绑定地址，网页默认 `172.17.0.1`（直连 `0.0.0.0`），邮件默认 `0.0.0.0` |
 | `PMAIL_HTTP_PORT` / `PMAIL_HTTPS_PORT` | 容器内网页监听端口，默认 `80/443` |
 | `PMAIL_HOST_*_PORT` | 宿主机端口映射，网页默认 `8080/8443`，直连覆盖为 `80/443` |
@@ -301,6 +303,10 @@ docker compose down -v
 | `PMAIL_CATCH_ALL` / `PMAIL_ALLOW_USER_ALIAS` | 未知本地收件人是否交给管理员；是否允许普通用户自助创建别名 |
 | `PMAIL_QUEUE_WORKERS` / `PMAIL_FETCH_WORKERS` | 外发队列和外部邮箱收取并发数；基础 Compose 不透传，需在自定义覆盖文件中传入容器环境 |
 | `PMAIL_FETCH_ALLOW_PRIVATE` | 允许外部邮箱连接私网，仅用于受控环境；基础 Compose 不透传 |
+
+### DNS 向导
+
+管理员从域名管理选择记录检测或下载 BIND 记录片段。邮件主机沿用每个域名的 `smtp.<domain>`，无需新增主机名变量；`PMAIL_WEB_DOMAIN` 只指定网页入口，反代模式下网页 A 记录应指向反代。合并导出片段时保留现有 SOA/NS，若已有 SPF 请编辑原记录而非新增。`imap`/`pop` 建议别名用于沿用现有协议和证书主机名；使用 PMail 自动 HTTP-01 邮件证书时，按上文把这些主机也解析到正确的服务。PTR 在公网 IP 服务商处修改。
 
 ## 常见问题
 

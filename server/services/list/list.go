@@ -45,10 +45,18 @@ func genSQL(ctx *context.Context, count bool, tagInfo dto.SearchTag, keyword str
 	} else if pop3List {
 		sql += `e.id,e.size from email e left join user_email ue on e.id=ue.email_id where ue.user_id = ? `
 	} else {
-		sql += `e.*,ue.is_read from email e left join user_email ue on e.id=ue.email_id where ue.user_id = ? `
+		sql += `e.*,ue.is_read,ue.is_starred,ue.status AS mailbox_status from email e left join user_email ue on e.id=ue.email_id where ue.user_id = ? `
 	}
 
-	if tagInfo.Status != -1 {
+	if tagInfo.Starred {
+		// IMAP COPY can create multiple mailbox links for one email. Use
+		// one live link per email in the virtual Starred folder.
+		sql += ` and ue.is_starred = ? and ue.status != 3
+			and not exists (select 1 from user_email older where older.user_id=ue.user_id
+			and older.email_id=ue.email_id and older.is_starred=ue.is_starred
+			and older.status != 3 and older.id < ue.id) `
+		sqlParams = append(sqlParams, true)
+	} else if tagInfo.Status != -1 {
 		switch tagInfo.Status {
 		case consts.EmailStatusDel:
 			sql += " and (ue.status =? or ue.group_id=?) "
@@ -70,15 +78,15 @@ func genSQL(ctx *context.Context, count bool, tagInfo dto.SearchTag, keyword str
 		}
 	}
 
-	if tagInfo.Type == consts.EmailTypeReceive {
+	if !tagInfo.Starred && tagInfo.Type == consts.EmailTypeReceive && tagInfo.Status != consts.EmailStatusDrafts {
 		sql += " and type =? "
 		sqlParams = append(sqlParams, tagInfo.Type)
-	} else if tagInfo.Type == consts.EmailTypeSend {
+	} else if !tagInfo.Starred && tagInfo.Type == consts.EmailTypeSend && tagInfo.Status != consts.EmailStatusDrafts {
 		sql += " and (type =? or ue.group_id=?)"
 		sqlParams = append(sqlParams, tagInfo.Type, models.Sent)
 	}
 
-	if tagInfo.GroupId != -1 {
+	if !tagInfo.Starred && tagInfo.GroupId != -1 {
 		if tagInfo.GroupId > 0 {
 			sql += " and ue.group_id=? "
 			sqlParams = append(sqlParams, tagInfo.GroupId)
@@ -102,7 +110,11 @@ func genSQL(ctx *context.Context, count bool, tagInfo dto.SearchTag, keyword str
 	if limit == 0 {
 		limit = 10
 	}
-	sql += " order by e.id desc"
+	if tagInfo.Status == consts.EmailStatusDrafts && !tagInfo.Starred {
+		sql += " order by e.send_date desc, e.id desc"
+	} else {
+		sql += " order by e.id desc"
+	}
 
 	if limit < 10000 {
 		sql += fmt.Sprintf(" LIMIT %d OFFSET %d ", limit, offset)
@@ -136,7 +148,7 @@ type ImapListReq struct {
 
 func GetUEListByUID(ctx *context.Context, groupName string, star, end int, uidList []int) []*response.UserEmailUIDData {
 	var ue []*response.UserEmailUIDData
-	sql := "SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE user_id = ? "
+	sql := "SELECT id,email_id, is_read, is_starred, status, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE user_id = ? "
 
 	params := []any{ctx.UserID}
 
@@ -154,19 +166,19 @@ func GetUEListByUID(ctx *context.Context, groupName string, star, end int, uidLi
 
 	switch groupName {
 	case "INBOX":
-		sql += " and status =?"
+		sql += " and status =? and group_id=0"
 		params = append(params, 0)
 	case "Sent Messages":
-		sql += " and status =?"
+		sql += " and status =? and group_id=0"
 		params = append(params, 1)
 	case "Drafts":
-		sql += " and status =?"
+		sql += " and status =? and group_id=0"
 		params = append(params, 4)
 	case "Deleted Messages":
 		sql += " and status =?"
 		params = append(params, 3)
 	case "Junk":
-		sql += " and status =?"
+		sql += " and status =? and group_id=0"
 		params = append(params, 5)
 	default:
 		groupNames := strings.Split(groupName, "/")
@@ -189,12 +201,12 @@ func GetUEListByUID(ctx *context.Context, groupName string, star, end int, uidLi
 func getEmailListByUidList(ctx *context.Context, groupName string, req ImapListReq, uid bool) []*response.EmailResponseData {
 	var ret []*response.EmailResponseData
 	var ue []*response.UserEmailUIDData
-	sql := fmt.Sprintf("SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and id in (%s) and status = ?)", array.Join(req.UidList, ","))
+	sql := fmt.Sprintf("SELECT id,email_id, is_read, is_starred, status, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and id in (%s) and status = ?)", array.Join(req.UidList, ","))
 	if req.Star > 0 && req.End != 0 {
-		sql = fmt.Sprintf("SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and id >=%d and id <= %d and status = ?)", req.Star, req.End)
+		sql = fmt.Sprintf("SELECT id,email_id, is_read, is_starred, status, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and id >=%d and id <= %d and status = ?)", req.Star, req.End)
 	}
 	if req.Star > 0 && req.End == 0 {
-		sql = fmt.Sprintf("SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and id >=%d and status = ?)", req.Star)
+		sql = fmt.Sprintf("SELECT id,email_id, is_read, is_starred, status, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and id >=%d and status = ?)", req.Star)
 	}
 
 	var err error
@@ -220,7 +232,7 @@ func getEmailListByUidList(ctx *context.Context, groupName string, req ImapListR
 		}
 		err = db.Instance.
 			SQL(fmt.Sprintf(
-				"SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and group_id = ?)) a WHERE serial_number in (%s)",
+				"SELECT * from (SELECT id,email_id, is_read, is_starred, status, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and group_id = ?)) a WHERE serial_number in (%s)",
 				array.Join(req.UidList, ","))).
 			Find(&ue, ctx.UserID, group.ID)
 	}
@@ -238,6 +250,8 @@ func getEmailListByUidList(ctx *context.Context, groupName string, req ImapListR
 	_ = db.Instance.Table("email").Select("*").Where(Eq{"id": emailIds}).Find(&ret)
 	for i, data := range ret {
 		ret[i].IsRead = ueMap[data.Id].IsRead
+		ret[i].IsStarred = ueMap[data.Id].IsStarred
+		ret[i].MailboxStatus = ueMap[data.Id].Status
 		ret[i].SerialNumber = ueMap[data.Id].SerialNumber
 		ret[i].UeId = ueMap[data.Id].ID
 	}
@@ -257,12 +271,12 @@ func GetEmailListByGroup(ctx *context.Context, groupName string, req ImapListReq
 	var ret []*response.EmailResponseData
 	var ue []*response.UserEmailUIDData
 
-	sql := fmt.Sprintf("SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and status = ? and group_id=0 )) a WHERE serial_number in (%s)", array.Join(req.UidList, ","))
+	sql := fmt.Sprintf("SELECT * from (SELECT id,email_id, is_read, is_starred, status, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and status = ? and group_id=0 )) a WHERE serial_number in (%s)", array.Join(req.UidList, ","))
 	if req.Star > 0 && req.End == 0 {
-		sql = fmt.Sprintf("SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and status = ? and group_id=0 )) a WHERE serial_number >= %d", req.Star)
+		sql = fmt.Sprintf("SELECT * from (SELECT id,email_id, is_read, is_starred, status, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and status = ? and group_id=0 )) a WHERE serial_number >= %d", req.Star)
 	}
 	if req.Star > 0 && req.End > 0 {
-		sql = fmt.Sprintf("SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and status = ? and group_id=0 )) a WHERE serial_number >= %d and serial_number <=%d", req.Star, req.End)
+		sql = fmt.Sprintf("SELECT * from (SELECT id,email_id, is_read, is_starred, status, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and status = ? and group_id=0 )) a WHERE serial_number >= %d and serial_number <=%d", req.Star, req.End)
 	}
 
 	switch groupName {
@@ -287,7 +301,7 @@ func GetEmailListByGroup(ctx *context.Context, groupName string, req ImapListReq
 		}
 		db.Instance.
 			SQL(fmt.Sprintf(
-				"SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and group_id = ?)) a WHERE serial_number in (%s)",
+				"SELECT * from (SELECT id,email_id, is_read, is_starred, status, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and group_id = ?)) a WHERE serial_number in (%s)",
 				array.Join(req.UidList, ","))).
 			Find(&ue, ctx.UserID, group.ID)
 	}
@@ -302,9 +316,37 @@ func GetEmailListByGroup(ctx *context.Context, groupName string, req ImapListReq
 	_ = db.Instance.Table("email").Select("*").Where(Eq{"id": emailIds}).Find(&ret)
 	for i, data := range ret {
 		ret[i].IsRead = ueMap[data.Id].IsRead
+		ret[i].IsStarred = ueMap[data.Id].IsStarred
+		ret[i].MailboxStatus = ueMap[data.Id].Status
 		ret[i].SerialNumber = ueMap[data.Id].SerialNumber
 		ret[i].UeId = ueMap[data.Id].ID
 	}
 
 	return ret
+}
+
+// LoadMailboxEmails keeps sequence order and the flags of each mailbox link.
+func LoadMailboxEmails(rows []*response.UserEmailUIDData) ([]*response.EmailResponseData, error) {
+	result := make([]*response.EmailResponseData, 0, len(rows))
+	for start := 0; start < len(rows); start += 500 {
+		batch := rows[start:min(start+500, len(rows))]
+		ids := make([]int, 0, len(batch))
+		for _, row := range batch {
+			ids = append(ids, row.EmailID)
+		}
+		var messages []models.Email
+		if err := db.Instance.In("id", ids).Find(&messages); err != nil {
+			return nil, err
+		}
+		byID := make(map[int]models.Email, len(messages))
+		for _, message := range messages {
+			byID[message.Id] = message
+		}
+		for _, row := range batch {
+			if message, ok := byID[row.EmailID]; ok {
+				result = append(result, &response.EmailResponseData{Email: message, IsRead: row.IsRead, IsStarred: row.IsStarred, MailboxStatus: row.Status, SerialNumber: row.SerialNumber, UeId: row.ID})
+			}
+		}
+	}
+	return result, nil
 }

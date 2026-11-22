@@ -2,7 +2,6 @@ package email
 
 import (
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	stderrors "errors"
 	"github.com/Jinnrry/pmail/consts"
@@ -19,11 +18,11 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cast"
 	"net/http"
-	"strings"
 	"time"
 )
 
 type sendRequest struct {
+	DraftID     int          `json:"draft_id"`
 	ReplyTo     []user       `json:"reply_to"`
 	From        user         `json:"from"`
 	FromAddress string       `json:"from_address"`
@@ -54,6 +53,18 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	log.WithContext(ctx).Infof("发送邮件")
+
+	var savedDraft models.Email
+	if reqData.DraftID != 0 {
+		tx := db.Instance.NewSession()
+		var err error
+		savedDraft, err = findDraft(tx, ctx.UserID, reqData.DraftID)
+		tx.Close()
+		if err != nil {
+			draftError(ctx, w, err)
+			return
+		}
+	}
 
 	if reqData.FromAddress != "" {
 		resolved, err := address.SendAddress(ctx.UserID, reqData.FromAddress)
@@ -139,25 +150,20 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	e.Text = []byte(reqData.Text)
 	e.HTML = []byte(reqData.HTML)
 	e.Subject = reqData.Subject
-	for _, att := range reqData.Attachments {
-		raw, dataURL := strings.CutPrefix(att.Data, "data:")
-		contentType, content, base64Data := strings.Cut(raw, ";base64,")
-		if !dataURL || !base64Data || contentType == "" {
-			response.Localized(ctx, response.ParamsError, "attachment_encoding_invalid").FPrint(w)
-			return
+	if reqData.DraftID != 0 && reqData.Attachments == nil {
+		if savedDraft.Attachments != "" {
+			if err := json.Unmarshal([]byte(savedDraft.Attachments), &e.Attachments); err != nil {
+				draftError(ctx, w, err)
+				return
+			}
 		}
-		decoded, err := base64.StdEncoding.DecodeString(content)
+	} else {
+		atts, err := decodeComposeAttachments(reqData.Attachments)
 		if err != nil {
-			log.WithContext(ctx).Errorf("附件解码错误！%v", err)
-			response.Localized(ctx, response.ParamsError, "att_err").FPrint(w)
+			attachmentError(ctx, w, err)
 			return
 		}
-		e.Attachments = append(e.Attachments, &parsemail.Attachment{
-			Filename:    att.Name,
-			ContentType: contentType,
-			Content:     decoded,
-		})
-
+		e.Attachments = atts
 	}
 
 	// Assign the message ID before measuring the final signed bytes so the
@@ -255,6 +261,14 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	if delivered+queued == 0 {
 		response.NewErrorResponse(response.ServerError, i18n.T(ctx, "send_fail"), result).FPrint(w)
 		return
+	}
+	if reqData.DraftID != 0 {
+		// Keep a draft on total delivery failure. A durable queued recipient
+		// counts as acceptance, even if its delivery has not completed yet.
+		if err := removeDrafts(ctx.UserID, []int{reqData.DraftID}); err != nil {
+			// Do not tell the client to re-send an accepted message.
+			log.WithContext(ctx).Errorf("Accepted send could not delete draft %d: %v", reqData.DraftID, err)
+		}
 	}
 	response.NewSuccessResponse(result).FPrint(w)
 }

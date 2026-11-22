@@ -114,27 +114,19 @@ func (s *serverSession) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, opt
 	if err := s.requireSession(); err != nil {
 		return err
 	}
-	switch numSet.(type) {
-	case imap.SeqSet:
-		seqSet := numSet.(imap.SeqSet)
-		for _, seq := range seqSet {
-			emailList := list.GetEmailListByGroup(s.ctx, s.currentMailbox, list.ImapListReq{
-				Star: cast.ToInt(seq.Start),
-				End:  cast.ToInt(seq.Stop),
-			}, false)
-			write(s.ctx, w, emailList, options)
-		}
-
-	case imap.UIDSet:
-		uidSet := numSet.(imap.UIDSet)
-		for _, uid := range uidSet {
-			emailList := list.GetEmailListByGroup(s.ctx, s.currentMailbox, list.ImapListReq{
-				Star: cast.ToInt(uint32(uid.Start)),
-				End:  cast.ToInt(uint32(uid.Stop)),
-			}, true)
-			write(s.ctx, w, emailList, options)
+	selected := list.GetUEListByUID(s.ctx, s.currentMailbox, 0, 0, nil)
+	maxSeq, maxUID := mailboxLimits(selected)
+	var matched []*response.UserEmailUIDData
+	for _, row := range selected {
+		if storeContains(numSet, uint32(row.SerialNumber), uint32(row.ID), maxSeq, maxUID) {
+			matched = append(matched, row)
 		}
 	}
+	emails, err := list.LoadMailboxEmails(matched)
+	if err != nil {
+		return &imap.Error{Type: imap.StatusResponseTypeNo, Text: "could not read mailbox messages"}
+	}
+	write(s.ctx, w, emails, options)
 	return nil
 }
 
@@ -263,20 +255,20 @@ func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*respons
 			emailContent := traEmail.BuildBytes(ctx, false)
 			writer.WriteRFC822Size(cast.ToInt64(len(emailContent)))
 		}
-		if options.Flags {
-			if email.IsRead == 1 {
-				writer.WriteFlags([]imap.Flag{imap.FlagSeen})
-			} else {
-				writer.WriteFlags([]imap.Flag{})
+		for _, section := range options.BodySection {
+			if !section.Peek && email.IsRead == 0 {
+				detail.MakeRead(ctx, email.Id, true)
+				email.IsRead = 1
+				break
 			}
+		}
+		if options.Flags {
+			writer.WriteFlags(mailFlags(email.IsRead == 1, email.IsStarred, email.MailboxStatus))
 		}
 		if options.InternalDate {
 			writer.WriteInternalDate(email.CreateTime)
 		}
 		for _, section := range options.BodySection {
-			if !section.Peek {
-				detail.MakeRead(ctx, email.Id, true)
-			}
 			emailContent := traEmail.BuildBytes(ctx, false)
 
 			// 优先检查是否请求 HEADER.FIELDS

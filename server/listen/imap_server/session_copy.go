@@ -74,10 +74,11 @@ func copy2defaultbox(ctx *context.Context, mails []*response.EmailResponseData, 
 	for _, email := range mails {
 
 		newUe := models.UserEmail{
-			UserID:  ctx.UserID,
-			EmailID: email.Id,
-			IsRead:  email.IsRead,
-			GroupId: 0,
+			UserID:    ctx.UserID,
+			EmailID:   email.Id,
+			IsRead:    email.IsRead,
+			IsStarred: email.IsStarred,
+			GroupId:   0,
 		}
 		switch dest {
 		case "Deleted Messages":
@@ -115,11 +116,12 @@ func copy2userbox(ctx *context.Context, mails []*response.EmailResponseData, des
 	var destUid []int
 	for _, email := range mails {
 		newUe := models.UserEmail{
-			UserID:  ctx.UserID,
-			EmailID: email.Id,
-			IsRead:  email.IsRead,
-			GroupId: groupInfo.ID,
-			Status:  email.Status,
+			UserID:    ctx.UserID,
+			EmailID:   email.Id,
+			IsRead:    email.IsRead,
+			IsStarred: email.IsStarred,
+			GroupId:   groupInfo.ID,
+			Status:    email.Status,
 		}
 		db.Instance.Insert(&newUe)
 		destUid = append(destUid, newUe.ID)

@@ -242,6 +242,7 @@ func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserI
 		Bcc:          json2string(email.Bcc),
 		Cc:           json2string(email.Cc),
 		Text:         sql.NullString{String: string(email.Text), Valid: true},
+		TextFormat:   email.TextFormat,
 		Html:         sql.NullString{String: string(email.HTML), Valid: true},
 		Sender:       json2string(email.Sender),
 		Attachments:  json2string(email.Attachments),

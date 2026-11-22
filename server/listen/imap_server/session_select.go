@@ -23,8 +23,8 @@ func (s *serverSession) Select(mailbox string, options *imap.SelectOptions) (*im
 	_, data := group.GetGroupStatus(s.ctx, s.currentMailbox, []string{"MESSAGES", "UNSEEN", "UIDNEXT", "UIDVALIDITY"})
 
 	ret := &imap.SelectData{
-		Flags:          []imap.Flag{imap.FlagSeen},
-		PermanentFlags: []imap.Flag{imap.FlagSeen},
+		Flags:          []imap.Flag{imap.FlagSeen, imap.FlagFlagged},
+		PermanentFlags: []imap.Flag{imap.FlagSeen, imap.FlagFlagged},
 		NumMessages:    cast.ToUint32(data["MESSAGES"]),
 		UIDNext:        imap.UID(data["UIDNEXT"]),
 		UIDValidity:    cast.ToUint32(data["UIDVALIDITY"]),

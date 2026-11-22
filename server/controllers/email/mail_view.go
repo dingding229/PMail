@@ -1,0 +1,83 @@
+package email
+
+import (
+	"encoding/json"
+
+	"github.com/Jinnrry/pmail/dto/parsemail"
+	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/attachments"
+)
+
+type mailAddress struct {
+	Name    string `json:"name"`
+	Address string `json:"address"`
+}
+
+type attachmentInfo struct {
+	Index       int    `json:"index"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Size        int    `json:"size"`
+	ContentID   string `json:"content_id"`
+	Inline      bool   `json:"inline"`
+	Previewable bool   `json:"previewable"`
+}
+
+type normalizedMail struct {
+	ToList          []mailAddress    `json:"to_list"`
+	CcList          []mailAddress    `json:"cc_list"`
+	BccList         []mailAddress    `json:"bcc_list"`
+	ReplyToList     []mailAddress    `json:"reply_to_list"`
+	AttachmentsList []attachmentInfo `json:"attachments_list"`
+}
+
+func normalizeMail(row models.Email) normalizedMail {
+	addresses := func(value string) []mailAddress {
+		var values []parsemail.User
+		_ = json.Unmarshal([]byte(value), &values)
+		out := make([]mailAddress, 0, len(values))
+		for _, item := range values {
+			if item.EmailAddress != "" {
+				out = append(out, mailAddress{item.Name, item.EmailAddress})
+			}
+		}
+		return out
+	}
+	var stored []parsemail.Attachment
+	_ = json.Unmarshal([]byte(row.Attachments), &stored)
+	files := make([]attachmentInfo, 0, len(stored))
+	for i, att := range stored {
+		_, inline := attachments.InlineContentType(att.ContentType)
+		files = append(files, attachmentInfo{i, att.Filename, att.ContentType, len(att.Content), att.ContentID, inline, parsemail.Previewable(&att)})
+	}
+	return normalizedMail{addresses(row.To), addresses(row.Cc), addresses(row.Bcc), addresses(row.ReplyTo), files}
+}
+
+// The legacy model has a custom JSON marshaler. Merge the extra HTTP fields
+// without changing the original field encodings or rounding numeric IDs.
+func enrichedDetail(row *models.Email, read, starred bool, mailboxStatus int8) (map[string]json.RawMessage, error) {
+	base, err := row.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	var view map[string]json.RawMessage
+	if err := json.Unmarshal(base, &view); err != nil {
+		return nil, err
+	}
+	format, hasCode := parsemail.CodeMetadata(row.Text.String, row.Html.String, row.TextFormat)
+	extra, err := json.Marshal(struct {
+		normalizedMail
+		IsRead        bool   `json:"is_read"`
+		IsStarred     bool   `json:"is_starred"`
+		TextFormat    string `json:"text_format"`
+		HasCode       bool   `json:"has_code"`
+		MailboxStatus int8   `json:"mailbox_status"`
+	}{normalizeMail(*row), read, starred, format, hasCode, mailboxStatus})
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(extra, &view); err != nil {
+		return nil, err
+	}
+	return view, nil
+}
