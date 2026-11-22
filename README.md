@@ -379,3 +379,32 @@ Vite 在 `http://localhost:5173` 提供页面，将 `/api`（包括附件）代�
 - 新 API Token 默认 `read`、90 天过期，可选择 `send`（含读取及发信/草稿）、`admin`（仅管理员）或显式 `never_expires: true`。旧令牌保留权限并有 `legacy_scope` 弃用标识；请轮换。管理员默认不能读取其他人的邮件。
 - 入站详情和列表的 `auth_results` 给出 SPF、DKIM、DMARC 原始判定与理由。DMARC 策略作为证据记录，不自动替认证失败邮件新增拒收/隔离动作。已存旧邮件无详细证据时返回 `null`。
 - 外部邮箱的主机、端口、协议、用户和 TLS 信任设置变更时，所有者须重新输入密码；管理员不能更改其他用户的外部端点。旧凭据将在同步时重新加密。TLS/DKIM 私钥与注册密钥应为服务用户拥有的常规文件，Unix 上应为 `0600`；若用证书挂载，提供实际私钥文件而非最终路径为软链接的文件。
+
+### Telegram 私聊推送
+
+在管理后台验证并保存自己的 Bot Token（加密保存，不能从 API 读回），再到个人设置生成绑定链接。在 Telegram 私聊中完成 `/start`，发送 `/stop` 可解绑。PMail 通过长轮询接收绑定，不需要入站端口。可设置邮件分组、只推验证码、是否推送垃圾邮件、摘要和免打扰时段。**启用推送即允许将对应邮件标题、发件人及识别出的验证码发送给 Telegram**；摘要默认关闭，高危或未分析邮件不发送摘要。
+
+| 环境变量 | 用途 |
+|---|---|
+| `PMAIL_TELEGRAM_PROXY` | 可选，优先于管理后台保存的代理，支持 `http`、`https`、`socks5`。 |
+| `PMAIL_TELEGRAM_API_BASE` | 可选可信 Bot API 基址，默认 `https://api.telegram.org`；非回环必须用 HTTPS。 |
+| `PMAIL_PUBLIC_URL` | 可选，构建 “打开邮箱” 链接的公共 Web 地址。 |
+| `PMAIL_UPDATE_CHECK` | 设为 `0` 不对 GitHub 发起更新检查；默认每六小时检查。 |
+| `PMAIL_UPDATER_ENABLED` / `PMAIL_UPDATER_TOKEN` | 在线更新器开关与内部 HTTP 令牌，默认关闭。 |
+
+### 可选在线更新器
+
+手动更新仍可用：`docker compose pull`，然后 `docker compose up -d`。如希望在管理后台更新，先备份数据库与配置；在含本仓库源码的标准 Compose 部署目录使用以下配置。需要包含 `Dockerfile.updater` 和 `server/cmd/pmail-updater/`，只下载主 Compose 文件不足以构建 sidecar。
+
+```dotenv
+PMAIL_UPDATER_ENABLED=1
+PMAIL_UPDATER_TOKEN=<至少 32 字符的随机私密令牌>
+```
+
+```bash
+# 生成令牌后填入 .env，不提交到仓库
+openssl rand -hex 32
+docker compose --profile updater up -d --build updater pmail
+```
+
+sidecar 没有宿主机端口，只在私有网络接受受令牌保护的请求。它使用同一 Compose 项目和标准部署文件，只拉取、重建 `pmail` 服务；不会自动切换固定镜像标签。不支持依赖自定义 Compose 文件列表或相对宿主机绑定路径的部署，这些安装应继续手动更新。**挂载 Docker socket 等价于给 sidecar 宿主机级权限**，内部网络与令牌不能削弱这一点；仅在信任 sidecar、镜像和宿主机 Compose 文件时启用。PMail 主服务不挂 socket。设置 `PMAIL_UPDATER_ENABLED=0` 并停止 `updater` 可关闭该功能。

@@ -3050,6 +3050,1197 @@ paths:
           $ref: '#/components/responses/C8JsonMediaTypeRequired'
         '500':
           $ref: '#/components/responses/C8InboundInternalError'
+  /api/admin/telegram:
+    get:
+      operationId: c9TelegramAdminGet
+      tags:
+      - Telegram
+      x-permission: admin
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    $ref: '#/components/schemas/C9AdminTelegram'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+    put:
+      operationId: c9TelegramAdminPut
+      tags:
+      - Telegram
+      x-permission: admin
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      - telegram_token_invalid
+      - telegram_proxy_invalid
+      - json_media_type_required
+      - inbound_invalid_parameters
+      - inbound_payload_too_large
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/C9AdminTelegramPatch'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    $ref: '#/components/schemas/C9AdminTelegram'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '400':
+          description: 'Localized errors: telegram_token_invalid, telegram_proxy_invalid, inbound_invalid_parameters.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '413':
+          description: 'Localized errors: inbound_payload_too_large.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '415':
+          description: 'Localized errors: json_media_type_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+  /api/admin/telegram/test:
+    post:
+      operationId: c9TelegramAdminTest
+      tags:
+      - Telegram
+      x-permission: admin
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      - telegram_unavailable
+      - telegram_not_configured
+      - telegram_not_bound
+      - telegram_bind_expired
+      - telegram_rate_limited
+      - telegram_token_invalid
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    $ref: '#/components/schemas/C9TelegramTest'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '400':
+          description: 'Localized errors: telegram_token_invalid.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '409':
+          description: 'Localized errors: telegram_not_configured, telegram_not_bound, telegram_bind_expired.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '429':
+          description: 'Localized errors: telegram_rate_limited.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '502':
+          description: 'Localized errors: telegram_unavailable.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+  /api/settings/telegram:
+    get:
+      operationId: c9TelegramGet
+      tags:
+      - Telegram
+      x-permission: user
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    $ref: '#/components/schemas/C9TelegramUser'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+    put:
+      operationId: c9TelegramPut
+      tags:
+      - Telegram
+      x-permission: user
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      - telegram_invalid_parameters
+      - json_media_type_required
+      - inbound_invalid_parameters
+      - inbound_payload_too_large
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/C9TelegramFilterInput'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    $ref: '#/components/schemas/C9TelegramUser'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '400':
+          description: 'Localized errors: telegram_invalid_parameters, inbound_invalid_parameters.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '413':
+          description: 'Localized errors: inbound_payload_too_large.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '415':
+          description: 'Localized errors: json_media_type_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+    delete:
+      operationId: c9TelegramUnbind
+      tags:
+      - Telegram
+      x-permission: owner
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    type: 'null'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+  /api/settings/telegram/bind:
+    post:
+      operationId: c9TelegramBind
+      tags:
+      - Telegram
+      x-permission: user
+      description: Returns an expiring single-use private-chat binding link. No plaintext code is stored.
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      - telegram_unavailable
+      - telegram_not_configured
+      - telegram_not_bound
+      - telegram_bind_expired
+      - telegram_rate_limited
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    $ref: '#/components/schemas/C9TelegramBind'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '409':
+          description: 'Localized errors: telegram_not_configured, telegram_not_bound, telegram_bind_expired.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '429':
+          description: 'Localized errors: telegram_rate_limited.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '502':
+          description: 'Localized errors: telegram_unavailable.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+  /api/settings/telegram/test:
+    post:
+      operationId: c9TelegramTest
+      tags:
+      - Telegram
+      x-permission: user
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      - telegram_unavailable
+      - telegram_not_configured
+      - telegram_not_bound
+      - telegram_bind_expired
+      - telegram_rate_limited
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    type: 'null'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '409':
+          description: 'Localized errors: telegram_not_configured, telegram_not_bound, telegram_bind_expired.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '429':
+          description: 'Localized errors: telegram_rate_limited.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '502':
+          description: 'Localized errors: telegram_unavailable.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+  /api/admin/update:
+    get:
+      operationId: c9UpdateInfo
+      tags:
+      - Updates
+      x-permission: admin
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    $ref: '#/components/schemas/C9UpdateInfo'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+  /api/admin/update/check:
+    post:
+      operationId: c9UpdateCheck
+      tags:
+      - Updates
+      x-permission: admin
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      - update_check_rate_limited
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    $ref: '#/components/schemas/C9UpdateInfo'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '429':
+          description: 'Localized errors: update_check_rate_limited.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+  /api/admin/update/apply:
+    post:
+      operationId: c9UpdateApply
+      tags:
+      - Updates
+      x-permission: admin
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      - updater_disabled
+      - updater_unavailable
+      - updater_busy
+      responses:
+        '202':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    $ref: '#/components/schemas/C9UpdateJobRef'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '409':
+          description: 'Localized errors: updater_disabled, updater_busy.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '502':
+          description: 'Localized errors: updater_unavailable.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+  /api/admin/update/apply/{job_id}:
+    get:
+      operationId: c9UpdateJob
+      tags:
+      - Updates
+      x-permission: admin
+      parameters:
+      - in: path
+        name: job_id
+        required: true
+        schema:
+          type: string
+          pattern: ^[a-f0-9]{32}$
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      - updater_disabled
+      - updater_unavailable
+      - update_job_not_found
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    $ref: '#/components/schemas/C9UpdateJob'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '404':
+          description: 'Localized errors: update_job_not_found.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '409':
+          description: 'Localized errors: updater_disabled.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '502':
+          description: 'Localized errors: updater_unavailable.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+  /api/compose/inline-image:
+    post:
+      operationId: c9InlineUpload
+      tags:
+      - Compose
+      x-permission: user
+      description: Multipart field file; at most 10 MiB. Only supported raster magic bytes are accepted.
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      - inline_image_too_large
+      - inline_image_type
+      - inline_image_quota
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+              - file
+              additionalProperties: false
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    $ref: '#/components/schemas/C9InlineUpload'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '409':
+          description: 'Localized errors: inline_image_quota.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '413':
+          description: 'Localized errors: inline_image_too_large.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '415':
+          description: 'Localized errors: inline_image_type.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+  /api/compose/inline-image/{cid}:
+    get:
+      operationId: c9InlinePreview
+      tags:
+      - Compose
+      x-permission: owner
+      parameters:
+      - in: path
+        name: cid
+        required: true
+        schema:
+          type: string
+          pattern: ^[0-9a-f]{32}@pmail\.inline$
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      - compose_not_found
+      responses:
+        '200':
+          description: Authenticated raster preview; never cached.
+          headers:
+            Cache-Control:
+              schema:
+                const: private, no-store
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/gif:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '404':
+          description: 'Localized errors: compose_not_found.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+  /api/settings/signatures:
+    get:
+      operationId: c9SignaturesList
+      tags:
+      - Compose
+      x-permission: user
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/C9Signature'
+                    maxItems: 20
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+    post:
+      operationId: c9SignatureCreate
+      tags:
+      - Compose
+      x-permission: user
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      - signature_invalid
+      - signature_limit
+      - json_media_type_required
+      - inbound_invalid_parameters
+      - inbound_payload_too_large
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/C9SignatureInput'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    $ref: '#/components/schemas/C9Signature'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '400':
+          description: 'Localized errors: signature_invalid, inbound_invalid_parameters.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '409':
+          description: 'Localized errors: signature_limit.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '413':
+          description: 'Localized errors: inbound_payload_too_large.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '415':
+          description: 'Localized errors: json_media_type_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+  /api/settings/signatures/{id}:
+    put:
+      operationId: c9SignatureUpdate
+      tags:
+      - Compose
+      x-permission: owner
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      - signature_invalid
+      - compose_not_found
+      - json_media_type_required
+      - inbound_invalid_parameters
+      - inbound_payload_too_large
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/C9SignatureInput'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    $ref: '#/components/schemas/C9Signature'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '400':
+          description: 'Localized errors: signature_invalid, inbound_invalid_parameters.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '404':
+          description: 'Localized errors: compose_not_found.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '413':
+          description: 'Localized errors: inbound_payload_too_large.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '415':
+          description: 'Localized errors: json_media_type_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+    delete:
+      operationId: c9SignatureDelete
+      tags:
+      - Compose
+      x-permission: owner
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      x-i18n-error-codes:
+      - inbound_login_required
+      - inbound_permission_denied
+      - internal_error
+      - inbound_internal_error
+      - compose_not_found
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorNo:
+                    const: 0
+                  errorMsg:
+                    const: ''
+                  data:
+                    type: 'null'
+                required:
+                - errorNo
+                - errorMsg
+                - data
+                additionalProperties: false
+        '401':
+          description: 'Localized errors: inbound_login_required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '403':
+          description: 'Localized errors: inbound_permission_denied.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '404':
+          description: 'Localized errors: compose_not_found.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
+        '500':
+          description: 'Localized errors: internal_error, inbound_internal_error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/C9Error'
 components:
   securitySchemes:
     SetupToken:
@@ -3566,6 +4757,367 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error404EmptyData'}
   schemas:
+    C9AdminTelegram:
+      type: object
+      properties:
+        configured:
+          type: boolean
+        bot_username:
+          oneOf:
+          - type: string
+          - type: 'null'
+        proxy_set:
+          type: boolean
+        webhook_mode:
+          const: polling
+      required:
+      - configured
+      - bot_username
+      - proxy_set
+      - webhook_mode
+      additionalProperties: false
+    C9AdminTelegramPatch:
+      type: object
+      properties:
+        bot_token:
+          type: string
+          description: Omit to keep; empty clears. Never echoed.
+        proxy:
+          oneOf:
+          - type: string
+            description: http, https or socks5. Null or empty clears the stored proxy.
+          - type: 'null'
+      required: []
+      additionalProperties: false
+    C9TelegramTest:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        bot_username:
+          type: string
+        latency_ms:
+          type: integer
+          minimum: 0
+      required:
+      - ok
+      - bot_username
+      - latency_ms
+      additionalProperties: false
+    C9QuietHours:
+      type: object
+      properties:
+        start:
+          type: string
+          pattern: ^(?:[01][0-9]|2[0-3]):[0-5][0-9]$
+        end:
+          type: string
+          pattern: ^(?:[01][0-9]|2[0-3]):[0-5][0-9]$
+        tz:
+          type: string
+          maxLength: 80
+          description: IANA TZ name
+      required:
+      - start
+      - end
+      - tz
+      additionalProperties: false
+    C9TelegramFilters:
+      type: object
+      properties:
+        group_ids:
+          oneOf:
+          - type: array
+            items:
+              type: integer
+              minimum: 0
+            maxItems: 100
+          - type: 'null'
+        only_verification:
+          type: boolean
+        include_spam:
+          type: boolean
+        include_preview:
+          type: boolean
+        quiet_hours:
+          oneOf:
+          - $ref: '#/components/schemas/C9QuietHours'
+          - type: 'null'
+      required:
+      - group_ids
+      - only_verification
+      - include_spam
+      - include_preview
+      - quiet_hours
+      additionalProperties: false
+    C9TelegramUser:
+      type: object
+      properties:
+        available:
+          type: boolean
+        bound:
+          type: boolean
+        chat_title:
+          oneOf:
+          - type: string
+          - type: 'null'
+        bound_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        filters:
+          $ref: '#/components/schemas/C9TelegramFilters'
+      required:
+      - available
+      - bound
+      - chat_title
+      - bound_at
+      - filters
+      additionalProperties: false
+    C9TelegramFilterInput:
+      type: object
+      properties:
+        filters:
+          $ref: '#/components/schemas/C9TelegramFilters'
+      required:
+      - filters
+      additionalProperties: false
+    C9TelegramBind:
+      type: object
+      properties:
+        code:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        deep_link:
+          type: string
+          format: uri
+      required:
+      - code
+      - expires_at
+      - deep_link
+      additionalProperties: false
+    C9UpdateInfo:
+      type: object
+      properties:
+        current:
+          type: string
+        latest:
+          oneOf:
+          - type: string
+          - type: 'null'
+        has_update:
+          type: boolean
+        checked_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        check_error:
+          oneOf:
+          - type: string
+            description: Localized display message.
+          - type: 'null'
+        releases:
+          type: array
+          items:
+            $ref: '#/components/schemas/C9Release'
+          maxItems: 20
+        updater:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            kind:
+              oneOf:
+              - type: string
+              - type: 'null'
+          required:
+          - enabled
+          - kind
+          additionalProperties: false
+        manual_commands:
+          type: array
+          items:
+            type: string
+      required:
+      - current
+      - latest
+      - has_update
+      - checked_at
+      - check_error
+      - releases
+      - updater
+      - manual_commands
+      additionalProperties: false
+    C9Release:
+      type: object
+      properties:
+        version:
+          type: string
+          pattern: ^v0\.[0-9]+\.[0-9]+$
+        published_at:
+          type: string
+          description: RFC3339 when available; empty for an embedded entry without a publication date.
+        notes_markdown:
+          type: string
+          description: Render Markdown without raw HTML and add rel="noopener noreferrer" to links.
+        url:
+          type: string
+          format: uri
+        is_current:
+          type: boolean
+      required:
+      - version
+      - published_at
+      - notes_markdown
+      - url
+      - is_current
+      additionalProperties: false
+    C9UpdateJobRef:
+      type: object
+      properties:
+        job_id:
+          type: string
+          pattern: ^[a-f0-9]{32}$
+      required:
+      - job_id
+      additionalProperties: false
+    C9UpdateJob:
+      type: object
+      properties:
+        state:
+          type: string
+          enum:
+          - pending
+          - pulling
+          - restarting
+          - done
+          - failed
+        message:
+          oneOf:
+          - type: string
+          - type: 'null'
+      required:
+      - state
+      - message
+      additionalProperties: false
+    C9InlineRef:
+      type: object
+      properties:
+        cid:
+          type: string
+          minLength: 1
+          maxLength: 255
+      required:
+      - cid
+      additionalProperties: false
+    C9InlineUpload:
+      type: object
+      properties:
+        cid:
+          type: string
+          pattern: ^[0-9a-f]{32}@pmail\.inline$
+        url:
+          type: string
+        filename:
+          type: string
+        content_type:
+          type: string
+          enum:
+          - image/png
+          - image/jpeg
+          - image/gif
+          - image/webp
+        size:
+          type: integer
+          minimum: 1
+          maximum: 10485760
+      required:
+      - cid
+      - url
+      - filename
+      - content_type
+      - size
+      additionalProperties: false
+    C9SignatureInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        html:
+          type: string
+          description: Sanitized HTML. Limit is 64 KiB in UTF-8, not a character count.
+        address_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+          maxItems: 100
+          uniqueItems: true
+        is_default:
+          type: boolean
+      required:
+      - name
+      - html
+      - address_ids
+      - is_default
+      additionalProperties: false
+    C9Signature:
+      type: object
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        html:
+          type: string
+          description: Sanitized HTML. Limit is 64 KiB in UTF-8, not a character count.
+        address_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+          maxItems: 100
+          uniqueItems: true
+        is_default:
+          type: boolean
+      required:
+      - id
+      - name
+      - html
+      - address_ids
+      - is_default
+      additionalProperties: false
+    C9Error:
+      type: object
+      properties:
+        errorNo:
+          type: integer
+          minimum: 1
+        errorMsg:
+          type: string
+          minLength: 1
+        data:
+          type: object
+          properties:
+            code:
+              type: string
+          required:
+          - code
+          additionalProperties: false
+      required:
+      - errorNo
+      - errorMsg
+      - data
+      additionalProperties: false
     MailSpamSummary:
       type: object
       required:
@@ -3596,6 +5148,9 @@ components:
       required:
       - code
       properties:
+        kind:
+          const: pickup
+          description: Present only for pickup codes.
         code:
           type: string
           minLength: 1
@@ -3688,6 +5243,9 @@ components:
       - confidence
       - source
       properties:
+        kind:
+          const: pickup
+          description: Present only for pickup codes.
         code:
           type: string
           minLength: 1
@@ -4479,6 +6037,12 @@ components:
       type: object
       required: [to, subject]
       properties:
+        inline_images:
+          type: array
+          items:
+            $ref: '#/components/schemas/C9InlineRef'
+          maxItems: 20
+          description: Each referenced CID must be authorized for the current user and used by an HTML image.
         draft_id:
           type: integer
           minimum: 1
@@ -4538,6 +6102,12 @@ components:
     DraftSaveRequest:
       type: object
       properties:
+        inline_images:
+          type: array
+          items:
+            $ref: '#/components/schemas/C9InlineRef'
+          maxItems: 20
+          description: Each referenced CID must be authorized for the current user and used by an HTML image.
         id: {type: integer, minimum: 1}
         from_address: {type: string}
         to:
@@ -4582,6 +6152,12 @@ components:
       type: object
       required: [email_id, to]
       properties:
+        inline_images:
+          type: array
+          items:
+            $ref: '#/components/schemas/C9InlineRef'
+          maxItems: 20
+          description: Each referenced CID must be authorized for the current user and used by an HTML image.
         email_id: {type: integer, minimum: 1}
         to:
           type: array

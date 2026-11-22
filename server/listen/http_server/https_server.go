@@ -92,7 +92,7 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 
 		ctx := i18n.ForRequest(r)
 		ctx.SetValue(context.LogID, id.GenLogID())
-		isInbound := controllers.InboundAPIPath(r.URL.Path)
+		isInbound := controllers.InboundAPIPath(r.URL.Path) || controllers.C9Path(r.URL.Path)
 		refuse := func(status, code int, key string) {
 			if isInbound {
 				if status == http.StatusForbidden {
@@ -108,7 +108,7 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 			refuse(http.StatusMethodNotAllowed, response.ParamsError, "method_not_allowed")
 			return
 		}
-		if r.Method != http.MethodOptions && inNamespace(r.URL.Path, "/api") && (r.ContentLength != 0 || (r.Method == http.MethodPost && (r.URL.Path == "/api/login" || publicRegister))) {
+		if !(r.Method == http.MethodPost && r.URL.Path == "/api/compose/inline-image") && r.Method != http.MethodOptions && inNamespace(r.URL.Path, "/api") && (r.ContentLength != 0 || (r.Method == http.MethodPost && (r.URL.Path == "/api/login" || publicRegister))) {
 			media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 			if err != nil || media != "application/json" {
 				refuse(http.StatusUnsupportedMediaType, response.ParamsError, "json_media_type_required")

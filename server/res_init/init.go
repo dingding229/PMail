@@ -17,13 +17,17 @@ import (
 	"github.com/Jinnrry/pmail/listen/smtp_server"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/compose"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/services/registration"
 	"github.com/Jinnrry/pmail/services/setup"
 	"github.com/Jinnrry/pmail/services/setup/ssl"
+	"github.com/Jinnrry/pmail/services/telegram"
+	"github.com/Jinnrry/pmail/services/update"
 	"github.com/Jinnrry/pmail/services/user"
 	"github.com/Jinnrry/pmail/session"
 	"github.com/Jinnrry/pmail/signal"
@@ -151,6 +155,8 @@ func Init(serverVersion string) {
 		}
 		ctx, stopScheduler := stdcontext.WithCancel(stdcontext.Background())
 		registration.StartNotices(ctx, cfg.WebDomain)
+		inbound.SetNotifier(telegram.Notify)
+		c9Workers := []<-chan struct{}{telegram.Start(ctx), compose.Start(ctx), update.Start(ctx, serverVersion)}
 		quotaDone := make(chan struct{})
 		go func() { defer close(quotaDone); quota.RunReconciliation(ctx) }()
 		projectionDone := make(chan struct{})
@@ -193,6 +199,17 @@ func Init(serverVersion string) {
 				drainErr = drainCtx.Err()
 			}
 		}
+		for _, done := range c9Workers {
+			if drainErr != nil {
+				break
+			}
+			select {
+			case <-done:
+			case <-drainCtx.Done():
+				drainErr = drainCtx.Err()
+			}
+		}
+
 		drainCancel()
 		if drainErr != nil {
 			log.Errorf("scheduler did not drain; declining listener reload: %v", drainErr)

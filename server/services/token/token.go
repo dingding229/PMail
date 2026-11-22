@@ -69,6 +69,9 @@ func Allows(scope, method, path string) bool {
 		return false
 	}
 	if method == http.MethodGet || method == http.MethodHead {
+		if scope == Send && strings.HasPrefix(path, "/api/compose/inline-image/") {
+			return true
+		}
 		if strings.HasPrefix(path, "/api/attachments/") || strings.HasPrefix(path, "/attachments/") {
 			return true
 		}
@@ -76,7 +79,7 @@ func Allows(scope, method, path string) bool {
 	switch path {
 	case "/api/bootstrap", "/api/email/list", "/api/email/detail", "/api/group", "/api/group/list", "/api/user/info", "/api/address/list":
 		return method == http.MethodGet || method == http.MethodHead || method == http.MethodPost
-	case "/api/email/send", "/api/email/forward", "/api/email/draft/save", "/api/email/draft/delete":
+	case "/api/compose/inline-image", "/api/email/send", "/api/email/forward", "/api/email/draft/save", "/api/email/draft/delete":
 		return scope == Send && method == http.MethodPost
 	}
 	return false

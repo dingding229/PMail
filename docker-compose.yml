@@ -83,9 +83,17 @@ services:
       PMAIL_ALLOW_USER_ALIAS: ${PMAIL_ALLOW_USER_ALIAS:-false}
       PMAIL_SPAM_FILTER_LEVEL: ${PMAIL_SPAM_FILTER_LEVEL:-0}
       PMAIL_SPAM_KEYWORDS:
+      PMAIL_TELEGRAM_PROXY:
+      PMAIL_TELEGRAM_API_BASE:
+      PMAIL_PUBLIC_URL:
+      PMAIL_UPDATE_CHECK: ${PMAIL_UPDATE_CHECK:-1}
+      PMAIL_UPDATER_ENABLED: ${PMAIL_UPDATER_ENABLED:-0}
+      PMAIL_UPDATER_TOKEN:
+
       PMAIL_SECRET_KEY: ${PMAIL_SECRET_KEY:-}
       PMAIL_ADMIN_ACCOUNT: ${PMAIL_ADMIN_ACCOUNT:-admin}
       PMAIL_ADMIN_PASSWORD: ${PMAIL_ADMIN_PASSWORD:-}
+    networks: [default, update-private]
     volumes:
       - pmail_config:/work/config
       - secrets:/run/pmail-secrets:ro
@@ -100,7 +108,30 @@ services:
       # 默认供 NPM 访问；直连公网使用 docker-compose.public.yml 覆盖端口。
       - "${PMAIL_WEB_BIND:-172.17.0.1}:${PMAIL_HOST_HTTP_PORT:-8080}:${PMAIL_HTTP_PORT:-80}"
       - "${PMAIL_WEB_BIND:-172.17.0.1}:${PMAIL_HOST_HTTPS_PORT:-8443}:${PMAIL_HTTPS_PORT:-443}"
+  updater:
+    profiles: ["updater"]
+    build:
+      context: .
+      dockerfile: Dockerfile.updater
+    image: pmail-updater:local
+    restart: unless-stopped
+    environment:
+      PMAIL_UPDATER_TOKEN:
+      PMAIL_UPDATER_PROJECT: ${COMPOSE_PROJECT_NAME:-${PMAIL_PROJECT_NAME:-pmail}}
+    networks: [update-private]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./:/project:ro
+      - updater_state:/state
+networks:
+  update-private:
+    internal: true
+
 volumes:
   pg_data:
   pmail_config:
   secrets:
+  updater_state:

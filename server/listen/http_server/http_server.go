@@ -106,6 +106,20 @@ func registerAppRoutes(mux *http.ServeMux, version string) {
 	mux.HandleFunc("/api/token/list", contextIterceptor(controllers.TokenList))
 	mux.HandleFunc("/api/token/create", contextIterceptor(controllers.TokenCreate))
 	mux.HandleFunc("/api/token/delete", contextIterceptor(controllers.TokenDelete))
+	for _, route := range []struct {
+		pattern string
+		handler controllers.HandlerFunc
+	}{
+		{"GET /api/admin/telegram", controllers.AdminTelegram}, {"PUT /api/admin/telegram", controllers.AdminTelegram}, {"POST /api/admin/telegram/test", controllers.AdminTelegramTest},
+		{"GET /api/settings/telegram", controllers.TelegramSettings}, {"PUT /api/settings/telegram", controllers.TelegramSettings}, {"DELETE /api/settings/telegram", controllers.TelegramSettings},
+		{"POST /api/settings/telegram/bind", controllers.TelegramBind}, {"POST /api/settings/telegram/test", controllers.TelegramTest},
+		{"GET /api/admin/update", controllers.UpdateInfo}, {"POST /api/admin/update/check", controllers.UpdateCheck}, {"POST /api/admin/update/apply", controllers.UpdateApply}, {"GET /api/admin/update/apply/{job_id}", controllers.UpdateJob},
+		{"POST /api/compose/inline-image", controllers.InlineImage}, {"GET /api/compose/inline-image/{cid}", controllers.InlineImage},
+		{"GET /api/settings/signatures", controllers.Signatures}, {"POST /api/settings/signatures", controllers.Signatures}, {"PUT /api/settings/signatures/{id}", controllers.Signatures}, {"DELETE /api/settings/signatures/{id}", controllers.Signatures},
+	} {
+		mux.HandleFunc(route.pattern, contextIterceptor(route.handler))
+	}
+
 }
 
 func HttpStart(httpsReady bool, version string) {
