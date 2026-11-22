@@ -1,3 +1,5 @@
+//go:build integration
+
 package main
 
 import (
@@ -6,22 +8,25 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/Jinnrry/pmail/config"
-	"github.com/Jinnrry/pmail/db"
-	"github.com/Jinnrry/pmail/dto/response"
-	"github.com/Jinnrry/pmail/models"
-	"github.com/Jinnrry/pmail/signal"
-	"github.com/Jinnrry/pmail/utils/array"
-	"github.com/spf13/cast"
 	"io"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/db"
+	"github.com/Jinnrry/pmail/dto/response"
+	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/signal"
+	"github.com/Jinnrry/pmail/testschema"
+	"github.com/Jinnrry/pmail/utils/array"
+	"github.com/spf13/cast"
 )
 
 var httpClient *http.Client
@@ -30,31 +35,83 @@ const TestPort = 17888
 
 var TestHost string = "http://127.0.0.1:" + cast.ToString(TestPort)
 
+var testDBType, testDBDSN string
+
 func TestMain(m *testing.M) {
-	cookeieJar, err := cookiejar.New(nil)
-	if err != nil {
-		panic(err)
+	flag.Parse()
+	args := flag.Args()
+	switch {
+	case array.InArray("mysql", args):
+		testDBType, testDBDSN = config.DBTypeMySQL, os.Getenv("PMAIL_TEST_MYSQL_DSN")
+		if testDBDSN == "" {
+			fmt.Fprintln(os.Stderr, "Skipping full-server integration: PMAIL_TEST_MYSQL_DSN is not set")
+			os.Exit(0)
+		}
+	case array.InArray("postgres", args) || os.Getenv("PMAIL_TEST_PG_DSN") != "":
+		testDBType, testDBDSN = config.DBTypePostgres, os.Getenv("PMAIL_TEST_PG_DSN")
+		if testDBDSN == "" {
+			fmt.Fprintln(os.Stderr, "Skipping full-server integration: PMAIL_TEST_PG_DSN is not set")
+			os.Exit(0)
+		}
+	default:
+		testDBType, testDBDSN = config.DBTypeSQLite, "./config/pmail_temp.db"
 	}
+	os.Exit(runIntegration(m))
+}
 
-	httpClient = &http.Client{Jar: cookeieJar, Timeout: 5 * time.Minute}
-	os.Remove("config/config.json")
-	os.Remove("config/pmail_temp.db")
-	os.Setenv("setup_port", cast.ToString(TestPort))
-
+func runIntegration(m *testing.M) int {
+	root, err := os.MkdirTemp("", "pmail-server-integration-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Create integration fixture:", err)
+		return 1
+	}
+	defer os.RemoveAll(root)
+	config.ROOT_PATH = root + string(os.PathSeparator)
+	if _, _, err := testschema.WriteSelfSignedCertificate(filepath.Join(root, "config", "ssl"),
+		[]string{"test.domain", "mail.test.domain", "smtp.test.domain", "imap.test.domain", "pop.test.domain"}, nil); err != nil {
+		fmt.Fprintln(os.Stderr, "Create integration certificate:", err)
+		return 1
+	}
+	if err := os.Setenv("setup_port", strconv.Itoa(TestPort)); err != nil {
+		fmt.Fprintln(os.Stderr, "Set integration setup port:", err)
+		return 1
+	}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Create integration cookie jar:", err)
+		return 1
+	}
+	httpClient = &http.Client{Jar: jar, Timeout: 5 * time.Minute}
+	stopped := make(chan struct{})
 	go func() {
+		defer close(stopped)
 		main()
 	}()
 	time.Sleep(5 * time.Second)
 
-	m.Run()
-
-	signal.StopChan <- true
-	time.Sleep(3 * time.Second)
+	code := m.Run()
+	select {
+	case signal.StopChan <- true:
+		select {
+		case <-stopped:
+		case <-time.After(10 * time.Second):
+			fmt.Fprintln(os.Stderr, "Timed out waiting for integration server to stop")
+			return 1
+		}
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		// A failed setup step may have left the server in the setup wizard.
+		fmt.Fprintln(os.Stderr, "Integration server did not accept the stop signal")
+		return 1
+	}
+	return code
 }
 
 func TestMaster(t *testing.T) {
 	t.Run("TestPort", testPort)
-	t.Run("testDataBaseSet", testDataBaseSet)
+	if !t.Run("testDataBaseSet", testDataBaseSet) {
+		t.FailNow()
+	}
 	t.Run("testPwdSet", testPwdSet)
 	t.Run("testDomainSet", testDomainSet)
 	t.Run("testDNSSet", testDNSSet)
@@ -360,77 +417,35 @@ func testPort(t *testing.T) {
 
 }
 
-func getenvDefault(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
-}
-
 func testDataBaseSet(t *testing.T) {
-
-	// 获取配置
-	ret, err := http.Post(TestHost+"/api/setup", "application/json", strings.NewReader("{\"action\":\"get\",\"step\":\"database\"}"))
-	if err != nil {
-		t.Error(err)
+	setup := func(action string) *response.Response {
+		t.Helper()
+		body, err := json.Marshal(map[string]string{
+			"action": action, "step": "database", "db_type": testDBType, "db_dsn": testDBDSN,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := httpClient.Post(TestHost+"/api/setup", "application/json", strings.NewReader(string(body)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		data, err := readResponse(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if data.ErrorNo != 0 {
+			t.Fatalf("database setup %s failed: HTTP %d, API error %d", action, res.StatusCode, data.ErrorNo)
+		}
+		return data
 	}
-	data, err := readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
+	setup("get")
+	setup("set")
+	data, ok := setup("get").Data.(map[string]interface{})
+	if !ok || data["db_type"] != testDBType || data["db_dsn"] != testDBDSN {
+		t.Fatal("database setup did not persist the expected configuration")
 	}
-	if data.ErrorNo != 0 {
-		t.Errorf("Response %+v", data)
-		t.Error("Get Database Config Api Error!")
-		return
-	}
-
-	argList := flag.Args()
-
-	configData := `
-{"action":"set","step":"database","db_type":"sqlite","db_dsn":"./config/pmail_temp.db"}
-`
-
-	if array.InArray("mysql", argList) {
-		configData = fmt.Sprintf(`
-{"action":"set","step":"database","db_type":"mysql","db_dsn":%q}
-`, getenvDefault("PMAIL_TEST_MYSQL_DSN", "root:githubTest@tcp(mysql:3306)/pmail?parseTime=True"))
-	} else if array.InArray("postgres", argList) {
-		configData = fmt.Sprintf(`
-{"action":"set","step":"database","db_type":"postgres","db_dsn":%q}
-`, getenvDefault("PMAIL_TEST_PG_DSN", "postgres://postgres:githubTest@postgres:5432/pmail?sslmode=disable"))
-	}
-
-	// 设置配置
-	ret, err = http.Post(TestHost+"/api/setup", "application/json", strings.NewReader(configData))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err = readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Get Database Config Api Error!")
-	}
-
-	// 获取配置
-	ret, err = http.Post(TestHost+"/api/setup", "application/json", strings.NewReader("{\"action\":\"get\",\"step\":\"database\"}"))
-	if err != nil {
-		t.Error(err)
-	}
-	data, err = readResponse(ret.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if data.ErrorNo != 0 {
-		t.Error("Get Database Config Api Error!")
-	}
-	dt := data.Data.(map[string]interface{})
-	if cast.ToString(dt["db_dsn"]) == "" {
-		t.Error("Check Database Config Api Error!")
-	}
-
-	t.Log("Database Config Api Success!")
 }
 
 func testPwdSet(t *testing.T) {
@@ -565,9 +580,10 @@ func testSSLSet(t *testing.T) {
 		t.Error("Get domain Config Api Error!")
 	}
 	// 设置配置
-	ret, err = http.Post(TestHost+"/api/setup", "application/json", strings.NewReader(`
-{"action":"set","step":"ssl","ssl_type":"1","key_path":"./config/ssl/private.key","crt_path":"./config/ssl/public.crt"}
-`))
+	ret, err = http.Post(TestHost+"/api/setup", "application/json", strings.NewReader(fmt.Sprintf(`
+{"action":"set","step":"ssl","ssl_type":"1","key_path":%q,"crt_path":%q}
+`, filepath.Join(config.ROOT_PATH, "config", "ssl", "private.key"),
+		filepath.Join(config.ROOT_PATH, "config", "ssl", "public.crt"))))
 	if err != nil {
 		t.Error(err)
 	}

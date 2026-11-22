@@ -1,55 +1,40 @@
+//go:build integration
+
 package smtp_server
 
 import (
 	"bytes"
-	"github.com/Jinnrry/pmail/config"
-	"github.com/Jinnrry/pmail/db"
-	parsemail2 "github.com/Jinnrry/pmail/dto/parsemail"
-	"github.com/Jinnrry/pmail/hooks"
-	"github.com/Jinnrry/pmail/session"
-	"github.com/Jinnrry/pmail/utils/context"
-	log "github.com/sirupsen/logrus"
 	"net"
 	"net/netip"
-	"os"
+	"path/filepath"
 	"testing"
-	"time"
+
+	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/db"
+	"github.com/Jinnrry/pmail/utils/context"
 )
 
-func testInit() {
-	// 设置日志格式为json格式
-	//log.SetFormatter(&log.JSONFormatter{})
-
-	log.SetReportCaller(true)
-	log.SetFormatter(&log.TextFormatter{
-		//以下设置只是为了使输出更美观
-		DisableColors:   true,
-		TimestampFormat: "2006-01-02 15:03:04",
+// These legacy DATA smoke cases perform live DKIM/SPF lookups for sample messages.
+func testInit(t *testing.T) {
+	t.Helper()
+	oldConfig, oldDB := config.Instance, db.Instance
+	config.Instance = &config.Config{
+		DbType: config.DBTypeSQLite, DbDSN: filepath.Join(t.TempDir(), "mail.db"),
+	}
+	db.Instance = nil
+	t.Cleanup(func() {
+		if db.Instance != nil {
+			_ = db.Instance.Close()
+		}
+		config.Instance, db.Instance = oldConfig, oldDB
 	})
-
-	// 设置将日志输出到标准输出（默认的输出为stderr,标准错误）
-	// 日志消息输出可以是任意的io.writer类型
-	log.SetOutput(os.Stdout)
-
-	// 设置日志级别为warn以上
-	log.SetLevel(log.ErrorLevel)
-
-	var cst, _ = time.LoadLocation("Asia/Shanghai")
-	time.Local = cst
-
-	config.Init()
-	config.Instance.DkimPrivateKeyPath = config.ROOT_PATH + "./config/dkim/dkim.priv"
-	config.Instance.DbType = config.DBTypeSQLite
-	config.Instance.DbDSN = config.ROOT_PATH + "./config/pmail_temp.db"
-
-	parsemail2.Init()
-	db.Init("")
-	session.Init()
-	hooks.Init("dev")
+	if err := db.Init(""); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestGmail(t *testing.T) {
-	testInit()
+	testInit(t)
 	emailData := `Received: by mail-dl1-f46.google.com with SMTP id a92af1059eb24-132c338a537so5798485c88.0
         for ; Sun, 24 May 2026 08:18:19 -0700 (PDT)
 ARC-Seal: i=1; a=rsa-sha256; t=1779635898; cv=none;
@@ -138,7 +123,7 @@ PGRpdiBkaXI9Imx0ciI+PGRpdj7mraPmlofmtYvor5UyPC9kaXY+PC9kaXY+DQo=
 }
 
 func TestPmailEmail(t *testing.T) {
-	testInit()
+	testInit(t)
 	emailData := `DKIM-Signature: a=rsa-sha256; bh=x7Rh+N2y2K9exccEAyKCTAGDgYKfnLZpMWc25ug5Ny4=;
  c=simple/simple; d=domain.com;
  h=Content-Type:Mime-Version:Subject:To:From:Date; s=default; t=1693831868;
@@ -189,7 +174,7 @@ Content-Type: text/html
 }
 
 func TestRuleForward(t *testing.T) {
-	testInit()
+	testInit(t)
 
 	forwardEmail := `DKIM-Signature: a=rsa-sha256; bh=bpOshF+iimuqAQijVxqkH6gPpWf8A+Ih30/tMjgEgS0=;
  c=simple/simple; d=jinnrry.com;
@@ -351,7 +336,7 @@ Content-Type: text/html
 }
 
 func TestRuleRead(t *testing.T) {
-	testInit()
+	testInit(t)
 
 	readEmail := `DKIM-Signature: a=rsa-sha256; bh=JcCDj6edb1bAwRbcFZ63plFZOeB5AdGWLE/PQ2FQ1Tc=;
  c=simple/simple; d=jinnrry.com;
@@ -400,7 +385,7 @@ Content-Type: text/html
 }
 
 func TestRuleDelete(t *testing.T) {
-	testInit()
+	testInit(t)
 
 	deleteEmail := `DKIM-Signature: a=rsa-sha256; bh=dNtHGqd1NbRj0WSwrJmPsqAcAy3h/4kZK2HFQ0Asld8=;
  c=simple/simple; d=jinnrry.com;
@@ -449,7 +434,7 @@ Content-Type: text/html
 }
 
 func TestNullCC(t *testing.T) {
-	testInit()
+	testInit(t)
 
 	emailData := `Date: Mon, 29 Jan 2024 16:54:30 +0800
 Return-Path: 1231@111.com
@@ -491,7 +476,7 @@ Pui/meaYr+S4gOWwgeadpeiHqlJlbGF4RHJhbWHnmoTmoKHpqozpgq7ku7Ys55So5LqO5qCh6aqM
 }
 
 func TestRuleMove(t *testing.T) {
-	testInit()
+	testInit(t)
 
 	moveEmail := `DKIM-Signature: a=rsa-sha256; bh=YQfG/wlHGhky6FNmpIwgDYDOc/uyivdBv+9S02Z04xY=;
  c=simple/simple; d=jinnrry.com;
@@ -539,7 +524,7 @@ Content-Type: text/html
 }
 
 func TestQAEmailForward(t *testing.T) {
-	testInit()
+	testInit(t)
 	data := `Mime-Version: 1.0
 X-QQ-MIME: TCMime 1.0 by Tencent
 X-Mailer: QQMail 2.x

@@ -123,6 +123,10 @@ Stop the old single-file deployment, place the SQLite file on the host, then run
 
 The migration command imports supported legacy tables into PostgreSQL. Verify domains, aliases, DKIM, quotas and queue state before allowing external traffic.
 
+## Go development
+
+From `server/`, `go test ./...` runs the default suite. Use `go test -tags integration ./...` for integration tests locally or on a server. The full suite requires root (SMTP port 25 and other fixed mail ports must be free) and a **disposable, empty PostgreSQL database** set via `PMAIL_TEST_PG_DSN`. The IMAP fixture creates and drops a private schema, so the database user needs permission to create schemas. Do not point the suite at production. For an optional MySQL full-server run, set `PMAIL_TEST_MYSQL_DSN` and use `go test -tags integration . -args mysql`; CI uses PostgreSQL and does not require MySQL.
+
 ## Troubleshooting
 
 - **Port 25 blocked:** ask the cloud provider for SMTP egress or use a relay; configure PTR/rDNS.

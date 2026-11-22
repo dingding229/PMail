@@ -1,23 +1,30 @@
+//go:build integration
+
 package imap_server
 
 import (
 	"bufio"
 	"crypto/tls"
+	"fmt"
+	"mime"
+	"net"
+	"net/url"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/testschema"
 	"github.com/Jinnrry/pmail/utils/array"
 	pcontext "github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/password"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/emersion/go-message/charset"
-	"mime"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
-	"time"
+	"github.com/lib/pq"
 )
 
 var clientUnLogin *imapclient.Client
@@ -25,81 +32,114 @@ var clientLogin *imapclient.Client
 var imapTestAddr string
 
 func TestMain(m *testing.M) {
-	wd, err := os.Getwd()
-	if err != nil {
-		panic(err)
+	dsn := os.Getenv("PMAIL_TEST_PG_DSN")
+	if dsn == "" {
+		fmt.Fprintln(os.Stderr, "Skipping IMAP integration: PMAIL_TEST_PG_DSN is not set")
+		os.Exit(0)
 	}
-	config.ROOT_PATH = filepath.Clean(filepath.Join(wd, "../..")) + string(os.PathSeparator)
-	config.Init()
-	if err := db.Init(""); err != nil {
-		panic(err)
-	}
-	seedIMAPTestData()
-	crt, err := tls.LoadX509KeyPair(config.Instance.SSLPublicKeyPath, config.Instance.SSLPrivateKeyPath)
+	code, err := runIMAPIntegration(m, dsn)
 	if err != nil {
-		panic(err)
+		fmt.Fprintln(os.Stderr, "IMAP integration setup:", err)
+		os.Exit(1)
+	}
+	os.Exit(code)
+}
+
+func runIMAPIntegration(m *testing.M, dsn string) (int, error) {
+	// Use a private schema so the full-server integration suite can share the
+	// PostgreSQL service without reusing this suite's users or mailbox UIDs.
+	admin, err := db.Open(&config.Config{DbType: config.DBTypePostgres, DbDSN: dsn}, false)
+	if err != nil {
+		return 1, err
+	}
+	defer admin.Close()
+	schema := fmt.Sprintf("pmail_imap_%d_%d", os.Getpid(), time.Now().UnixNano())
+	quotedSchema := pq.QuoteIdentifier(schema)
+	if _, err := admin.Exec("CREATE SCHEMA " + quotedSchema); err != nil {
+		return 1, fmt.Errorf("create disposable PostgreSQL schema: %w", err)
+	}
+	defer func() {
+		if _, err := admin.Exec("DROP SCHEMA " + quotedSchema + " CASCADE"); err != nil {
+			fmt.Fprintln(os.Stderr, "Remove disposable IMAP schema:", err)
+		}
+	}()
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		return 1, fmt.Errorf("invalid PostgreSQL integration DSN")
+	}
+	query := parsed.Query()
+	query.Set("search_path", schema)
+	parsed.RawQuery = query.Encode()
+	engine, err := db.Open(&config.Config{DbType: config.DBTypePostgres, DbDSN: parsed.String()}, false)
+	if err != nil {
+		return 1, err
+	}
+	defer engine.Close()
+	engine.SetSchema(schema)
+	if err := db.SyncSchema(engine); err != nil {
+		return 1, err
+	}
+	db.Instance = engine
+	if err := seedIMAPTestData(); err != nil {
+		return 1, fmt.Errorf("seed IMAP fixtures: %w", err)
+	}
+
+	root, err := os.MkdirTemp("", "pmail-imap-integration-*")
+	if err != nil {
+		return 1, err
+	}
+	defer os.RemoveAll(root)
+	certPath, keyPath, err := testschema.WriteSelfSignedCertificate(root,
+		[]string{"localhost"}, []net.IP{net.ParseIP("127.0.0.1")})
+	if err != nil {
+		return 1, err
+	}
+	crt, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		return 1, err
 	}
 	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{crt}})
 	if err != nil {
-		panic(err)
+		return 1, err
 	}
+	defer ln.Close()
 	imapTestAddr = ln.Addr().String()
-	instanceTLS = newIMAPServer(crt)
+	server := newIMAPServer(crt)
+	defer server.Close()
 	go func() {
-		if err := instanceTLS.Serve(ln); err != nil {
-			panic(err)
+		if err := server.Serve(ln); err != nil {
+			fmt.Fprintln(os.Stderr, "Serve IMAP integration listener:", err)
 		}
 	}()
 
 	options := &imapclient.Options{
 		WordDecoder: &mime.WordDecoder{CharsetReader: charset.Reader},
-		TLSConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
+		TLSConfig:   &tls.Config{InsecureSkipVerify: true}, // only for the disposable loopback cert
 	}
-
 	clientUnLogin, err = imapclient.DialTLS(imapTestAddr, options)
 	if err != nil {
-		panic(err)
+		return 1, err
 	}
-
+	defer clientUnLogin.Close()
 	clientLogin, err = imapclient.DialTLS(imapTestAddr, options)
 	if err != nil {
-		panic(err)
+		return 1, err
 	}
-
-	err = clientLogin.Login("testCase", "testCase").Wait()
-	if err != nil {
-		panic(err)
+	defer clientLogin.Close()
+	if err := clientLogin.Login("testCase", "testCase").Wait(); err != nil {
+		return 1, err
 	}
-
-	code := m.Run()
-	clientUnLogin.Close()
-	clientLogin.Close()
-	Stop()
-	os.Exit(code)
+	return m.Run(), nil
 }
 
-func seedIMAPTestData() {
-	var user models.User
-	_, err := db.Instance.Table(&models.User{}).Where("account=?", "testCase").Get(&user)
+func seedIMAPTestData() error {
+	hash, err := password.Hash("testCase")
 	if err != nil {
-		panic(err)
+		return err
 	}
-	if user.ID == 0 {
-		user = models.User{Account: "testCase", Name: "testCase", Password: password.Encode("testCase")}
-		if _, err = db.Instance.Insert(&user); err != nil {
-			panic(err)
-		}
-	}
-
-	var num int
-	_, err = db.Instance.Table(&models.UserEmail{}).Where("user_id=?", user.ID).Select("count(1)").Get(&num)
-	if err != nil {
-		panic(err)
-	}
-	if num > 0 {
-		return
+	user := models.User{Account: "testCase", Name: "testCase", Password: hash}
+	if _, err := db.Instance.Insert(&user); err != nil {
+		return err
 	}
 
 	statuses := []int8{3}
@@ -107,15 +147,19 @@ func seedIMAPTestData() {
 		statuses = append(statuses, 0)
 	}
 	for _, status := range statuses {
-		email := models.Email{Subject: "test", Status: status}
-		if _, err = db.Instance.Insert(&email); err != nil {
-			panic(err)
+		email := models.Email{
+			Subject: "test", FromAddress: "sender@imap.test", Status: status,
+			MsgID: fmt.Sprintf("%s@imap.test", time.Now().Format("20060102150405.000000000")),
+		}
+		if _, err := db.Instance.Insert(&email); err != nil {
+			return err
 		}
 		ue := models.UserEmail{UserID: user.ID, EmailID: email.Id, Status: status}
-		if _, err = db.Instance.Insert(&ue); err != nil {
-			panic(err)
+		if _, err := db.Instance.Insert(&ue); err != nil {
+			return err
 		}
 	}
+	return nil
 }
 
 func TestCapability(t *testing.T) {
@@ -140,9 +184,9 @@ func TestCapability(t *testing.T) {
 
 func TestLogin(t *testing.T) {
 	err := clientUnLogin.Login("testCase", "testCaseasdfsadf").Wait()
-	sErr := err.(*imap.Error)
-	if sErr.Code != "AUTHENTICATIONFAILED" {
-		t.Error("Login Error")
+	sErr, ok := err.(*imap.Error)
+	if !ok || sErr.Code != imap.ResponseCodeAuthenticationFailed {
+		t.Fatalf("invalid login: got %v, want AUTHENTICATIONFAILED", err)
 	}
 }
 

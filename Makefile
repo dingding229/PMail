@@ -47,13 +47,13 @@ package: clean
 	cp README.md output/
 
 test:
-	export setup_port=17888 && cd server && export PMail_ROOT=$(CURDIR)/server/ && go test -v -p 1 ./...
+	cd server && go test -v -p 1 ./...
 
 test_mysql:
-	export setup_port=17888 && export PMAIL_TEST_MYSQL_DSN="$${PMAIL_TEST_MYSQL_DSN:-root:githubTest@tcp(mysql:3306)/pmail?parseTime=True}" && cd server && export PMail_ROOT=$(CURDIR)/server/ && go test -args "mysql" -v -p 1 ./...
+	cd server && go test -tags integration -v -p 1 . -args mysql
 
 test_postgres:
-	export setup_port=17888 && export PMAIL_TEST_PG_DSN="$${PMAIL_TEST_PG_DSN:-postgres://postgres:githubTest@postgres:5432/pmail?sslmode=disable}" && cd server && export PMail_ROOT=$(CURDIR)/server/ && go test -args "postgres" -v -p 1 ./...
+	export PMAIL_TEST_PG_DSN="$${PMAIL_TEST_PG_DSN:-postgres://postgres:githubTest@postgres:5432/pmail?sslmode=disable}" && cd server && go test -tags integration -v -p 1 ./... -args postgres
 
 .PHONY: docker compose-init compose-up compose-upgrade compose-backup compose-logs compose-status compose-down
 docker:

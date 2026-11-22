@@ -123,6 +123,10 @@ server {
 
 迁移完成后检查域名、别名、DKIM、配额和队列，再开放外部邮件流量。
 
+## Go 开发
+
+在 `server/` 中运行 `go test ./...` 执行默认测试；本机或服务器上用 `go test -tags integration ./...` 执行集成测试。完整集成测试需要 root（SMTP 25 等固定邮件端口必须空闲）和通过 `PMAIL_TEST_PG_DSN` 指定的**独立、空白 PostgreSQL 测试库**。IMAP 测试会创建和清理独立 schema，数据库账号须有建 schema 权限；不要使用生产数据库。可选 MySQL 整站测试需设置 `PMAIL_TEST_MYSQL_DSN`，再执行 `go test -tags integration . -args mysql`；CI 使用 PostgreSQL，不依赖 MySQL。
+
 ## 常见问题
 
 - **25 端口被封：** 联系云厂商解封 SMTP 出站，或使用中继；同时配置 PTR/rDNS。

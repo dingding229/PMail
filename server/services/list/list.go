@@ -136,7 +136,7 @@ type ImapListReq struct {
 
 func GetUEListByUID(ctx *context.Context, groupName string, star, end int, uidList []int) []*response.UserEmailUIDData {
 	var ue []*response.UserEmailUIDData
-	sql := "SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM `user_email` WHERE user_id = ? "
+	sql := "SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE user_id = ? "
 
 	params := []any{ctx.UserID}
 
@@ -189,12 +189,12 @@ func GetUEListByUID(ctx *context.Context, groupName string, star, end int, uidLi
 func getEmailListByUidList(ctx *context.Context, groupName string, req ImapListReq, uid bool) []*response.EmailResponseData {
 	var ret []*response.EmailResponseData
 	var ue []*response.UserEmailUIDData
-	sql := fmt.Sprintf("SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM `user_email` WHERE (user_id = ? and id in (%s) and status = ?)", array.Join(req.UidList, ","))
+	sql := fmt.Sprintf("SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and id in (%s) and status = ?)", array.Join(req.UidList, ","))
 	if req.Star > 0 && req.End != 0 {
-		sql = fmt.Sprintf("SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM `user_email` WHERE (user_id = ? and id >=%d and id <= %d and status = ?)", req.Star, req.End)
+		sql = fmt.Sprintf("SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and id >=%d and id <= %d and status = ?)", req.Star, req.End)
 	}
 	if req.Star > 0 && req.End == 0 {
-		sql = fmt.Sprintf("SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM `user_email` WHERE (user_id = ? and id >=%d and status = ?)", req.Star)
+		sql = fmt.Sprintf("SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and id >=%d and status = ?)", req.Star)
 	}
 
 	var err error
@@ -220,7 +220,7 @@ func getEmailListByUidList(ctx *context.Context, groupName string, req ImapListR
 		}
 		err = db.Instance.
 			SQL(fmt.Sprintf(
-				"SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM `user_email` WHERE (user_id = ? and group_id = ?)) a WHERE serial_number in (%s)",
+				"SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and group_id = ?)) a WHERE serial_number in (%s)",
 				array.Join(req.UidList, ","))).
 			Find(&ue, ctx.UserID, group.ID)
 	}
@@ -257,12 +257,12 @@ func GetEmailListByGroup(ctx *context.Context, groupName string, req ImapListReq
 	var ret []*response.EmailResponseData
 	var ue []*response.UserEmailUIDData
 
-	sql := fmt.Sprintf("SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM `user_email` WHERE (user_id = ? and status = ? and group_id=0 )) a WHERE serial_number in (%s)", array.Join(req.UidList, ","))
+	sql := fmt.Sprintf("SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and status = ? and group_id=0 )) a WHERE serial_number in (%s)", array.Join(req.UidList, ","))
 	if req.Star > 0 && req.End == 0 {
-		sql = fmt.Sprintf("SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM `user_email` WHERE (user_id = ? and status = ? and group_id=0 )) a WHERE serial_number >= %d", req.Star)
+		sql = fmt.Sprintf("SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and status = ? and group_id=0 )) a WHERE serial_number >= %d", req.Star)
 	}
 	if req.Star > 0 && req.End > 0 {
-		sql = fmt.Sprintf("SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM `user_email` WHERE (user_id = ? and status = ? and group_id=0 )) a WHERE serial_number >= %d and serial_number <=%d", req.Star, req.End)
+		sql = fmt.Sprintf("SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and status = ? and group_id=0 )) a WHERE serial_number >= %d and serial_number <=%d", req.Star, req.End)
 	}
 
 	switch groupName {
@@ -287,7 +287,7 @@ func GetEmailListByGroup(ctx *context.Context, groupName string, req ImapListReq
 		}
 		db.Instance.
 			SQL(fmt.Sprintf(
-				"SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM `user_email` WHERE (user_id = ? and group_id = ?)) a WHERE serial_number in (%s)",
+				"SELECT * from (SELECT id,email_id, is_read, ROW_NUMBER() OVER (ORDER BY id) AS serial_number FROM user_email WHERE (user_id = ? and group_id = ?)) a WHERE serial_number in (%s)",
 				array.Join(req.UidList, ","))).
 			Find(&ue, ctx.UserID, group.ID)
 	}
