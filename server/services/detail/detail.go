@@ -7,6 +7,7 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/services/list"
+	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/errors"
@@ -17,6 +18,14 @@ import (
 import . "xorm.io/builder"
 
 func GetEmailDetail(ctx *context.Context, id int, markRead bool) (*response.EmailResponseData, error) {
+	return getDetail(ctx, id, markRead, false)
+}
+
+func WebDetail(ctx *context.Context, id int, markRead bool) (*response.EmailResponseData, error) {
+	return getDetail(ctx, id, markRead, true)
+}
+
+func getDetail(ctx *context.Context, id int, markRead, web bool) (*response.EmailResponseData, error) {
 	// 先查是否是本人的邮件
 	var ue models.UserEmail
 	_, err := db.Instance.Where("email_id = ? AND user_id = ?", id, ctx.UserID).Get(&ue)
@@ -29,7 +38,11 @@ func GetEmailDetail(ctx *context.Context, id int, markRead bool) (*response.Emai
 
 	//获取邮件内容
 	var email response.EmailResponseData
-	found, err := db.Instance.Select("*,1 as is_read").Table("email").Where("id=?", id).Get(&email)
+	cols := "*,1 AS is_read"
+	if web {
+		cols = "id,type,status,subject,reply_to,from_name,from_address," + db.Instance.Quote("to") + ",bcc,cc,text,html,sender,spf_check,dkim_check,cron_send_time,update_time,send_user_id,size,error,send_date,create_time,msg_id,text_format,auth_results,auth_unchecked,projection_ready,CASE WHEN projection_ready THEN '' ELSE attachments END AS attachments"
+	}
+	found, err := db.Instance.Select(cols).Table("email").Where("id=?", id).Get(&email)
 	if err != nil {
 		log.WithContext(ctx).Errorf("SQL error:%+v", err)
 		return nil, err
@@ -41,6 +54,11 @@ func GetEmailDetail(ctx *context.Context, id int, markRead bool) (*response.Emai
 
 	if ue.ID == 0 && !auth.AdminMailOverride(ctx, &email.Email) {
 		return nil, errors.New("Not authorized")
+	}
+	if web {
+		if err := mailstore.LoadMetadata([]*models.Email{&email.Email}); err != nil {
+			return nil, err
+		}
 	}
 	email.IsRead = ue.IsRead
 	email.IsStarred = ue.IsStarred

@@ -1,6 +1,8 @@
 package imap_server
 
 import (
+	"errors"
+	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/services/list"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
@@ -18,14 +20,19 @@ func (s *serverSession) Search(kind imapserver.NumKind, criteria *imap.SearchCri
 	log.WithContext(s.ctx).Debugf("IMAP SEARCH: mailbox=%s, kind=%v, criteria=%+v", s.currentMailbox, kind, criteria)
 
 	// Use the new comprehensive search function
-	state, err := mailboxSnapshot(s.ctx, s.currentMailbox)
+	rows, err := s.searchSnapshot()
 	if err != nil {
 		return nil, protocolNO(err)
 	}
-	retList, err := list.SearchRows(s.ctx, present(s.visible(state.items)), criteria)
+	var retList []*response.UserEmailUIDData
+	if len(s.announced) > 0 {
+		retList, err = list.SearchSnapshot(s.ctx, rows, criteria, uint32(s.announced[len(s.announced)-1]), uint32(len(s.announced)))
+	} else {
+		retList, err = list.SearchRows(s.ctx, rows, criteria)
+	}
 	if err != nil {
 		log.WithContext(s.ctx).Errorf("IMAP SEARCH error: %v", err)
-		return nil, err
+		return nil, protocolNO(errors.New("mailbox search failed"))
 	}
 
 	ret := &imap.SearchData{}

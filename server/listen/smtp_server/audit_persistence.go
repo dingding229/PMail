@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
+	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -133,10 +135,14 @@ func localPersistenceSMTPError() error {
 
 func persistInitialAuditWithQuota(ctx *context.Context, modelEmail models.Email, userIDs []int) (*models.Email, []int, error) {
 	var saved models.Email
+	userIDs = sortedOwners(userIDs)
 	accepted := make([]int, 0, len(userIDs))
 	err := db.Transaction(db.Instance, func(session *xorm.Session) error {
+		accepted = accepted[:0]
 		candidate := modelEmail
 		candidate.Id = 0
+		mailstore.Prepare(&candidate)
+		mailstore.SetPOPSize(ctx, &candidate)
 		for _, id := range userIDs {
 			if err := quota.LockAndCheck(session, id, int64(candidate.Size)); err != nil {
 				if stderrors.Is(err, quota.ErrExceeded) {
@@ -153,11 +159,17 @@ func persistInitialAuditWithQuota(ctx *context.Context, modelEmail models.Email,
 		if _, err := session.Insert(&candidate); err != nil {
 			return err
 		}
+		if err := mailstore.WriteParts(session, &candidate, false); err != nil {
+			return err
+		}
 		if candidate.Id <= 0 {
 			return stderrors.New("email insert returned no id")
 		}
 		for _, id := range accepted {
 			if _, err := session.Insert(&models.UserEmail{EmailID: candidate.Id, UserID: id, Status: candidate.Status}); err != nil {
+				return err
+			}
+			if err := quota.Adjust(session, id, int64(candidate.Size)); err != nil {
 				return err
 			}
 		}
@@ -171,11 +183,22 @@ func persistInitialAuditWithQuota(ctx *context.Context, modelEmail models.Email,
 }
 
 func persistInitialAudit(ctx *context.Context, modelEmail models.Email, userIDs []int) (*models.Email, error) {
+	userIDs = sortedOwners(userIDs)
 	var saved models.Email
 	err := db.Transaction(db.Instance, func(session *xorm.Session) error {
+		for _, id := range userIDs {
+			if _, err := quota.Lock(session, id); err != nil {
+				return err
+			}
+		}
 		candidate := modelEmail
 		candidate.Id = 0
+		mailstore.Prepare(&candidate)
+		mailstore.SetPOPSize(ctx, &candidate)
 		if _, err := session.Insert(&candidate); err != nil {
+			return err
+		}
+		if err := mailstore.WriteParts(session, &candidate, false); err != nil {
 			return err
 		}
 		if candidate.Id <= 0 {
@@ -184,6 +207,9 @@ func persistInitialAudit(ctx *context.Context, modelEmail models.Email, userIDs 
 		for _, userID := range userIDs {
 			relation := models.UserEmail{EmailID: candidate.Id, UserID: userID, Status: candidate.Status}
 			if _, err := session.Insert(&relation); err != nil {
+				return err
+			}
+			if err := quota.Adjust(session, userID, int64(candidate.Size)); err != nil {
 				return err
 			}
 		}
@@ -282,4 +308,10 @@ func boolInt8(value bool) int8 {
 func json2string(value any) string {
 	data, _ := json.Marshal(value)
 	return string(data)
+}
+
+func sortedOwners(ids []int) []int {
+	ids = slices.Clone(ids)
+	slices.Sort(ids)
+	return slices.Compact(ids)
 }

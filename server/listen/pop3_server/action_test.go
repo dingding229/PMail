@@ -2,6 +2,7 @@ package pop3_server
 
 import (
 	"bufio"
+	stdcontext "context"
 	"database/sql"
 	"fmt"
 	"net"
@@ -14,7 +15,9 @@ import (
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/testschema"
+	pctx "github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/password"
 	"xorm.io/xorm"
 )
@@ -223,5 +226,32 @@ func TestPOP3DisconnectDoesNotCommit(t *testing.T) {
 	defer drop.close()
 	if uid, err := drop.list(0, true); err != nil || strings.Join(uid, ",") != "1 8,2 3" {
 		t.Fatalf("disconnect committed DELE: %v, %v", uid, err)
+	}
+}
+
+func TestCachedPOPOctetsMatchRETR(t *testing.T) {
+	owner := popFixture(t)
+	var row models.Email
+	if _, err := db.Instance.ID(8).Get(&row); err != nil {
+		t.Fatal(err)
+	}
+	mailstore.SetPOPSize(&pctx.Context{Context: stdcontext.Background()}, &row)
+	if row.POPOctets <= 0 {
+		t.Fatal("octet count not computed")
+	}
+	if _, err := db.Instance.ID(8).Cols("pop_octets").Update(&row); err != nil {
+		t.Fatal(err)
+	}
+	d, err := openMaildrop(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+	if d.messages[0].size != row.POPOctets {
+		t.Fatal("snapshot did not use cached octets")
+	}
+	raw, err := d.retr(1)
+	if err != nil || int64(len(raw)) != row.POPOctets {
+		t.Fatalf("RETR bytes=%d %v", len(raw), err)
 	}
 }

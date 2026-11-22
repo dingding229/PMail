@@ -10,6 +10,7 @@ import (
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
+	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/detail"
 	"github.com/Jinnrry/pmail/services/token"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -32,7 +33,7 @@ func EmailDetail(ctx *context.Context, w http.ResponseWriter, req *http.Request)
 	}
 
 	markRead := ctx.TokenScope != token.Read && ctx.TokenScope != token.Send
-	email, err := detail.GetEmailDetail(ctx, retData.ID, markRead)
+	email, err := detail.WebDetail(ctx, retData.ID, markRead)
 	if err != nil {
 		log.WithContext(ctx).Warnf("Read mail detail: %v", err)
 		response.Localized(ctx, response.ServerError, "mail_not_found").FPrint(w)
@@ -41,7 +42,7 @@ func EmailDetail(ctx *context.Context, w http.ResponseWriter, req *http.Request)
 
 	// Rewrite inline URLs only for the HTTP representation; MIME forwarding
 	// and POP3 still need the original cid references.
-	email.Html.String = inlineAttachmentURLs(retData.ID, parsemail.SanitizeHTML(email.Html.String), email.Attachments)
+	email.Html.String = inlineAttachmentURLs(retData.ID, parsemail.SanitizeHTML(email.Html.String), email.Attachments, email.AttachmentInfo)
 	email.Error.String = i18n.Delivery(ctx, "delivery_detail", email.Error.String)
 	if email.Text.String == "" && email.Html.String != "" {
 		email.Text.String = parsemail.HTMLText(email.Html.String)
@@ -54,28 +55,37 @@ func EmailDetail(ctx *context.Context, w http.ResponseWriter, req *http.Request)
 	response.NewSuccessResponse(view).FPrint(w)
 }
 
-func inlineAttachmentURLs(emailID int, html, attachmentsJSON string) string {
-	if html == "" || attachmentsJSON == "" {
+func inlineAttachmentURLs(emailID int, html, attachmentsJSON string, metadata ...[]models.MailAttachmentInfo) string {
+	if html == "" {
 		return html
 	}
-	var attachments []parsemail.Attachment
-	if err := json.Unmarshal([]byte(attachmentsJSON), &attachments); err != nil {
-		return html
+	var ids []string
+	if len(metadata) > 0 && metadata[0] != nil {
+		ids = make([]string, len(metadata[0]))
+		for i, part := range metadata[0] {
+			ids[i] = part.ContentID
+		}
+	} else {
+		var attachments []struct{ ContentID string }
+		if json.Unmarshal([]byte(attachmentsJSON), &attachments) != nil {
+			return html
+		}
+		ids = make([]string, len(attachments))
+		for i, a := range attachments {
+			ids[i] = a.ContentID
+		}
 	}
-	// Try longer IDs first: cid:example must not consume the prefix of
-	// cid:example-extra. Keep the attachment's original zero-based index.
-	indices := make([]int, 0, len(attachments))
-	for i, attachment := range attachments {
-		if attachment.ContentID != "" {
+	indices := make([]int, 0, len(ids))
+	for i, cid := range ids {
+		if cid != "" {
 			indices = append(indices, i)
 		}
 	}
-	sort.SliceStable(indices, func(i, j int) bool {
-		return len(attachments[indices[i]].ContentID) > len(attachments[indices[j]].ContentID)
-	})
+	// Try longer IDs first; keep the original zero-based index.
+	sort.SliceStable(indices, func(i, j int) bool { return len(ids[indices[i]]) > len(ids[indices[j]]) })
 	pairs := make([]string, 0, 2*len(indices))
 	for _, index := range indices {
-		pairs = append(pairs, "cid:"+attachments[index].ContentID, fmt.Sprintf("/api/attachments/%d.%d", emailID, index))
+		pairs = append(pairs, "cid:"+ids[index], fmt.Sprintf("/api/attachments/%d.%d", emailID, index))
 	}
 	return strings.NewReplacer(pairs...).Replace(html)
 }

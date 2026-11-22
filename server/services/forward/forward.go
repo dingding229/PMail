@@ -19,6 +19,7 @@ import (
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/queue"
+	"github.com/Jinnrry/pmail/services/quota"
 	pcontext "github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
 )
@@ -183,13 +184,7 @@ func EnqueueForUser(ctx *pcontext.Context, userID int, email *parsemail.Email, r
 			if resolveErr != nil || !found {
 				return address.ErrNotFound
 			}
-			var relation models.UserEmail
-			found, resolveErr = db.Instance.Where("email_id=? AND user_id=?", forwarded.MessageId, user.ID).Get(&relation)
-			if resolveErr != nil || found {
-				return resolveErr
-			}
-			_, resolveErr = db.Instance.Insert(&models.UserEmail{EmailID: int(forwarded.MessageId), UserID: user.ID, Status: int8(email.Status)})
-			return resolveErr
+			return quota.EnsureLink(user.ID, int(forwarded.MessageId), int8(email.Status))
 		}
 		return nil
 	}

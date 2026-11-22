@@ -6,7 +6,7 @@ import (
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/models"
-	"github.com/Jinnrry/pmail/services/attachments"
+	"github.com/Jinnrry/pmail/services/mailstore"
 )
 
 type mailAddress struct {
@@ -14,22 +14,12 @@ type mailAddress struct {
 	Address string `json:"address"`
 }
 
-type attachmentInfo struct {
-	Index       int    `json:"index"`
-	Filename    string `json:"filename"`
-	ContentType string `json:"content_type"`
-	Size        int    `json:"size"`
-	ContentID   string `json:"content_id"`
-	Inline      bool   `json:"inline"`
-	Previewable bool   `json:"previewable"`
-}
-
 type normalizedMail struct {
-	ToList          []mailAddress    `json:"to_list"`
-	CcList          []mailAddress    `json:"cc_list"`
-	BccList         []mailAddress    `json:"bcc_list"`
-	ReplyToList     []mailAddress    `json:"reply_to_list"`
-	AttachmentsList []attachmentInfo `json:"attachments_list"`
+	ToList          []mailAddress               `json:"to_list"`
+	CcList          []mailAddress               `json:"cc_list"`
+	BccList         []mailAddress               `json:"bcc_list"`
+	ReplyToList     []mailAddress               `json:"reply_to_list"`
+	AttachmentsList []models.MailAttachmentInfo `json:"attachments_list"`
 }
 
 func normalizeMail(row models.Email) normalizedMail {
@@ -44,12 +34,11 @@ func normalizeMail(row models.Email) normalizedMail {
 		}
 		return out
 	}
-	var stored []parsemail.Attachment
-	_ = json.Unmarshal([]byte(row.Attachments), &stored)
-	files := make([]attachmentInfo, 0, len(stored))
-	for i, att := range stored {
-		_, inline := attachments.InlineContentType(att.ContentType)
-		files = append(files, attachmentInfo{i, att.Filename, att.ContentType, len(att.Content), att.ContentID, inline, parsemail.Previewable(&att)})
+	files := row.AttachmentInfo
+	if files == nil {
+		var stored []parsemail.Attachment
+		_ = json.Unmarshal([]byte(row.Attachments), &stored)
+		files = mailstore.Metadata(stored)
 	}
 	return normalizedMail{addresses(row.To), addresses(row.Cc), addresses(row.Bcc), addresses(row.ReplyTo), files}
 }

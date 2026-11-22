@@ -1,12 +1,12 @@
 package controllers
 
 import (
+	"io"
 	"mime"
 	"net/http"
 	"strconv"
 	"strings"
 
-	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/services/attachments"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -20,7 +20,7 @@ func Download(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	serveAttachment(ctx, w, r, lookupAttachment(ctx, r, true), true)
 }
 
-func lookupAttachment(ctx *context.Context, r *http.Request, download bool) *parsemail.Attachment {
+func lookupAttachment(ctx *context.Context, r *http.Request, download bool) *attachments.Part {
 	if id := r.PathValue("id"); id != "" {
 		mail, index, ok := strings.Cut(id, ".")
 		if ok {
@@ -33,26 +33,26 @@ func lookupAttachment(ctx *context.Context, r *http.Request, download bool) *par
 		return attachmentByIndex(ctx, mail, r.PathValue("index"))
 	}
 	if emailID, err := strconv.Atoi(mail); err == nil && emailID > 0 {
-		return attachments.GetAttachments(ctx, emailID, r.PathValue("cid"))
+		return attachments.Find(ctx, emailID, -1, r.PathValue("cid"))
 	}
 	return nil
 }
 
-func attachmentByIndex(ctx *context.Context, mail, index string) *parsemail.Attachment {
+func attachmentByIndex(ctx *context.Context, mail, index string) *attachments.Part {
 	emailID, mailErr := strconv.Atoi(mail)
 	attachmentIndex, indexErr := strconv.Atoi(index)
 	if mailErr != nil || indexErr != nil || emailID <= 0 || attachmentIndex < 0 {
 		return nil
 	}
-	return attachments.GetAttachmentsByIndex(ctx, emailID, attachmentIndex)
+	return attachments.Find(ctx, emailID, attachmentIndex, "")
 }
 
-func serveAttachment(ctx *context.Context, w http.ResponseWriter, r *http.Request, attachment *parsemail.Attachment, download bool) {
+func serveAttachment(ctx *context.Context, w http.ResponseWriter, r *http.Request, attachment *attachments.Part, download bool) {
 	w.Header().Set("Cache-Control", "private, no-store")
 	if !download {
 		w.Header().Set("Content-Security-Policy", "sandbox")
 	}
-	if attachment == nil || len(attachment.Content) == 0 {
+	if attachment == nil || attachment.Size == 0 {
 		response.Localized(ctx, response.ParamsError, "attachment_not_found").FPrint(w)
 		return
 	}
@@ -61,12 +61,14 @@ func serveAttachment(ctx *context.Context, w http.ResponseWriter, r *http.Reques
 		contentType, inline = "application/octet-stream", false
 	}
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Length", strconv.Itoa(len(attachment.Content)))
+	w.Header().Set("Content-Length", strconv.Itoa(attachment.Size))
 	if !inline {
 		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": attachment.Filename}))
 	}
 	if r.Method != http.MethodHead {
-		_, _ = w.Write(attachment.Content)
+		if _, err := io.Copy(w, attachment.Open(r.Context())); err != nil {
+			attachments.LogStreamError(ctx, err)
+		}
 	}
 }
 
@@ -77,7 +79,7 @@ func PreviewAttachment(ctx *context.Context, w http.ResponseWriter, r *http.Requ
 		apiError(ctx, w, http.StatusNotFound, response.ParamsError, "attachment_not_found")
 		return
 	}
-	preview, ok := parsemail.PreviewText(att)
+	preview, ok := att.Preview(r.Context())
 	if !ok {
 		apiError(ctx, w, http.StatusUnsupportedMediaType, response.ParamsError, "attachment_preview_unsupported")
 		return

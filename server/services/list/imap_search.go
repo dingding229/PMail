@@ -1,6 +1,8 @@
 package list
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -9,270 +11,261 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/emersion/go-imap/v2"
-	log "github.com/sirupsen/logrus"
+	"xorm.io/xorm"
 )
 
-// IMAPSearchCriteria represents the search criteria for IMAP SEARCH command
-type IMAPSearchCriteria struct {
-	// UID and sequence number sets
-	UIDs    []imap.UIDSet
-	SeqNums []imap.SeqSet
+const searchBatch = 400
 
-	// Date filters (only date is used, time and timezone are ignored)
-	Since      time.Time // Internal date since
-	Before     time.Time // Internal date before
-	SentSince  time.Time // Sent date since
-	SentBefore time.Time // Sent date before
-
-	// Header field searches
-	Header []HeaderField // Key-Value pairs for header search
-
-	// Content search
-	Body []string // Search in body
-	Text []string // Search in headers + body
-
-	// Flag filters
-	Flag    []imap.Flag // Messages with these flags
-	NotFlag []imap.Flag // Messages without these flags
-
-	// Size filters
-	Larger  int64 // Messages larger than this (bytes)
-	Smaller int64 // Messages smaller than this (bytes)
-
-	// Logical combinations
-	Not []IMAPSearchCriteria
-	Or  [][2]IMAPSearchCriteria
+// SearchRows acts only on links from the selected mailbox's visible snapshot.
+// Fetch each candidate's necessary columns at most once per batch, even for
+// nested OR/NOT, and never return unfiltered data on a failed query.
+func SearchRows(ctx *context.Context, rows []*response.UserEmailUIDData, c *imap.SearchCriteria) ([]*response.UserEmailUIDData, error) {
+	if c == nil || len(rows) == 0 {
+		return rows, nil
+	}
+	var maxUID, maxSeq uint32
+	for _, row := range rows {
+		maxUID = max(maxUID, uint32(row.ID))
+		maxSeq = max(maxSeq, uint32(row.SerialNumber))
+	}
+	return SearchSnapshot(ctx, rows, c, maxUID, maxSeq)
 }
 
-// HeaderField represents a header field search criterion
-type HeaderField struct {
-	Key   string
-	Value string
-}
-
-// IMAPSearchResult represents a search result item
-type IMAPSearchResult struct {
-	UID          int  // user_email.id as UID
-	SeqNum       int  // sequence number
-	EmailID      int  // email.id
-	IsRead       int8 // read status
-	SerialNumber int  // serial number
-}
-
-// SearchEmails performs IMAP search based on criteria
-func SearchEmails(ctx *context.Context, groupName string, criteria *imap.SearchCriteria) ([]*response.UserEmailUIDData, error) {
-	// First get the base list for the mailbox
-	return SearchRows(ctx, GetUEListByUID(ctx, groupName, 0, 0, nil), criteria)
-}
-
-func SearchRows(ctx *context.Context, baseList []*response.UserEmailUIDData, criteria *imap.SearchCriteria) ([]*response.UserEmailUIDData, error) {
-	snapshot := baseList
-	if len(baseList) == 0 {
-		return baseList, nil
+func SearchSnapshot(ctx *context.Context, rows []*response.UserEmailUIDData, c *imap.SearchCriteria, maxUID, maxSeq uint32) ([]*response.UserEmailUIDData, error) {
+	if c == nil || len(rows) == 0 {
+		return rows, nil
 	}
-
-	// If no criteria specified, return all
-	if criteria == nil || isEmptyCriteria(criteria) {
-		return baseList, nil
-	}
-
-	// Build UID to sequence number mapping
-	uidToSeq := make(map[int]int)
-	seqToUID := make(map[int]int)
-	for _, item := range baseList {
-		uidToSeq[item.ID] = item.SerialNumber
-		seqToUID[item.SerialNumber] = item.ID
-	}
-
-	// Filter by UID sets
-	if len(criteria.UID) > 0 {
-		baseList = filterByUIDSets(baseList, criteria.UID)
-	}
-
-	// Filter by sequence number sets
-	if len(criteria.SeqNum) > 0 {
-		baseList = filterBySeqNumSets(baseList, criteria.SeqNum)
-	}
-
-	// For more complex filters, we need to fetch email data
-	if needsEmailData(criteria) {
-		baseList = filterWithEmailData(ctx, baseList, criteria)
-	}
-
-	// Filter by flags (is_read status in this implementation)
-	if len(criteria.Flag) > 0 || len(criteria.NotFlag) > 0 {
-		baseList = filterByFlags(baseList, criteria.Flag, criteria.NotFlag)
-	}
-
-	// Handle NOT criteria
-	if len(criteria.Not) > 0 {
-		for _, notCriteria := range criteria.Not {
-			baseList = applyNotCriteria(ctx, snapshot, baseList, &notCriteria)
-		}
-	}
-
-	// Handle OR criteria
-	if len(criteria.Or) > 0 {
-		baseList = applyOrCriteria(ctx, snapshot, baseList, criteria.Or)
-	}
-
-	return baseList, nil
-}
-
-// isEmptyCriteria checks if the search criteria is empty
-func isEmptyCriteria(criteria *imap.SearchCriteria) bool {
-	return len(criteria.UID) == 0 &&
-		len(criteria.SeqNum) == 0 &&
-		criteria.Since.IsZero() &&
-		criteria.Before.IsZero() &&
-		criteria.SentSince.IsZero() &&
-		criteria.SentBefore.IsZero() &&
-		len(criteria.Header) == 0 &&
-		len(criteria.Body) == 0 &&
-		len(criteria.Text) == 0 &&
-		len(criteria.Flag) == 0 &&
-		len(criteria.NotFlag) == 0 &&
-		criteria.Larger == 0 &&
-		criteria.Smaller == 0 &&
-		len(criteria.Not) == 0 &&
-		len(criteria.Or) == 0
-}
-
-// needsEmailData checks if we need to load email data for filtering
-func needsEmailData(criteria *imap.SearchCriteria) bool {
-	return !criteria.Since.IsZero() ||
-		!criteria.Before.IsZero() ||
-		!criteria.SentSince.IsZero() ||
-		!criteria.SentBefore.IsZero() ||
-		len(criteria.Header) > 0 ||
-		len(criteria.Body) > 0 ||
-		len(criteria.Text) > 0 ||
-		criteria.Larger > 0 ||
-		criteria.Smaller > 0
-}
-
-// filterByUIDSets filters the list by UID sets
-func filterByUIDSets(list []*response.UserEmailUIDData, uidSets []imap.UIDSet) []*response.UserEmailUIDData {
-	var result []*response.UserEmailUIDData
-	for _, item := range list {
-		for _, uidSet := range uidSets {
-			if uidSet.Contains(imap.UID(item.ID)) {
-				result = append(result, item)
-				break
+	wanted := map[string]bool{}
+	neededColumns(c, wanted)
+	if len(wanted) == 0 {
+		out := make([]*response.UserEmailUIDData, 0, len(rows))
+		for _, row := range rows {
+			if matchSearch(row, nil, c, maxUID, maxSeq) {
+				out = append(out, row)
 			}
 		}
+		return out, nil
 	}
-	return result
-}
-
-// filterBySeqNumSets filters the list by sequence number sets
-func filterBySeqNumSets(list []*response.UserEmailUIDData, seqSets []imap.SeqSet) []*response.UserEmailUIDData {
-	var result []*response.UserEmailUIDData
-	for _, item := range list {
-		for _, seqSet := range seqSets {
-			if seqSet.Contains(uint32(item.SerialNumber)) {
-				result = append(result, item)
-				break
+	columns := []string{"id"}
+	for col := range wanted {
+		columns = append(columns, col)
+	}
+	slices.Sort(columns)
+	out := make([]*response.UserEmailUIDData, 0)
+	batchSize := searchBatch
+	if wanted["text"] || wanted["html"] {
+		batchSize = 4
+	} // bound allocations for large MIME parts
+	for offset := 0; offset < len(rows); offset += batchSize {
+		batch := rows[offset:min(offset+batchSize, len(rows))]
+		ids := make([]int, 0, len(batch))
+		for _, row := range batch {
+			if matchLink(row, c, maxUID, maxSeq) {
+				ids = append(ids, row.EmailID)
 			}
 		}
-	}
-	return result
-}
-
-// filterByFlags filters by message flags
-func filterByFlags(list []*response.UserEmailUIDData, flags []imap.Flag, notFlags []imap.Flag) []*response.UserEmailUIDData {
-	var result []*response.UserEmailUIDData
-	for _, item := range list {
-		match := true
-
-		// Check required flags
-		for _, flag := range flags {
-			if !hasFlag(item, flag) {
-				match = false
-				break
-			}
-		}
-
-		// Check flags that should NOT be present
-		if match {
-			for _, flag := range notFlags {
-				if hasFlag(item, flag) {
-					match = false
-					break
-				}
-			}
-		}
-
-		if match {
-			result = append(result, item)
-		}
-	}
-	return result
-}
-
-// hasFlag checks if a message has a specific flag
-func hasFlag(item *response.UserEmailUIDData, flag imap.Flag) bool {
-	switch flag {
-	case imap.FlagSeen:
-		return item.IsRead == 1
-	case imap.FlagDeleted:
-		return item.Status == 3
-	case imap.FlagDraft:
-		return item.Status == 4
-	case imap.FlagJunk:
-		return item.Status == 5
-	// For flags we don't track, return false
-	case imap.FlagFlagged:
-		return item.IsStarred
-	case imap.FlagAnswered:
-		return false
-	default:
-		return false
-	}
-}
-
-// filterWithEmailData loads email data and applies filters that need it
-func filterWithEmailData(ctx *context.Context, list []*response.UserEmailUIDData, criteria *imap.SearchCriteria) []*response.UserEmailUIDData {
-	if len(list) == 0 {
-		return list
-	}
-
-	// Get email IDs
-	var emailIDs []int
-	ueMap := make(map[int]*response.UserEmailUIDData) // emailID -> UserEmailUIDData
-	for _, item := range list {
-		emailIDs = append(emailIDs, item.EmailID)
-		ueMap[item.EmailID] = item
-	}
-
-	// Fetch emails from database
-	var emails []models.Email
-	err := db.Instance.Table("email").In("id", emailIDs).Find(&emails)
-	if err != nil {
-		log.WithContext(ctx).Errorf("Failed to fetch emails for search: %v", err)
-		return list
-	}
-
-	// Build email map
-	emailMap := make(map[int]*models.Email)
-	for i := range emails {
-		emailMap[emails[i].Id] = &emails[i]
-	}
-
-	// Filter
-	var result []*response.UserEmailUIDData
-	for _, item := range list {
-		email, ok := emailMap[item.EmailID]
-		if !ok {
+		if len(ids) == 0 {
 			continue
 		}
-
-		if matchesEmailCriteria(email, criteria) {
-			result = append(result, item)
+		q := db.Instance.NewSession()
+		if ctx != nil && ctx.Context != nil {
+			q.Context(ctx.Context)
+		}
+		q.Cols(columns...).In("id", ids)
+		for _, h := range c.Header {
+			cols := headerColumns(h.Key)
+			if len(cols) > 0 {
+				applyASCIIPrefilter(q, h.Value, cols...)
+			}
+		}
+		for _, value := range c.Body {
+			applyASCIIPrefilter(q, value, "text", "html")
+		}
+		for _, value := range c.Text {
+			applyASCIIPrefilter(q, value, "subject", "from_address", "from_name", "to", "cc", "bcc", "text", "html")
+		}
+		if c.Larger > 0 {
+			q.Where("size>?", c.Larger)
+		}
+		if c.Smaller > 0 {
+			q.Where("size<?", c.Smaller)
+		}
+		var emails []models.Email
+		err := q.Find(&emails)
+		q.Close()
+		if err != nil {
+			return nil, err
+		}
+		data := make(map[int]*models.Email, len(emails))
+		for i := range emails {
+			data[emails[i].Id] = &emails[i]
+		}
+		for _, row := range batch {
+			if e := data[row.EmailID]; e != nil && matchSearch(row, e, c, maxUID, maxSeq) {
+				out = append(out, row)
+			}
 		}
 	}
+	return out, nil
+}
 
-	return result
+var escapeSearchLike = strings.NewReplacer("!", "!!", "%", "!%", "_", "!_")
+
+// Only narrow top-level conjunctions. Unmatched non-ASCII rows are retained
+// for exact Go Unicode folding; SQL collation is not the authority for SEARCH.
+func applyASCIIPrefilter(q *xorm.Session, value string, columns ...string) {
+	if value == "" || len(value) > 256 || !ascii(value) {
+		return
+	}
+	var clauses []string
+	var args []any
+	pattern := "%" + escapeSearchLike.Replace(strings.ToLower(value)) + "%"
+	for _, column := range columns {
+		col := db.Instance.Quote(column)
+		nonASCII := fmt.Sprintf("length(CAST(%s AS BLOB)) <> length(%s)", col, col)
+		fold := col
+		switch db.Instance.DriverName() {
+		case "postgres":
+			nonASCII = fmt.Sprintf("octet_length(%s) <> char_length(%s)", col, col)
+			fold = col + ` COLLATE "C"`
+		case "mysql":
+			nonASCII = fmt.Sprintf("octet_length(%s) <> char_length(%s)", col, col)
+			fold = "CONVERT(" + col + " USING utf8mb4) COLLATE utf8mb4_bin"
+		}
+		clauses = append(clauses, fmt.Sprintf("(LOWER(%s) LIKE ? ESCAPE '!' OR %s)", fold, nonASCII))
+		args = append(args, pattern)
+	}
+	q.Where("("+strings.Join(clauses, " OR ")+")", args...)
+}
+
+func headerColumns(key string) []string {
+	switch k := strings.ToLower(key); k {
+	case "from":
+		return []string{"from_name", "from_address"}
+	case "reply-to":
+		return []string{"reply_to"}
+	case "subject", "to", "cc", "bcc", "sender":
+		return []string{k}
+	}
+	return nil
+}
+
+func ascii(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 128 || s[i] == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func neededColumns(c *imap.SearchCriteria, cols map[string]bool) {
+	if !c.Since.IsZero() || !c.Before.IsZero() {
+		cols["create_time"] = true
+	}
+	if !c.SentSince.IsZero() || !c.SentBefore.IsZero() {
+		cols["send_date"] = true
+	}
+	if c.Larger > 0 || c.Smaller > 0 {
+		cols["size"] = true
+	}
+	for _, h := range c.Header {
+		for _, col := range headerColumns(h.Key) {
+			cols[col] = true
+		}
+	}
+	if len(c.Body) > 0 || len(c.Text) > 0 {
+		cols["text"] = true
+		cols["html"] = true
+	}
+	if len(c.Text) > 0 {
+		for _, col := range []string{"subject", "from_name", "from_address", "to", "cc", "bcc"} {
+			cols[col] = true
+		}
+	}
+	for i := range c.Not {
+		neededColumns(&c.Not[i], cols)
+	}
+	for i := range c.Or {
+		neededColumns(&c.Or[i][0], cols)
+		neededColumns(&c.Or[i][1], cols)
+	}
+}
+
+func boundedRange(n, start, stop, highest uint32) bool {
+	if start == 0 {
+		start = highest
+	}
+	if stop == 0 {
+		stop = highest
+	}
+	return n >= min(start, stop) && n <= max(start, stop)
+}
+
+func matchLink(row *response.UserEmailUIDData, c *imap.SearchCriteria, maxUID, maxSeq uint32) bool {
+	for _, set := range c.UID {
+		if !slices.ContainsFunc(set, func(r imap.UIDRange) bool {
+			return boundedRange(uint32(row.ID), uint32(r.Start), uint32(r.Stop), maxUID)
+		}) {
+			return false
+		}
+	}
+	for _, set := range c.SeqNum {
+		if !slices.ContainsFunc(set, func(r imap.SeqRange) bool { return boundedRange(uint32(row.SerialNumber), r.Start, r.Stop, maxSeq) }) {
+			return false
+		}
+	}
+	for _, flag := range c.Flag {
+		if !hasFlag(row, flag) {
+			return false
+		}
+	}
+	for _, flag := range c.NotFlag {
+		if hasFlag(row, flag) {
+			return false
+		}
+	}
+	return true
+}
+
+func hasFlag(row *response.UserEmailUIDData, flag imap.Flag) bool {
+	switch flag {
+	case imap.FlagSeen:
+		return row.IsRead == 1
+	case imap.FlagDeleted:
+		return row.IMAPDeleted
+	case imap.FlagFlagged:
+		return row.IsStarred
+	case imap.FlagDraft:
+		return row.Status == 4
+	case imap.FlagJunk:
+		return row.Status == 5
+	}
+	return false
+}
+
+func matchSearch(row *response.UserEmailUIDData, e *models.Email, c *imap.SearchCriteria, maxUID, maxSeq uint32) bool {
+	if !matchLink(row, c, maxUID, maxSeq) {
+		return false
+	}
+	if e != nil {
+		if !matchesEmailCriteria(e, c) {
+			return false
+		}
+	} else if len(c.Header) > 0 {
+		return false
+	}
+	for i := range c.Not {
+		if matchSearch(row, e, &c.Not[i], maxUID, maxSeq) {
+			return false
+		}
+	}
+	for i := range c.Or {
+		if !matchSearch(row, e, &c.Or[i][0], maxUID, maxSeq) && !matchSearch(row, e, &c.Or[i][1], maxUID, maxSeq) {
+			return false
+		}
+	}
+	return true
 }
 
 // matchesEmailCriteria checks if an email matches the search criteria
@@ -412,70 +405,4 @@ func matchesText(email *models.Email, pattern string) bool {
 
 	// Check body
 	return matchesBody(email, pattern)
-}
-
-// applyNotCriteria applies NOT criteria
-func applyNotCriteria(ctx *context.Context, all, list []*response.UserEmailUIDData, notCriteria *imap.SearchCriteria) []*response.UserEmailUIDData {
-	// Get the list of items that match the NOT criteria
-	matchedList, _ := SearchRows(ctx, all, notCriteria)
-
-	// Build a set of matched UIDs
-	matchedUIDs := make(map[int]bool)
-	for _, item := range matchedList {
-		matchedUIDs[item.ID] = true
-	}
-
-	// Return items that are NOT in the matched set
-	var result []*response.UserEmailUIDData
-	for _, item := range list {
-		if !matchedUIDs[item.ID] {
-			result = append(result, item)
-		}
-	}
-
-	return result
-}
-
-// applyOrCriteria applies OR criteria
-func applyOrCriteria(ctx *context.Context, all, list []*response.UserEmailUIDData, orCriteria [][2]imap.SearchCriteria) []*response.UserEmailUIDData {
-	if len(orCriteria) == 0 {
-		return list
-	}
-
-	// Build a set of current UIDs for intersection
-	currentUIDs := make(map[int]bool)
-	for _, item := range list {
-		currentUIDs[item.ID] = true
-	}
-
-	// For each OR pair, find items matching either condition
-	resultUIDs := make(map[int]bool)
-
-	for _, pair := range orCriteria {
-		// Get matches for first condition
-		matches1, _ := SearchRows(ctx, all, &pair[0])
-		for _, item := range matches1 {
-			if currentUIDs[item.ID] {
-				resultUIDs[item.ID] = true
-			}
-		}
-
-		// Get matches for second condition
-		matches2, _ := SearchRows(ctx, all, &pair[1])
-		for _, item := range matches2 {
-			if currentUIDs[item.ID] {
-				resultUIDs[item.ID] = true
-			}
-		}
-	}
-
-	// Build result from original list preserving order
-	var result []*response.UserEmailUIDData
-	for _, item := range list {
-		if resultUIDs[item.ID] {
-			result = append(result, item)
-		}
-	}
-
-	return result
 }

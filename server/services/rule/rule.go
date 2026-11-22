@@ -11,6 +11,7 @@ import (
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/group"
+	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/services/rule/match"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
@@ -139,23 +140,7 @@ func forwardToLocalUser(ctx *context.Context, email *parsemail.Email, account, f
 		return fmt.Errorf("local forward user not found: %s", forwardAddress)
 	}
 
-	var ue models.UserEmail
-	has, err = db.Instance.Table(&models.UserEmail{}).
-		Where("email_id=? and user_id=?", email.MessageId, user.ID).
-		Get(&ue)
-	if err != nil {
-		return err
-	}
-	if has {
-		return nil
-	}
-
-	_, err = db.Instance.Insert(&models.UserEmail{
-		UserID:  user.ID,
-		EmailID: cast.ToInt(email.MessageId),
-		Status:  cast.ToInt8(email.Status),
-	})
-	return err
+	return quota.EnsureLink(user.ID, int(email.MessageId), int8(email.Status))
 }
 
 func isLocalDomain(domainName string) bool {

@@ -385,6 +385,10 @@ func newAuditTestEngine(t *testing.T) (*xorm.Engine, string) {
 		engine.Close()
 		t.Fatal(err)
 	}
+	if _, err = engine.Insert(&models.User{ID: 1, Account: "sender", Name: "Sender", Password: "fixture"}); err != nil {
+		engine.Close()
+		t.Fatal(err)
+	}
 	if _, err = engine.Insert(&models.Email{Subject: "lock seed", MsgID: "lock-seed@example.com"}); err != nil {
 		engine.Close()
 		t.Fatal(err)

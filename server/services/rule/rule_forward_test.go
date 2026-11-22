@@ -60,6 +60,10 @@ func TestForwardToLocalUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if _, err := engine.Insert(&models.Email{Id: 123, Subject: "forwarded fixture", Size: 10}); err != nil {
+		t.Fatal(err)
+	}
+
 	email := &parsemail.Email{
 		MessageId: 123,
 		Status:    0,

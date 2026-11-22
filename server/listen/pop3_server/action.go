@@ -9,9 +9,9 @@ import (
 
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
-	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/auth"
+	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/id"
 	"xorm.io/xorm"
@@ -21,7 +21,6 @@ var (
 	errNoSuchMessage  = errors.New("no such message")
 	errMaildropLocked = errors.New("maildrop already locked")
 	maildropLocks     sync.Map // one POP3 transaction per user across both listeners
-	crlf              = strings.NewReplacer("\r\n", "\r\n", "\n", "\r\n", "\r", "\r\n")
 )
 
 type messageRef struct {
@@ -51,15 +50,20 @@ func openMaildrop(user models.User) (*maildrop, error) {
 	ctx := &context.Context{Context: stdcontext.Background(), UserID: user.ID, UserName: user.Name, UserAccount: user.Account, AuthVersion: user.AuthVersion}
 	ctx.SetValue(context.LogID, id.GenLogID())
 	var rows []struct {
-		ID int `xorm:"id"`
+		ID     int   `xorm:"id"`
+		Octets int64 `xorm:"pop_octets"`
 	}
-	if err := db.Instance.Table("email").Cols("id").Where(visibleMessage, consts.EmailTypeReceive, user.ID, consts.EmailStatusWait, models.INBOX).Desc("id").Find(&rows); err != nil {
+	if err := db.Instance.Table("email").Cols("id", "pop_octets").Where(visibleMessage, consts.EmailTypeReceive, user.ID, consts.EmailStatusWait, models.INBOX).Desc("id").Find(&rows); err != nil {
 		maildropLocks.Delete(user.ID)
 		return nil, err
 	}
 	drop := &maildrop{ctx: ctx, messages: make([]messageRef, len(rows))}
 	for i, row := range rows {
-		drop.messages[i] = messageRef{id: row.ID, size: -1}
+		size := row.Octets
+		if size <= 0 {
+			size = -1
+		}
+		drop.messages[i] = messageRef{id: row.ID, size: size}
 	}
 	return drop, nil
 }
@@ -85,13 +89,9 @@ func (d *maildrop) render(ref *messageRef) (string, error) {
 	if !found {
 		return "", errNoSuchMessage
 	}
-	raw, err := parsemail.NewEmailFromModel(mail).BuildBytes(d.ctx, false)
+	body, err := mailstore.POPMessage(d.ctx, mail)
 	if err != nil {
 		return "", err
-	}
-	body := crlf.Replace(string(raw))
-	if !strings.HasSuffix(body, "\r\n") {
-		body += "\r\n"
 	}
 	ref.size = int64(len(body))
 	return body, nil

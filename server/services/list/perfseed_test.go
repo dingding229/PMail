@@ -24,7 +24,10 @@ func BenchmarkPMailSQLite(b *testing.B) {
 		b.Run(q.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				rows, total := list.GetEmailList(ctx, tag, q.key, false, 0, 25)
+				rows, total, err := list.WebPage(ctx, tag, q.key, list.MailCursor{}, 0, 25, true)
+				if err != nil {
+					b.Fatal(err)
+				}
 				if len(rows) != 25 || total != q.count {
 					b.Fatalf("rows=%d total=%d", len(rows), total)
 				}
@@ -34,7 +37,7 @@ func BenchmarkPMailSQLite(b *testing.B) {
 	b.Run("DetailWithAttachment", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			row, err := detail.GetEmailDetail(ctx, perfseed.Total, false)
+			row, err := detail.WebDetail(ctx, perfseed.Total, false)
 			if err != nil || row.Id != perfseed.Total {
 				b.Fatalf("%v", err)
 			}

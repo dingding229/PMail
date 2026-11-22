@@ -9,33 +9,37 @@ import (
 )
 
 type Email struct {
-	Id            int            `xorm:"id pk unsigned int autoincr notnull" json:"id"`
-	Type          int8           `xorm:"type tinyint(4) notnull default(0) comment('邮件类型，0:收到的邮件，1:发送的邮件')" json:"type"`
-	Subject       string         `xorm:"subject varchar(1000) notnull default('') comment('邮件标题')" json:"subject"`
-	ReplyTo       string         `xorm:"reply_to text comment('回复人')" json:"reply_to"`
-	FromName      string         `xorm:"from_name varchar(50) notnull default('') comment('发件人名称')" json:"from_name"`
-	FromAddress   string         `xorm:"from_address varchar(100) notnull default('') comment('发件人邮件地址')" json:"from_address"`
-	To            string         `xorm:"to text comment('收件人地址')" json:"to"`
-	Bcc           string         `xorm:"bcc text comment('密送')" json:"bcc"`
-	Cc            string         `xorm:"cc text comment('抄送')" json:"cc"`
-	Text          sql.NullString `xorm:"text text comment('文本内容')" json:"text"`
-	TextFormat    string         `xorm:"text_format varchar(12) notnull default('')" json:"-"`
-	Html          sql.NullString `xorm:"html mediumtext comment('html内容')" json:"html"`
-	Sender        string         `xorm:"sender text comment('发送人')" json:"sender"`
-	Attachments   string         `xorm:"attachments longtext comment('附件')" json:"attachments"`
-	SPFCheck      int8           `xorm:"spf_check tinyint(1) comment('spf校验是否通过')" json:"spf_check"`
-	AuthResults   sql.NullString `xorm:"auth_results text" json:"-"`
-	AuthUnchecked bool           `xorm:"auth_unchecked bool notnull default(false)" json:"-"`
-	DKIMCheck     int8           `xorm:"dkim_check tinyint(1) comment('dkim校验是否通过')" json:"dkim_check"`
-	Status        int8           `xorm:"status tinyint(4) notnull default(0) comment('0未发送，1已发送，2发送失败')" json:"status"` // 0未发送，1已发送，2发送失败
-	CronSendTime  time.Time      `xorm:"cron_send_time comment('定时发送时间')" json:"cron_send_time"`
-	UpdateTime    time.Time      `xorm:"update_time updated comment('更新时间')" json:"update_time"`
-	SendUserID    int            `xorm:"send_user_id unsigned int  notnull default(0) comment('发件人用户id')" json:"send_user_id"`
-	Size          int            `xorm:"size unsigned int  notnull default(1000) comment('邮件大小')" json:"size"`
-	Error         sql.NullString `xorm:"error text comment('投递错误信息')" json:"error"`
-	SendDate      time.Time      `xorm:"send_date comment('投递时间')" json:"send_date"`
-	CreateTime    time.Time      `xorm:"create_time created" json:"create_time"`
-	MsgID         string         `xorm:"msg_id varchar(255) notnull default('') comment('RFC-compliant Message-ID, generated once on creation')" json:"msg_id"`
+	Id              int                  `xorm:"id pk unsigned int autoincr notnull" json:"id"`
+	Type            int8                 `xorm:"type tinyint(4) notnull default(0) comment('邮件类型，0:收到的邮件，1:发送的邮件')" json:"type"`
+	Subject         string               `xorm:"subject varchar(1000) notnull default('') comment('邮件标题')" json:"subject"`
+	ReplyTo         string               `xorm:"reply_to text comment('回复人')" json:"reply_to"`
+	FromName        string               `xorm:"from_name varchar(50) notnull default('') comment('发件人名称')" json:"from_name"`
+	FromAddress     string               `xorm:"from_address varchar(100) notnull default('') comment('发件人邮件地址')" json:"from_address"`
+	To              string               `xorm:"to text comment('收件人地址')" json:"to"`
+	Bcc             string               `xorm:"bcc text comment('密送')" json:"bcc"`
+	Cc              string               `xorm:"cc text comment('抄送')" json:"cc"`
+	Text            sql.NullString       `xorm:"text text comment('文本内容')" json:"text"`
+	TextFormat      string               `xorm:"text_format varchar(12) notnull default('')" json:"-"`
+	Html            sql.NullString       `xorm:"html mediumtext comment('html内容')" json:"html"`
+	Sender          string               `xorm:"sender text comment('发送人')" json:"sender"`
+	ProjectionReady bool                 `xorm:"projection_ready bool notnull default(false)" json:"-"`
+	ListSnippet     string               `xorm:"list_snippet text" json:"-"`
+	POPOctets       int64                `xorm:"pop_octets bigint notnull default(0)" json:"-"`
+	AttachmentInfo  []MailAttachmentInfo `xorm:"-" json:"-"`
+	Attachments     string               `xorm:"attachments longtext comment('附件')" json:"attachments"`
+	SPFCheck        int8                 `xorm:"spf_check tinyint(1) comment('spf校验是否通过')" json:"spf_check"`
+	AuthResults     sql.NullString       `xorm:"auth_results text" json:"-"`
+	AuthUnchecked   bool                 `xorm:"auth_unchecked bool notnull default(false)" json:"-"`
+	DKIMCheck       int8                 `xorm:"dkim_check tinyint(1) comment('dkim校验是否通过')" json:"dkim_check"`
+	Status          int8                 `xorm:"status tinyint(4) notnull default(0) comment('0未发送，1已发送，2发送失败')" json:"status"` // 0未发送，1已发送，2发送失败
+	CronSendTime    time.Time            `xorm:"cron_send_time comment('定时发送时间')" json:"cron_send_time"`
+	UpdateTime      time.Time            `xorm:"update_time updated comment('更新时间')" json:"update_time"`
+	SendUserID      int                  `xorm:"send_user_id unsigned int  notnull default(0) comment('发件人用户id')" json:"send_user_id"`
+	Size            int                  `xorm:"size unsigned int  notnull default(1000) comment('邮件大小')" json:"size"`
+	Error           sql.NullString       `xorm:"error text comment('投递错误信息')" json:"error"`
+	SendDate        time.Time            `xorm:"send_date comment('投递时间')" json:"send_date"`
+	CreateTime      time.Time            `xorm:"create_time created" json:"create_time"`
+	MsgID           string               `xorm:"msg_id varchar(255) notnull default('') comment('RFC-compliant Message-ID, generated once on creation')" json:"msg_id"`
 }
 
 func (d *Email) TableName() string {
@@ -70,7 +74,11 @@ func (d *Email) MarshalJSON() ([]byte, error) {
 
 	var allAtt = []attachments{}
 	var showAtt = []attachments{}
-	if d.Attachments != "" {
+	if d.ProjectionReady && d.AttachmentInfo != nil {
+		for _, m := range d.AttachmentInfo {
+			showAtt = append(showAtt, attachments{Filename: m.Filename, ContentType: m.ContentType, Index: m.Index})
+		}
+	} else if d.Attachments != "" {
 		_ = json.Unmarshal([]byte(d.Attachments), &allAtt)
 		for i, att := range allAtt {
 			att.Index = i

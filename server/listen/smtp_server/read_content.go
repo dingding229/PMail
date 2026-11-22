@@ -22,6 +22,7 @@ import (
 	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/group"
 	"github.com/Jinnrry/pmail/services/inboundauth"
+	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/services/rule"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -60,6 +61,9 @@ func ImportExternal(ctx *context.Context, raw []byte, recipient string, targetGr
 	var saved *models.Email
 	var owner models.User
 	err = db.Transaction(db.Instance, func(tx *xorm.Session) error {
+		if _, err := quota.Lock(tx, ctx.UserID); err != nil {
+			return err
+		}
 		saved = nil
 		if ctx.Context != nil {
 			tx.Context(ctx.Context)
@@ -88,10 +92,18 @@ func ImportExternal(ctx *context.Context, raw []byte, recipient string, targetGr
 			}
 		}
 		row := storedEmail(email, 0, int(consts.EmailTypeReceive), email.MsgID, false, false)
+		mailstore.Prepare(&row)
+		mailstore.SetPOPSize(ctx, &row)
 		if _, err = tx.Insert(&row); err != nil {
 			return err
 		}
+		if err = mailstore.WriteParts(tx, &row, false); err != nil {
+			return err
+		}
 		if _, err = tx.Insert(&models.UserEmail{UserID: ctx.UserID, EmailID: row.Id, GroupId: targetGroupID}); err != nil {
+			return err
+		}
+		if err = quota.Adjust(tx, ctx.UserID, int64(row.Size)); err != nil {
 			return err
 		}
 		saved = &row

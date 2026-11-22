@@ -120,12 +120,23 @@ func initializeSchemaAndData(engine *xorm.Engine, version string, preserveUsers 
 // SyncSchema is also used by the offline migration command, which must not seed or repair data.
 func SyncSchema(engine *xorm.Engine) error {
 	for _, model := range []any{
-		&models.User{}, &models.Email{}, &models.Group{}, &models.Rule{},
+		&models.User{}, &models.Email{}, &models.MailAttachmentInfo{}, &models.MailAttachmentChunk{}, &models.Group{}, &models.Rule{},
 		&models.Sessions{}, &models.UserEmail{}, &models.IMAPMailbox{}, &models.IMAPMailboxUID{}, &models.Version{}, &models.Domain{}, &models.MailboxAddress{}, &models.APIToken{}, &models.OutboundQueue{}, &models.ForwardSetting{}, &models.ExternalAccount{}, &models.ExternalSeen{}, &models.ExternalCursor{}, &models.BounceNotice{}, &models.RegistrationGuard{},
 	} {
-		if err := engine.Sync2(model); err != nil {
+		var err error
+		if _, ok := model.(*models.UserEmail); ok {
+			// The ordered cross-dialect indexes below are not generated from model
+			// declaration ordering. Never drop/rebuild them on every startup.
+			_, err = engine.SyncWithOptions(xorm.SyncOptions{IgnoreDropIndices: true}, model)
+		} else {
+			err = engine.Sync2(model)
+		}
+		if err != nil {
 			return fmt.Errorf("sync schema for %T: %w", model, err)
 		}
+	}
+	if err := syncMailIndexes(engine); err != nil {
+		return err
 	}
 	return widenUserColumns(engine)
 }

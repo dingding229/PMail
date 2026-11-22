@@ -18,7 +18,9 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/services/queue"
+	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/services/registration"
 	"github.com/Jinnrry/pmail/services/setup"
 	"github.com/Jinnrry/pmail/services/setup/ssl"
@@ -149,6 +151,15 @@ func Init(serverVersion string) {
 		}
 		ctx, stopScheduler := stdcontext.WithCancel(stdcontext.Background())
 		registration.StartNotices(ctx, cfg.WebDomain)
+		quotaDone := make(chan struct{})
+		go func() { defer close(quotaDone); quota.RunReconciliation(ctx) }()
+		projectionDone := make(chan struct{})
+		go func() {
+			defer close(projectionDone)
+			if err := mailstore.Backfill(ctx, db.Instance); err != nil && ctx.Err() == nil {
+				log.Errorf("mail projection backfill: %v", err)
+			}
+		}()
 		drainScheduler := cron_server.Start(ctx, cfg, cert)
 
 		restart := false
@@ -168,6 +179,20 @@ func Init(serverVersion string) {
 		session.Stop()
 		drainCtx, drainCancel := stdcontext.WithTimeout(stdcontext.Background(), 15*time.Second)
 		drainErr := drainScheduler(drainCtx)
+		if drainErr == nil {
+			select {
+			case <-projectionDone:
+			case <-drainCtx.Done():
+				drainErr = drainCtx.Err()
+			}
+		}
+		if drainErr == nil {
+			select {
+			case <-quotaDone:
+			case <-drainCtx.Done():
+				drainErr = drainCtx.Err()
+			}
+		}
 		drainCancel()
 		if drainErr != nil {
 			log.Errorf("scheduler did not drain; declining listener reload: %v", drainErr)

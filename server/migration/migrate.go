@@ -87,7 +87,7 @@ func Run(args []string) error {
 		names = append(names, qualified(table))
 	}
 	// Sessions are not imported. Clearing them prevents old tokens from being linked to imported IDs.
-	names = append(names, qualified("sessions"))
+	names = append(names, qualified("sessions"), qualified("mail_attachment_info"), qualified("mail_attachment_chunk"))
 	list := strings.Join(names, ", ")
 	if _, err := tx.Exec("LOCK TABLE " + list + " IN ACCESS EXCLUSIVE MODE"); err != nil {
 		return fmt.Errorf("lock PostgreSQL tables: %w", err)
@@ -115,6 +115,10 @@ func Run(args []string) error {
 			}
 			return fmt.Errorf("copy %s: %w", table, err)
 		}
+	}
+	// Attachment bytes and POP octets are derived from retained legacy mail.
+	if _, err := tx.Exec("UPDATE " + qualified("email") + " SET projection_ready=false, pop_octets=0 WHERE projection_ready OR pop_octets<>0"); err != nil {
+		return err
 	}
 	for _, table := range tables {
 		if err := resetSequence(tx, qualified(table)); err != nil {

@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/emersion/go-imap/v2"
 	"xorm.io/xorm"
 )
@@ -33,6 +34,23 @@ func (s *serverSession) transfer(set imap.NumSet, dest string, move bool) (*imap
 		if len(selected) == 0 {
 			return nil
 		}
+		var added int64
+		if !move {
+			if _, err := quota.Lock(tx, s.ctx.UserID); err != nil {
+				return err
+			}
+			ids := make([]int, 0, len(selected))
+			for _, e := range selected {
+				ids = append(ids, e.row.EmailID)
+			}
+			sizes, err := quota.MessageSizes(tx, ids)
+			if err != nil {
+				return err
+			}
+			for _, id := range ids {
+				added += sizes[id]
+			}
+		}
 		ar := make([]int, 0, len(selected))
 		for _, entry := range selected {
 			original := entry.row
@@ -59,6 +77,9 @@ func (s *serverSession) transfer(set imap.NumSet, dest string, move bool) (*imap
 			if _, err := syncMailbox(tx, src); err != nil {
 				return err
 			}
+		}
+		if err := quota.Adjust(tx, s.ctx.UserID, added); err != nil {
+			return err
 		}
 		to, err := syncMailbox(tx, target)
 		if err != nil {

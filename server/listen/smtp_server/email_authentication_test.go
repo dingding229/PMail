@@ -82,6 +82,10 @@ func TestSaveSentEmailIgnoresReceiveAuthentication(t *testing.T) {
 	t.Cleanup(func() { db.Instance = oldDB })
 	db.Instance = engine
 
+	if _, err := engine.Insert(&models.User{ID: 1, Account: "sender", Name: "Sender", Password: "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+
 	email := &parsemail.Email{
 		From:           &parsemail.User{EmailAddress: "sender@test.domain"},
 		Subject:        "sent authentication isolation",

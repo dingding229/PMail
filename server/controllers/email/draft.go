@@ -18,6 +18,8 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/mailstore"
+	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/mailbudget"
 	log "github.com/sirupsen/logrus"
@@ -119,6 +121,9 @@ func SaveDraft(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 func persistDraft(draft *models.Email, keepAttachments bool) error {
 	creating := draft.Id == 0
 	return db.Transaction(db.Instance, func(tx *xorm.Session) error {
+		if _, err := quota.Lock(tx, draft.SendUserID); err != nil {
+			return err
+		}
 		now := time.Now()
 		draft.SendDate = now
 		if creating {
@@ -129,10 +134,17 @@ func persistDraft(draft *models.Email, keepAttachments bool) error {
 			if draft.Size > mailbudget.Message {
 				return mailbudget.ErrLimit
 			}
+			mailstore.Prepare(draft)
 			if _, err := tx.Insert(draft); err != nil {
 				return err
 			}
+			if err := mailstore.WriteParts(tx, draft, false); err != nil {
+				return err
+			}
 			if _, err := tx.Insert(&models.UserEmail{UserID: draft.SendUserID, EmailID: draft.Id, Status: consts.EmailStatusDrafts, IsRead: 1}); err != nil {
+				return err
+			}
+			if err := quota.Adjust(tx, draft.SendUserID, int64(draft.Size)); err != nil {
 				return err
 			}
 			return readDraftTimes(tx, draft)
@@ -151,9 +163,24 @@ func persistDraft(draft *models.Email, keepAttachments bool) error {
 		if draft.Size > mailbudget.Message {
 			return mailbudget.ErrLimit
 		}
-		updates := map[string]any{"from_address": draft.FromAddress, "from_name": draft.FromName, "sender": draft.Sender, "subject": draft.Subject, "to": draft.To, "cc": draft.Cc, "bcc": draft.Bcc, "text": draft.Text.String, "html": draft.Html.String, "text_format": draft.TextFormat, "attachments": draft.Attachments, "size": draft.Size, "send_date": now}
+		mailstore.Prepare(draft)
+		updates := map[string]any{"projection_ready": true, "list_snippet": draft.ListSnippet, "from_address": draft.FromAddress, "from_name": draft.FromName, "sender": draft.Sender, "subject": draft.Subject, "to": draft.To, "cc": draft.Cc, "bcc": draft.Bcc, "text": draft.Text.String, "html": draft.Html.String, "text_format": draft.TextFormat, "attachments": draft.Attachments, "size": draft.Size, "send_date": now}
 		if _, err := tx.Table(&models.Email{}).ID(draft.Id).Where("send_user_id=? AND status=?", draft.SendUserID, consts.EmailStatusDrafts).Update(updates); err != nil {
 			return err
+		}
+		if !keepAttachments || !stored.ProjectionReady {
+			if err := mailstore.WriteParts(tx, draft, true); err != nil {
+				return err
+			}
+		}
+		if draft.Size != stored.Size {
+			n, err := tx.Where("user_id=? AND email_id=?", draft.SendUserID, draft.Id).Count(&models.UserEmail{})
+			if err != nil {
+				return err
+			}
+			if err = quota.Adjust(tx, draft.SendUserID, n*(int64(draft.Size)-int64(stored.Size))); err != nil {
+				return err
+			}
 		}
 		return readDraftTimes(tx, draft)
 	})
@@ -194,13 +221,23 @@ func removeDrafts(owner int, ids []int) error {
 	slices.Sort(ids)
 	ids = slices.Compact(ids)
 	return db.Transaction(db.Instance, func(tx *xorm.Session) error {
+		if _, err := quota.Lock(tx, owner); err != nil {
+			return err
+		}
 		for _, id := range ids {
+			size, err := quota.MessageSize(tx, id)
+			if err != nil {
+				return err
+			}
 			removed, err := tx.Where("user_id=? AND email_id=? AND status=?", owner, id, consts.EmailStatusDrafts).Delete(new(models.UserEmail))
 			if err != nil {
 				return err
 			}
 			if removed == 0 {
 				continue
+			}
+			if err := quota.Adjust(tx, owner, -removed*size); err != nil {
+				return err
 			}
 			linked, err := tx.Where("email_id=?", id).Exist(new(models.UserEmail))
 			if err != nil {
@@ -209,8 +246,14 @@ func removeDrafts(owner int, ids []int) error {
 			if linked {
 				continue
 			}
-			if _, err := tx.ID(id).Where("send_user_id=? AND status=?", owner, consts.EmailStatusDrafts).Delete(new(models.Email)); err != nil {
+			deleted, err := tx.ID(id).Where("send_user_id=? AND status=?", owner, consts.EmailStatusDrafts).Delete(new(models.Email))
+			if err != nil {
 				return err
+			}
+			if deleted > 0 {
+				if err := mailstore.DeleteParts(tx, id); err != nil {
+					return err
+				}
 			}
 		}
 		return nil

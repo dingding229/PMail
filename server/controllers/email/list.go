@@ -2,7 +2,6 @@ package email
 
 import (
 	"encoding/json"
-	"math"
 	"net/http"
 	"time"
 
@@ -13,13 +12,13 @@ import (
 	"github.com/Jinnrry/pmail/services/list"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/isotime"
-	"github.com/spf13/cast"
 )
 
 type emailListResponse struct {
 	CurrentPage int         `json:"current_page"`
 	TotalPage   int         `json:"total_page"`
 	List        []*emilItem `json:"list"`
+	NextCursor  *string     `json:"next_cursor,omitempty"`
 }
 
 type emilItem struct {
@@ -44,10 +43,12 @@ type User struct {
 }
 
 type emailRequest struct {
-	Keyword     string `json:"keyword"`
-	Tag         string `json:"tag"`
-	CurrentPage int    `json:"current_page"`
-	PageSize    int    `json:"page_size"`
+	Keyword      string  `json:"keyword"`
+	Tag          string  `json:"tag"`
+	CurrentPage  int     `json:"current_page"`
+	PageSize     int     `json:"page_size"`
+	Cursor       *string `json:"cursor"`
+	IncludeTotal *bool   `json:"include_total"`
 }
 
 func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
@@ -73,7 +74,36 @@ func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	}
 	_ = json.Unmarshal([]byte(retData.Tag), &tagInfo)
 
-	emailList, total := list.GetEmailList(ctx, tagInfo, retData.Keyword, false, offset, retData.PageSize)
+	limit := retData.PageSize
+	count := retData.Cursor == nil
+	if retData.IncludeTotal != nil {
+		count = *retData.IncludeTotal
+	}
+	var cursor list.MailCursor
+	if retData.Cursor != nil {
+		var err error
+		cursor, err = list.DecodeCursor(*retData.Cursor)
+		if err != nil {
+			response.Localized(ctx, response.ParamsError, "invalid_pagination").FPrint(w)
+			return
+		}
+		offset = 0
+		limit++
+	}
+	emailList, total, err := list.WebPage(ctx, tagInfo, retData.Keyword, cursor, offset, limit, count)
+	if err != nil {
+		response.Localized(ctx, response.ServerError, "internal_error").FPrint(w)
+		return
+	}
+	var next *string
+	if retData.Cursor != nil {
+		value := ""
+		if len(emailList) > retData.PageSize {
+			emailList = emailList[:retData.PageSize]
+			value = list.EncodeCursor(emailList[len(emailList)-1])
+		}
+		next = &value
+	}
 
 	for _, email := range emailList {
 		var sender User
@@ -95,7 +125,7 @@ func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 			IsStarred:              email.IsStarred,
 			ID:                     email.Id,
 			Title:                  email.Subject,
-			Desc:                   email.Text.String,
+			Desc:                   email.ListSnippet,
 			Datetime:               email.SendDate.Format("2006-01-02 15:04:05"),
 			IsRead:                 email.IsRead == 1,
 			Sender:                 sender,
@@ -106,8 +136,9 @@ func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 
 	ret := emailListResponse{
 		CurrentPage: retData.CurrentPage,
-		TotalPage:   cast.ToInt(math.Ceil(cast.ToFloat64(total) / cast.ToFloat64(retData.PageSize))),
+		TotalPage:   int((total + int64(retData.PageSize) - 1) / int64(retData.PageSize)),
 		List:        lst,
+		NextCursor:  next,
 	}
 	response.NewSuccessResponse(ret).FPrint(w)
 }

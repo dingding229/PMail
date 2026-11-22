@@ -262,3 +262,56 @@ func (s *serverSession) removeAnnounced(items []mailboxEntry, emit func(uint32) 
 	}
 	return nil
 }
+
+// Search does not resynchronize an already announced mailbox. Read existing
+// UID mappings and live flags in one projected query, without creating UIDs
+// or holding an exclusive user lock (Poll announces newly arrived messages).
+func (s *serverSession) searchSnapshot() ([]*response.UserEmailUIDData, error) {
+	if s.announced == nil {
+		state, err := mailboxSnapshot(s.ctx, s.currentMailbox)
+		if err != nil {
+			return nil, err
+		}
+		return present(state.items), nil
+	}
+	tx := db.Instance.NewSession()
+	defer tx.Close()
+	if s.ctx.Context != nil {
+		tx.Context(s.ctx.Context)
+	}
+	b, err := findBox(tx, s.ctx.UserID, s.currentMailbox)
+	if err != nil {
+		return nil, err
+	}
+	var box models.IMAPMailbox
+	ok, err := tx.Cols("id").Where("user_id=? AND box_key=?", b.owner, b.key).Get(&box)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, errMailboxMissing
+	}
+	var links []response.UserEmailUIDData
+	q := tx.Table("user_email").Join("INNER", "imap_mailbox_uid", "imap_mailbox_uid.link_id=user_email.id").Where("imap_mailbox_uid.box_id=?", box.ID)
+	if err = b.scope(q).Select("imap_mailbox_uid.uid AS id,email_id,is_read,is_starred,status,imap_deleted").Asc("imap_mailbox_uid.uid").Find(&links); err != nil {
+		return nil, err
+	}
+	rows := make([]*response.UserEmailUIDData, 0, min(len(links), len(s.announced)))
+	// Both sets are UID ordered. Match them linearly and preserve the session's
+	// sequence numbers when a concurrent expunge has not been announced yet.
+	for i, j := 0, 0; i < len(links) && j < len(s.announced); {
+		uid := imap.UID(links[i].ID)
+		switch {
+		case uid < s.announced[j]:
+			i++
+		case uid > s.announced[j]:
+			j++
+		default:
+			links[i].SerialNumber = j + 1
+			rows = append(rows, &links[i])
+			i++
+			j++
+		}
+	}
+	return rows, nil
+}

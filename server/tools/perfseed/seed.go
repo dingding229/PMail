@@ -5,6 +5,7 @@ package perfseed
 
 import (
 	"bytes"
+	stdctx "context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/mailstore"
+	pctx "github.com/Jinnrry/pmail/utils/context"
 	_ "modernc.org/sqlite"
 	"xorm.io/xorm"
 )
@@ -61,7 +64,12 @@ func Seed(b testing.TB) models.User {
 					row.Attachments = string(payload)
 					row.Size += len(payload)
 				}
+				mailstore.Prepare(&row)
+				mailstore.SetPOPSize(&pctx.Context{Context: stdctx.Background()}, &row)
 				if _, err := tx.Insert(&row); err != nil {
+					return nil, err
+				}
+				if err := mailstore.WriteParts(tx, &row, false); err != nil {
 					return nil, err
 				}
 				if _, err := tx.Insert(&models.UserEmail{UserID: owner, EmailID: n, IsStarred: n%37 == 0}); err != nil {
