@@ -30,7 +30,7 @@ PMail 是一个自托管邮箱平台，默认使用 PostgreSQL，支持多域名
 | 变量 | 含义 |
 |---|---|
 | `PMAIL_PROJECT_NAME` | Compose 项目名；同一主机的每个部署必须使用不同名称。 |
-| `PMAIL_IMAGE` | 留空时按项目使用 `pmail-<project>:local` 并本地构建；填写 `ghcr.io/...` 等仓库镜像时直接拉取。 |
+| `PMAIL_IMAGE` | 留空时按项目使用 `pmail-<project>:local` 并本地构建；填写 `yourname/pmail:3.0.0` 等仓库镜像时直接拉取。 |
 | `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` | PostgreSQL 初始化参数。 |
 | `PMAIL_DB_TYPE`、`PMAIL_DB_DSN` | 数据库类型和 DSN。 |
 | `PMAIL_DOMAIN`、`PMAIL_DOMAINS`、`PMAIL_WEB_DOMAIN` | 邮件域名和 Web 域名。 |
@@ -83,7 +83,23 @@ server {
 
 ## 多实例与本地镜像
 
-同一主机部署多个实例时必须使用不同项目名，例如 `./deploy/deploy.sh init --project pmail-prod` 和 `./deploy/deploy.sh init --project pmail-staging`。本地镜像按项目命名为 `pmail-<project>:local`，每次 `up` 都会按缓存重新构建，不会跨项目复用。设置 `PMAIL_IMAGE=ghcr.io/example/pmail:v3` 可切换到预构建镜像模式；该模式会拉取镜像而不本地构建。 所有涉及容器的命令（`up`、`upgrade`、`backup`、`restore`、`dns`、`migrate-*`、`down`、`uninstall`）执行前都会校验 Compose 项目是否归属于当前目录，避免误操作其他目录的容器。
+同一主机部署多个实例时必须使用不同项目名，例如 `./deploy/deploy.sh init --project pmail-prod` 和 `./deploy/deploy.sh init --project pmail-staging`。本地镜像按项目命名为 `pmail-<project>:local`，每次 `up` 都会按缓存重新构建，不会跨项目复用。设置 `PMAIL_IMAGE=yourname/pmail:3.0.0` 可切换到预构建镜像模式；该模式会拉取镜像而不本地构建。 所有涉及容器的命令（`up`、`upgrade`、`backup`、`restore`、`dns`、`migrate-*`、`down`、`uninstall`）执行前都会校验 Compose 项目是否归属于当前目录，避免误操作其他目录的容器。
+
+## 预构建镜像（GitHub Actions → Docker Hub）
+
+`.github/workflows/docker.yml` 会构建 `linux/amd64`、`linux/arm64` 镜像并推送到 Docker Hub。首次使用前在 GitHub 仓库 Settings → Secrets and variables → Actions 中配置：
+
+| 类型 | 名称 | 说明 |
+| --- | --- | --- |
+| Variable | `DOCKERHUB_USERNAME` | Docker Hub 用户名或组织名 |
+| Variable | `DOCKERHUB_IMAGE` | 可选，默认 `<DOCKERHUB_USERNAME>/pmail` |
+| Secret | `DOCKERHUB_TOKEN` | Docker Hub → Account settings → Personal access tokens 创建，权限 Read & Write |
+
+触发方式：
+- 推送 `v*` tag（如 `git tag v3.0.0 && git push origin v3.0.0`）：生成 `3.0.0`、`3.0`、`3`、`latest`、`sha-xxxxxxx`；带 `-` 的预发布 tag（如 `v3.0.0-rc1`）不更新 `latest`。
+- Actions 页面手动运行 “Docker image”（可选任意分支）：生成分支名 tag（如 `feature-v3`）、`sha-xxxxxxx`，以及可选的自定义 tag。
+
+部署时在 `.env` 中设置 `PMAIL_IMAGE=yourname/pmail:3.0.0`，`deploy.sh up` 会直接拉取；`UPGRADE_VERSION=3.1.0 ./deploy/deploy.sh upgrade` 切换到新版本（不填默认 `latest`），失败自动回滚。
 
 ## 备份、恢复与升级
 

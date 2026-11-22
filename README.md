@@ -30,7 +30,7 @@ All deployment variables are documented in `.env.example`. Important variables:
 | Variable | Meaning |
 |---|---|
 | `PMAIL_PROJECT_NAME` | Docker Compose project name; use a different value for each deployment on one host. |
-| `PMAIL_IMAGE` | Empty/local mode uses the project-scoped `pmail-<project>:local` image; set a registry image such as `ghcr.io/example/pmail:v3` to pull instead. |
+| `PMAIL_IMAGE` | Empty/local mode uses the project-scoped `pmail-<project>:local` image; set a registry image such as `yourname/pmail:3.0.0` to pull instead. |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | PostgreSQL bootstrap settings. |
 | `PMAIL_DB_TYPE`, `PMAIL_DB_DSN` | Database type/DSN; Compose normally supplies PostgreSQL. |
 | `PMAIL_DOMAIN`, `PMAIL_DOMAINS`, `PMAIL_WEB_DOMAIN` | Mail and web domains. |
@@ -84,6 +84,22 @@ server {
 ## Multiple deployments and local images
 
 Run separate deployments with distinct project names, for example `./deploy/deploy.sh init --project pmail-prod` and `./deploy/deploy.sh init --project pmail-staging`. Local images are named `pmail-<project>:local` and are rebuilt by `up`, so projects do not reuse one another's local tag. Set `PMAIL_IMAGE` to a registry image when using a prebuilt image; registry mode pulls instead of building. Container-affecting commands (`up`, `upgrade`, `backup`, `restore`, `dns`, `migrate-*`, `down`, and `uninstall`) verify that the Compose project belongs to the current directory before changing containers.
+
+## Prebuilt images (GitHub Actions → Docker Hub)
+
+`.github/workflows/docker.yml` builds `linux/amd64` and `linux/arm64` images and pushes them to Docker Hub. Configure the repository under Settings → Secrets and variables → Actions:
+
+| Kind | Name | Notes |
+| --- | --- | --- |
+| Variable | `DOCKERHUB_USERNAME` | Docker Hub user or organization |
+| Variable | `DOCKERHUB_IMAGE` | Optional, defaults to `<DOCKERHUB_USERNAME>/pmail` |
+| Secret | `DOCKERHUB_TOKEN` | Docker Hub personal access token with Read & Write scope |
+
+Triggers:
+- Pushing a `v*` tag (e.g. `v3.0.0`) publishes `3.0.0`, `3.0`, `3`, `latest` and `sha-xxxxxxx`; pre-release tags containing `-` do not move `latest`.
+- Running "Docker image" manually from the Actions tab publishes the branch name (e.g. `feature-v3`), `sha-xxxxxxx` and an optional custom tag.
+
+Set `PMAIL_IMAGE=yourname/pmail:3.0.0` in `.env` to pull it; `UPGRADE_VERSION=3.1.0 ./deploy/deploy.sh upgrade` switches versions (defaults to `latest`) with automatic rollback.
 
 ## Backup, restore and upgrade
 
