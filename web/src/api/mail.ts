@@ -53,15 +53,15 @@ export const mailApi = {
       ids: toIds(ids),
     }),
 
-  /** New OpenAPI v4 attachment routes: /api/attachments/download/{emailId}.{index} */
+  /** OpenAPI attachment routes: /api/attachments/download/{emailId}.{index} */
   attachmentDownloadUrl: (emailId: number, index: number) =>
     `/api/attachments/download/${emailId}.${index}`,
 
-  /** New OpenAPI v4 inline attachment route: /api/attachments/{emailId}.{index} */
+  /** OpenAPI inline attachment route: /api/attachments/{emailId}.{index} */
   attachmentInlineUrl: (emailId: number, index: number) =>
     `/api/attachments/${emailId}.${index}`,
 
-  /** New OpenAPI v4 text/code attachment preview route: /api/attachments/preview/{emailId}.{index} */
+  /** OpenAPI text/code attachment preview route: /api/attachments/preview/{emailId}.{index} */
   previewAttachment: (emailId: number, index: number) =>
     apiGet<AttachmentPreviewResponse>(`/api/attachments/preview/${emailId}.${index}`),
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * PMail Pro v4 i18n Integrity & Chinese Coverage Checker
+ * PMail Pro i18n Integrity & Chinese Coverage Checker
  *
  * Verifies:
  * 1. zh-CN.ts and en.ts have identical flattened key sets.

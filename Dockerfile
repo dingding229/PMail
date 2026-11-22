@@ -10,7 +10,7 @@ FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine3.24 AS backend
 ARG TARGETOS
 ARG TARGETARCH
 ARG TARGETVARIANT
-ARG VERSION=4.0.0-beta.1
+ARG VERSION=0.0.1
 ARG GITHASH=unknown
 WORKDIR /build/server
 COPY server/go.mod server/go.sum ./
@@ -18,6 +18,8 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY server/ ./
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     set -eu; \
+    case "$VERSION" in *[!0-9.]*|'') echo "Invalid PMail Pro version" >&2; exit 1;; esac; \
+    printf '%s\n' "$VERSION" | grep -Eq '^0\.[0-9]+\.[0-9]+$' || { echo "Invalid PMail Pro version" >&2; exit 1; }; \
     export CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH"; \
     if [ "$GOARCH" = arm ] && [ -n "$TARGETVARIANT" ]; then export GOARM="${TARGETVARIANT#v}"; fi; \
     mkdir -p /out; \

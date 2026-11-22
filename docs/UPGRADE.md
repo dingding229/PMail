@@ -1,15 +1,15 @@
-# PMail v2.x → v3 迁移与兼容说明
+# 旧版 PMail 迁移至 PMail Pro 0.0.1
 
 已有 PostgreSQL 版 PMail Pro 的日常镜像升级和回滚，请按 [README 的备份和升级步骤](../README.md#升级备份与恢复) 操作。本页针对旧 SQLite/MySQL 安装。
 
 ## 不兼容变更
 
 1. **默认数据库改为 PostgreSQL 17。** SQLite/MySQL 单文件部署需要导入数据库，不能把旧文件直接挂载成 PostgreSQL 数据卷。
-2. **配置改为环境变量优先。** 根据 [安装说明](../README.md#安装docker-compose) 准备 `.env`。旧 `config.json` 可作配置参考，不要把密码或 `PMAIL_SECRET_KEY` 提交到仓库。现有 v3 Compose 实例迁到 `beta.4` 时，保留显式 `POSTGRES_PASSWORD` 和 `PMAIL_SECRET_KEY`；保留并备份 `secrets`、`pmail_config` 卷。回到不支持密码文件的镜像时也需恢复对应的 Compose 文件。
+2. **配置改为环境变量优先。** 根据 [安装说明](../README.md#安装docker-compose) 准备 `.env`。旧 `config.json` 可作配置参考，不要把密码或 `PMAIL_SECRET_KEY` 提交到仓库。迁移已有 Compose 实例时，保留显式 `POSTGRES_PASSWORD` 和 `PMAIL_SECRET_KEY`；保留并备份 `secrets`、`pmail_config` 卷。回到不支持密码文件的镜像时也需恢复对应的 Compose 文件。
 3. **旧 Token 格式废弃。** 使用 `/api/token/create` 创建 API Token，通过 `Authorization: Bearer <token>` 使用。兼容的 `Token` 请求头仅接受新生成的 Token，不再支持旧的 MD5 派生凭据。
 4. **密码哈希改为 bcrypt。** 旧 MD5 密码在首次成功认证后自动升级；明文密码不写入日志或前端存储。
 5. **外发改用持久化队列。** 网页、587/465 提交的对外邮件先入队，由队列负责重试；本地收件人仍同步入库。可通过 `/api/queue/list` 核对状态。
-6. **Web 前端更换。** v4 使用 `web/` 中的 React SPA；与 Go API 一起部署，同一容器托管网页与 API。
+6. **Web 前端更换。** PMail Pro 使用 `web/` 中的 React SPA；与 Go API 一起部署，同一容器托管网页与 API。
 7. **新增数据表。** 包括 `domain`、`mailbox_address`、`api_token`、`outbound_queue`、`forward_setting`、`external_account`、`external_seen`，以及新增的用户配额和认证字段。
 
 ## 导入旧数据库
@@ -60,13 +60,13 @@ docker compose pull && docker compose up -d --wait postgres
 
 ## 回滚
 
-保留原先的 SQLite/MySQL 数据和配置备份，直到 v3 验收完成。回退到 v2 时，应使用升级前的旧库备份和与其匹配的旧版本，不要把 v3 的 PostgreSQL 转储直接用于 v2；密码哈希、API Token、队列和前端均有兼容性变更。已使用 PostgreSQL 的 PMail Pro 版本间回滚，参照 [README 的恢复步骤](../README.md#恢复数据库)。
+保留原先的 SQLite/MySQL 数据和配置备份，直到迁移验收完成。回退时，应使用升级前的旧库备份和与其匹配的旧版本，不要把新版的 PostgreSQL 转储直接用于旧版；密码哈希、API Token、队列和前端均有兼容性变更。已使用 PostgreSQL 的 PMail Pro 版本间回滚，参照 [README 的恢复步骤](../README.md#恢复数据库)。
 
 ## catch-all 与入站过滤
 
 `PMAIL_SPAM_FILTER_LEVEL` 只在开启 `PMAIL_CATCH_ALL` 且邮件没有匹配到任何已知本地收件人、准备回退投递给管理员时生效。已知收件人不受此等级影响，即使 SPF/DKIM 未通过也不由此设置过滤。关闭 catch-all 后，未知收件人不会回退投递给管理员。
 
-## 升级到 v4
+## 账户、插件与附件兼容
 
 已有数据库用户不受引导机制变化影响。空库不再自动生成 `initial_admin_password`；在 HTTPS 网页输入 `docker compose logs pmail | grep 注册密钥` 查到的一次性密钥，或显式设置 `PMAIL_ADMIN_PASSWORD`。升级不会删除旧密码文件。
 

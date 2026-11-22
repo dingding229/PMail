@@ -112,7 +112,7 @@ export function createSeedEmails(): MockEmailRecord[] {
       is_read: false,
       dangerous: false,
       error: '',
-      subject: 'PMail Pro v4 架构评审与上线排期确认',
+      subject: 'PMail Pro 架构评审与上线排期确认',
       from_name: '苏明远',
       from_address: 'mingyuan.su@acme-cloud.cn',
       to: [{ Name: '林深', EmailAddress: 'admin@pmail.dev' }],
@@ -123,12 +123,12 @@ export function createSeedEmails(): MockEmailRecord[] {
       reply_to: [],
       send_date: minutesAgo(12),
       size: 18420,
-      msg_id: '<20261122.v4.plan@acme-cloud.cn>',
-      text: '林深你好，v4 前端重构与前后端分离方案已经通过评审。请确认本周三前完成 U1 骨架与主邮件界面联调，附件是最新的里程碑排期和 OpenAPI 接口对照表。',
+      msg_id: '<20261122.release.plan@acme-cloud.cn>',
+      text: '林深你好，PMail Pro 前端重构与前后端分离方案已经通过评审。请确认本周三前完成 U1 骨架与主邮件界面联调，附件是最新的里程碑排期和 OpenAPI 接口对照表。',
       html: `
         <div style="font-size:14.5px;line-height:1.75;">
           <p>林深你好，</p>
-          <p>PMail Pro <strong>v4.0</strong> 的架构评审已全部通过，核心目标如下：</p>
+          <p>PMail Pro <strong>0.0.1</strong> 的架构评审已全部通过，核心目标如下：</p>
           <ul>
             <li>前后端彻底分离，仅通过 <code>/api/*</code> 与 <code>docs/openapi.yaml</code> 契约交互</li>
             <li>全新 React 19 + TanStack Virtual 邮件工作区，保障 <strong>10,000+ 封邮件 60fps 流畅滚动</strong></li>
@@ -137,18 +137,18 @@ export function createSeedEmails(): MockEmailRecord[] {
           </ul>
           <p>请核对附件中的排期文档与配置文件，如无异议我们将在明天上午 10:00 开始联调。</p>
           <p style="margin-top:16px;">
-            <img src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=680&q=80" alt="PMail Pro v4 架构示意图" />
+            <img src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=680&q=80" alt="PMail Pro 架构示意图" />
           </p>
           <p style="color:#64748b;font-size:13px;margin-top:18px;">— 苏明远 · 技术产品负责人</p>
         </div>
       `,
       attachments: [
         {
-          Filename: 'PMail-v4-Milestone.md',
+          Filename: 'PMail-Pro-Milestone.md',
           ContentType: 'text/markdown',
           Index: 0,
           Size: 4280,
-          previewContent: `# PMail Pro v4 里程碑排期\n\n- C1: OpenAPI 契约 + 静态托管 + /api/bootstrap\n- U1: React 19 骨架 + 登录/注册 + 主邮件三栏工作区\n- C2: 首次注册密钥 + 后端提示全中文\n- C3: DNS 引导接口 + 邮件代码解析\n- U2: 设置与管理页面 + DNS 分步向导\n- U3: Shiki 代码高亮 + 性能与动效打磨\n`,
+          previewContent: `# PMail Pro 里程碑排期\n\n- C1: OpenAPI 契约 + 静态托管 + /api/bootstrap\n- U1: React 19 骨架 + 登录/注册 + 主邮件三栏工作区\n- C2: 首次注册密钥 + 后端提示全中文\n- C3: DNS 引导接口 + 邮件代码解析\n- U2: 设置与管理页面 + DNS 分步向导\n- U3: Shiki 代码高亮 + 性能与动效打磨\n`,
         },
         {
           Filename: 'dns-preview.json',
@@ -236,7 +236,7 @@ export function createSeedEmails(): MockEmailRecord[] {
       is_read: false,
       dangerous: false,
       error: '',
-      subject: '[PATCH v4 1/2] mail: 支持 GBK/GB18030 纯文本解码与 format=flowed',
+      subject: '[PATCH 1/2] mail: 支持 GBK/GB18030 纯文本解码与 format=flowed',
       from_name: '陆景行',
       from_address: 'jingxing.lu@acme-cloud.cn',
       to: [{ Name: '林深', EmailAddress: 'admin@pmail.dev' }],
@@ -244,13 +244,13 @@ export function createSeedEmails(): MockEmailRecord[] {
       reply_to: [],
       send_date: minutesAgo(38),
       size: 4620,
-      msg_id: '<patch-v4-001@acme-cloud.cn>',
+      msg_id: '<patch-001@acme-cloud.cn>',
       text_format: 'patch',
       has_code: true,
       text: `From 9f2c8d1a4b5e67890abcdef1234567890abcdef1 Mon Sep 17 00:00:00 2001
 From: Lu Jingxing <jingxing.lu@acme-cloud.cn>
 Date: Sun, 22 Nov 2026 21:30:00 +0800
-Subject: [PATCH v4 1/2] mail: 支持 GBK/GB18030 纯文本解码与 format=flowed
+Subject: [PATCH 1/2] mail: 支持 GBK/GB18030 纯文本解码与 format=flowed
 
 修复中文老旧客户端发送 GBK 编码代码邮件时的乱码问题，并在展开
 format=flowed 软换行时保持代码缩进不被破坏。
@@ -319,7 +319,7 @@ index 0000000..4455667
       msg_id: '<markdown-code-spec@acme-cloud.cn>',
       text_format: 'markdown',
       has_code: true,
-      text: `## PMail Pro v4 邮件代码渲染说明
+      text: `## PMail Pro 邮件代码渲染说明
 
 当邮件为 **Markdown** 或包含代码围栏时，前端按需懒加载 \`Shiki\` 语法高亮引擎，并自动适配浅色/深色主题：
 
@@ -346,7 +346,7 @@ def 汇总收件箱状态(total: int, unread: int) -> str:
     return f"收件箱共 {total} 封，未读 {unread} 封（占比 {ratio:.1f}%）"
 \`\`\`
 
-> 在线文档参考：https://docs.pmail.dev/v4/code-rendering`,
+> 在线文档参考：https://github.com/dingding229/PMail/blob/master/docs/API.md`,
       html: '',
       attachments: [],
     },
@@ -541,7 +541,7 @@ def 汇总收件箱状态(total: int, unread: int) -> str:
       is_read: true,
       dangerous: false,
       error: '',
-      subject: 'Re: PMail Pro v4 架构评审与上线排期确认',
+      subject: 'Re: PMail Pro 架构评审与上线排期确认',
       from_name: '林深',
       from_address: 'admin@pmail.dev',
       to: [{ Name: '苏明远', EmailAddress: 'mingyuan.su@acme-cloud.cn' }],
@@ -604,7 +604,7 @@ def 汇总收件箱状态(total: int, unread: int) -> str:
       is_read: true,
       dangerous: false,
       error: '',
-      subject: '旧版构建通知：v3.0.0-beta.4 镜像已归档',
+      subject: '构建通知：旧版镜像已归档',
       from_name: 'CI Bot',
       from_address: 'ci@pmail.dev',
       to: [{ Name: '林深', EmailAddress: 'admin@pmail.dev' }],
@@ -613,7 +613,7 @@ def 汇总收件箱状态(total: int, unread: int) -> str:
       send_date: daysAgo(6),
       size: 1950,
       msg_id: '<trash-112@pmail.dev>',
-      text: 'Workflow release-v3 已完成并归档构建产物。',
+      text: '旧版发布工作流 已完成并归档构建产物。',
       html: '',
       attachments: [],
     },

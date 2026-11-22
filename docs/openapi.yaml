@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: PMail Pro HTTP API
-  version: 4.0.0-beta.1
+  version: 0.0.1
   description: |-
-    v4 runtime contract. For timestamps use the additive *_iso fields (RFC3339 with an explicit offset); legacy fields are unchanged. Cookie, Bearer token, and the legacy Token header are alternative credentials; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource; any admin override is stated per operation.
+    PMail Pro runtime contract. For timestamps use the additive *_iso fields (RFC3339 with an explicit offset); legacy fields are unchanged. Cookie, Bearer token, and the legacy Token header are alternative credentials; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource; any admin override is stated per operation.
 
     JSON responses use {errorNo, errorMsg, data} unless stated otherwise. Legacy failures can return HTTP 200. x-error-codes lists application codes by HTTP status. Don't infer success from HTTP status alone. Unmatched /api requests return HTTP 404 with the localized JSON envelope (errorNo 404). The reusable UnknownApiPath response describes this routing error. Resource-not-found errors on matched routes keep their existing error codes. Unsupported attachment subpaths never return SPA HTML. The legacy setup endpoint is available only on the setup listener; when HTTPS is active the plain HTTP listener serves ping and ACME directly and redirects other requests to HTTPS. Listed GET/POST variants are supported contracts; incidental verbs accepted by some older handlers are not part of the contract.
 

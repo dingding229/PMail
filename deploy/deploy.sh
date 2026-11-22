@@ -132,7 +132,7 @@ load_project() {
     configured_image="$(sed -n 's/^PMAIL_IMAGE=//p' "$env_file" | tail -n 1)"
     env_image="${PMAIL_IMAGE:-}"
     if [[ -z "$configured_image" ]]; then
-        configured_image="${env_image:-dingding229/pmail-pro:4.0.0-beta.1}"
+        configured_image="${env_image:-dingding229/pmail-pro:latest}"
     fi
     export PMAIL_IMAGE="$configured_image"
 }

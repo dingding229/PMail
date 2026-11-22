@@ -1,6 +1,6 @@
 # PMail Pro
 
-![版本 4.0.0-beta.1](https://img.shields.io/badge/PMail%20Pro-4.0.0--beta.1-2563eb)
+![版本 0.0.1](https://img.shields.io/badge/PMail%20Pro-0.0.1-2563eb)
 
 PMail Pro 是 [Jinnrry/PMail](https://github.com/Jinnrry/PMail) 的增强分支，是一套可自托管的邮件服务。发布镜像位于 Docker Hub：`dingding229/pmail-pro`。
 
@@ -37,7 +37,7 @@ sudo apt-get update && sudo apt-get install -y ca-certificates curl openssl dnsu
 
 ### 2. 下载、填写域名并启动
 
-无需克隆源码或生成密码。将 `example.com` 换成你的**主邮件域名**；网页域名自动为 `mail.example.com`。默认镜像是 `dingding229/pmail-pro:4.0.0-beta.1`，请在这个标签发布后使用。以下命令只用于**全新目录**，不要覆盖已有 `.env`。
+无需克隆源码或生成密码。将 `example.com` 换成你的**主邮件域名**；网页域名自动为 `mail.example.com`。默认镜像是 `dingding229/pmail-pro:latest`。需要固定版本时，在 `.env` 设置 `PMAIL_IMAGE=dingding229/pmail-pro:v0.0.1`，请在对应标签发布后使用。以下命令只用于**全新目录**，不要覆盖已有 `.env`。
 
 ```bash
 mkdir pmail-pro && cd pmail-pro
@@ -67,7 +67,7 @@ docker compose up -d
 
 ### 3. 获取注册密钥并创建管理员
 
-v4 网页会自动进入首次注册页。已有用户的升级部署直接登录，不会重新注册。
+新版网页会自动进入首次注册页。已有用户的升级部署直接登录，不会重新注册。
 
 ```bash
 docker compose logs pmail | grep 注册密钥
@@ -244,7 +244,7 @@ dig +short -x 203.0.113.10
 )
 ```
 
-上述回滚命令适用于兼容新 Compose（支持 `init-secrets` 和密码文件）的镜像。若回到 `3.0.0-beta.4` 之前的版本，先恢复该版本的 Compose 文件、配套 `.env` 和凭据；旧版本不能直接使用新 Compose。若旧 `.env` 没有显式数据库密码，取回与数据卷匹配的密码再填入旧配置，不要生成新密码。
+上述回滚命令适用于兼容新 Compose（支持 `init-secrets` 和密码文件）的镜像。若回到不支持密码文件的旧版本，先恢复该版本的 Compose 文件、配套 `.env` 和凭据；旧版本不能直接使用新 Compose。若旧 `.env` 没有显式数据库密码，取回与数据卷匹配的密码再填入旧配置，不要生成新密码。
 
 如果数据库没有不兼容变更，可执行 `docker compose up -d` 启动旧镜像；否则保持 PMail 停止，先保存当前数据，再按下一节恢复**升级前**的备份并启动。恢复会丢失备份之后的写入。
 
@@ -265,7 +265,7 @@ dig +short -x 203.0.113.10
 )
 ```
 
-恢复后检查服务状态、登录和邮件数据。从上游 SQLite 或 MySQL 部署迁移，请参阅 [v2 到 v3 迁移与兼容说明](docs/UPGRADE.md)。
+恢复后检查服务状态、登录和邮件数据。从上游 SQLite 或 MySQL 部署迁移，请参阅 [旧版迁移与兼容说明](docs/UPGRADE.md)。
 
 停止并移除本项目容器、保留数据卷：
 
@@ -285,7 +285,7 @@ docker compose down -v
 
 | 配置项 | 说明 |
 | --- | --- |
-| `PMAIL_IMAGE` | PMail 镜像标签，默认 `dingding229/pmail-pro:4.0.0-beta.1` |
+| `PMAIL_IMAGE` | PMail 镜像标签，默认 `dingding229/pmail-pro:latest`（固定版本示例：`dingding229/pmail-pro:v0.0.1`） |
 | `PMAIL_PROJECT_NAME` | Compose 项目名，默认 `pmail`；决定命名卷所属项目 |
 | `PMAIL_DOMAIN` / `PMAIL_DOMAINS` / `PMAIL_WEB_DOMAIN` | 主邮件域名（必填）、逗号分隔的附加收信域名、网页域名（默认 `mail.<主域名>`） |
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | 数据库、账号默认 `pmail`；密码默认随机生成到 `secrets` 卷，已有部署可保留显式值 |
@@ -335,7 +335,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml build pmail
 
 CI 的[工作流](.github/workflows/ci.yml)分别检查前后端、执行 Go 的常规与集成测试。在 `server/` 目录使用 `go test -tags integration ./...` 运行集成测试；需要能绑定固定邮件端口的权限和独立、空白的 PostgreSQL 测试库（`PMAIL_TEST_PG_DSN`），该库账号还须能建 schema。可选的 MySQL 主程序集成测试用 `PMAIL_TEST_MYSQL_DSN` 与 `go test -tags integration . -args mysql`，不要使用生产库。
 
-[镜像发布工作流](.github/workflows/docker.yml)构建 `linux/amd64` 和 `linux/arm64` 并推送到 Docker Hub：需配置变量 `DOCKERHUB_USERNAME`、读写权限密钥 `DOCKERHUB_TOKEN`，以及可选变量 `DOCKERHUB_IMAGE`（默认 `<DOCKERHUB_USERNAME>/pmail-pro`）。稳定 `v*` 标签更新 `latest`，预发布标签不更新；也可以手动触发并指定额外标签。
+[镜像发布工作流](.github/workflows/docker.yml)构建 `linux/amd64` 和 `linux/arm64` 并推送到 Docker Hub：需配置有 `dingding229/pmail-pro` 写入权限的密钥 `DOCKERHUB_TOKEN`，若使用其他有写入权限的账号，再设置 `DOCKERHUB_USERNAME`（默认 `dingding229`）。仅与源码版本一致的 `v0.x.y` Git 标签触发发布，同时推送对应的 `v0.x.y` 和 `latest` 镜像标签。
 
 ### Web 前端与 API
 
@@ -353,8 +353,8 @@ PMAIL_API_TARGET=http://localhost:8080 npm run dev
 
 Vite 在 `http://localhost:5173` 提供页面，将 `/api`（包括附件）代理给后端；该方式无需另配 CORS。仅做前端开发可运行 `npm run dev:mock`（等价于 `VITE_MOCK=1 npm run dev`），由 MSW 提供模拟接口，不必启动 Go 服务。默认生产构建不包含 MSW 或其 service worker。构建验证命令为 `npm run typecheck`、`npm run lint`、`npm run i18n:check` 和 `npm run build`。
 
-### 从 v3 升级到 v4
+### 从旧版迁移到 PMail Pro
 
 - 升级前按上文备份数据库和配置卷。已有账号、邮件及域名继续使用，不需再次注册。全新实例不再生成 `initial_admin_password`，使用 [注册密钥](#3-获取注册密钥并创建管理员)；已有旧文件不会被删除，请继续妥善保护。
 - 插件设置、可执行插件、微信通知和外部垃圾邮件分类插件已移除。现有插件配置不再读取，不做破坏性数据库迁移；内置 catch-all SPF/DKIM 过滤仍保留。
-- 新客户端使用 `/api/attachments/{id}`、`/api/attachments/download/{id}` 和文本预览接口；旧 `/attachments/*` 仍兼容。详见 [更新日志](CHANGELOG.md#400-beta1)。
+- 新客户端使用 `/api/attachments/{id}`、`/api/attachments/download/{id}` 和文本预览接口；旧 `/attachments/*` 仍兼容。详见 [更新日志](CHANGELOG.md#001)。

@@ -1,5 +1,6 @@
 import { delay, http, HttpResponse } from 'msw'
 import dayjs from 'dayjs'
+import { version as mockBuildVersion } from '../../package.json'
 import {
   SYSTEM_GROUP_IDS,
   type ApiTokenItem,
@@ -663,7 +664,7 @@ export const handlers = [
   http.get('/api/bootstrap', async () => {
     await delay(35)
     return HttpResponse.json({
-      version: '4.0.0-dev',
+      version: mockBuildVersion,
       need_register: needRegister,
       logged_in: loggedIn,
       default_lang: 'zh-CN',
@@ -1163,7 +1164,7 @@ export const handlers = [
     const url = new URL(request.url)
     const id = Number(url.searchParams.get('id') || '1')
     const dom = mockDomains.find((d) => d.id === id) ?? mockDomains[0]!
-    const zone = `; PMail Pro v4 BIND Zone File for ${dom.name}\n$ORIGIN ${dom.name}.\n$TTL 3600\n@\tIN\tMX\t10 mail.${dom.name}.\nmail\tIN\tA\t203.0.113.42\n@\tIN\tTXT\t"v=spf1 mx a ~all"\n${dom.dkim_selector}._domainkey\tIN\tTXT\t("${DKIM_CHUNK_1}" "${DKIM_CHUNK_2}")\n_dmarc\tIN\tTXT\t"v=DMARC1; p=quarantine; rua=mailto:postmaster@${dom.name}"\n`
+    const zone = `; PMail Pro BIND Zone File for ${dom.name}\n$ORIGIN ${dom.name}.\n$TTL 3600\n@\tIN\tMX\t10 mail.${dom.name}.\nmail\tIN\tA\t203.0.113.42\n@\tIN\tTXT\t"v=spf1 mx a ~all"\n${dom.dkim_selector}._domainkey\tIN\tTXT\t("${DKIM_CHUNK_1}" "${DKIM_CHUNK_2}")\n_dmarc\tIN\tTXT\t"v=DMARC1; p=quarantine; rua=mailto:postmaster@${dom.name}"\n`
     return new HttpResponse(zone, {
       status: 200,
       headers: {
@@ -1529,7 +1530,7 @@ export const handlers = [
     })
   }),
 
-  /* ==================== New OpenAPI v4 Dot-Separated Attachment Routes ==================== */
+  /* ==================== OpenAPI Dot-Separated Attachment Routes ==================== */
   http.get('/api/attachments/preview/:id', async ({ params }) => {
     await delay(70)
     const [emailIdStr, indexStr] = String(params.id || '').split('.')

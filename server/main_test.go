@@ -70,7 +70,7 @@ func runIntegration(m *testing.M, dbType, dsn string) int {
 		return 1
 	}
 	// Bring up the normal application directly. The legacy setup password
-	// writer is intentionally unavailable in v4.
+	// writer is intentionally unavailable in PMail Pro.
 	for key, value := range map[string]string{
 		"PMAIL_DB_TYPE": dbType, "PMAIL_DB_DSN": dsn,
 		"PMAIL_DOMAIN": testDomain, "PMAIL_DOMAINS": "", "PMAIL_WEB_DOMAIN": "mail." + testDomain,

@@ -1,7 +1,11 @@
 # 可另存为 docker-compose.override.yml，由 Compose 自动加载。
 # !override 需要 Docker Compose 2.24.4 或更新版本。
+# 固定版本：在 .env 设置 PMAIL_IMAGE=dingding229/pmail-pro:v0.0.1。
 services:
+  init-secrets:
+    image: ${PMAIL_IMAGE:-dingding229/pmail-pro:latest}
   pmail:
+    image: ${PMAIL_IMAGE:-dingding229/pmail-pro:latest}
     environment:
       PMAIL_WEB_MODE: ${PMAIL_WEB_MODE:-public}
     ports: !override

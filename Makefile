@@ -1,5 +1,6 @@
-VERSION ?= 4.0.0-beta.1
+VERSION ?= 0.0.1
 GITHASH ?= unknown
+export VERSION
 
 build: package
 
@@ -10,7 +11,11 @@ clean:
 build_web:
 	cd web && npm ci --ignore-scripts && npm run build
 
-build_server:
+check-version:
+	@case "$$VERSION" in *[!0-9.]*|'') echo 'PMail Pro version must match ^0\.[0-9]+\.[0-9]+$$' >&2; exit 1;; esac; \
+	printf '%s\n' "$$VERSION" | grep -Eq '^0\.[0-9]+\.[0-9]+$$' || { echo 'PMail Pro version must match ^0\.[0-9]+\.[0-9]+$$' >&2; exit 1; }
+
+build_server: check-version
 	cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X 'main.version=$(VERSION)' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(GITHASH)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail_linux_amd64  main.go
 	cd server && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X 'main.version=$(VERSION)' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(GITHASH)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail_windows_amd64.exe  main.go
 	cd server && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X 'main.version=$(VERSION)' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(GITHASH)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail_mac_amd64  main.go
@@ -35,9 +40,9 @@ test_mysql:
 test_postgres:
 	export PMAIL_TEST_PG_DSN="$${PMAIL_TEST_PG_DSN:-postgres://postgres:githubTest@postgres:5432/pmail?sslmode=disable}" && cd server && go test -tags integration -v -p 1 ./... -args postgres
 
-.PHONY: build clean build_web build_server package docker compose-init compose-up compose-upgrade compose-backup compose-logs compose-status compose-down
-docker:
-	docker build -t pmail:local .
+.PHONY: build clean check-version build_web build_server package docker compose-init compose-up compose-upgrade compose-backup compose-logs compose-status compose-down
+docker: check-version
+	docker build --build-arg VERSION="$$VERSION" -t pmail:local .
 
 compose-init:
 	./deploy/deploy.sh init
