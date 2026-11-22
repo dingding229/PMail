@@ -82,3 +82,12 @@ docker compose pull && docker compose up -d --wait postgres
 - `PMAIL_TRUSTED_RELAYS` 记录可信入站中继；私网不会自动判 SPF 通过。出站拒绝私网/保留地址，用 `PMAIL_SMTP_OUTBOUND_ALLOW` 仅放行实际需要的中继；`PMAIL_SMTP_TLS_REQUIRED_DOMAINS` 中的收件域拒绝 TLS 降级。
 - 外部邮箱密文为绑定端点的新格式，旧格式读取兼容并在同步时迁移。使用旧二进制回滚之前，备份原数据库；旧二进制不能解密已经迁移的凭据，必要时重新配置密码。
 - `PMAIL_WEB_ROOT` 不能包含配置、密钥或数据库文件；如以前指向工作目录，请改为专用前端构建目录。
+
+## 邮件与同步可靠性调整
+
+- 发信、草稿、手动转发的 JSON 默认 32 MiB（`PMAIL_MAIL_JSON_MAX_BYTES`）。超限是 HTTP 413；SMTP DATA 超限返回 552（现有 SMTP 原始消息上限仍为 30 MiB）。解码 MIME 单段/附件总量均不超过 24 MiB，应用邮件总预算 32 MiB，最多 256 段、32 级嵌套和 50 个收件人。外部邮箱超限断开连接并在同步状态显示原因。
+- `PMAIL_POP3_MAX_CONNECTIONS`（默认 `128`）和 `PMAIL_POP3_MAX_PER_IP`（默认 `8`）同时作用于 110/995，`PMAIL_POP3_IDLE_SECONDS` 默认 `600`。反代或网关后的共享 IP 可能需要调整每来源连接上限。
+- 规则正则改用 Go 语法，不再支持前后向断言或反向引用。保存时检查 1024 字节的正则长度、每条规则最多 32 个条件、每账户最多 100 条规则。已存不兼容规则不会崩溃投递，但应编辑替换。
+- 新 IMAP UID 命名空间会改变 `UIDVALIDITY`，升级后客户端会重建邮箱缓存。`\Deleted` 只是邮箱链接标记，`EXPUNGE` 才删除该链接；为避免并发删除其他来源的数据，IMAP 不立即清理全局 MIME 原文。APPEND 仍未实现，明确返回 `NO`。
+- 外部 IMAP 重新按邮箱和 UIDVALIDITY 建立游标，已有已导入记录用于去重；删除远端只针对已成功持久化的 UID。无 UIDPLUS 只打删除标记，不做全邮箱 EXPUNGE。
+- 未认证 SMTP 连接只能接受本地域收件人，包括受 catch-all 策略允许的本地未知地址，不会替外域收件人兜底。新转发退信地址更长且绑定接收域；旧退信地址只有仍能查到对应发件队列记录时才有效。

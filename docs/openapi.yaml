@@ -3,7 +3,7 @@ info:
   title: PMail Pro HTTP API
   version: 0.0.1
   description: |-
-    PMail Pro runtime contract. For timestamps use the additive *_iso fields (RFC3339 with an explicit offset); legacy fields are unchanged. Cookie, scoped Bearer token, and the legacy Token header are alternative credentials. Cookie-authenticated writes require same-origin Origin/Referer; JSON requests with a body require application/json; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource. Administrator access to other users' non-draft mail requires PMAIL_ADMIN_MAIL_ACCESS=1 and is audited.
+    PMail Pro runtime contract. For timestamps use the additive *_iso fields (RFC3339 with an explicit offset); legacy fields are unchanged. Cookie, scoped Bearer token, and the legacy Token header are alternative credentials. Cookie-authenticated writes require same-origin Origin/Referer; JSON requests with a body require application/json; body limits may produce HTTP 413 before validation; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource. Administrator access to other users' non-draft mail requires PMAIL_ADMIN_MAIL_ACCESS=1 and is audited.
 
     JSON responses use {errorNo, errorMsg, data} unless stated otherwise. Legacy failures can return HTTP 200. x-error-codes lists application codes by HTTP status. Don't infer success from HTTP status alone. Unmatched /api requests return HTTP 404 with the localized JSON envelope (errorNo 404). The reusable UnknownApiPath response describes this routing error. Resource-not-found errors on matched routes keep their existing error codes. Unsupported attachment subpaths never return SPA HTML. The legacy setup endpoint is available only on the setup listener; when HTTPS is active the plain HTTP listener serves ping and ACME directly and redirects other requests to HTTPS. Listed GET/POST variants are supported contracts; incidental verbs accepted by some older handlers are not part of the contract.
 
@@ -533,6 +533,7 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
   /api/email/draft/delete:
     post:
       operationId: deleteDraft
@@ -615,6 +616,7 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '500': {$ref: '#/components/responses/InternalError'}
         '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
   /api/email/forward:
     post:
       operationId: forwardMail
@@ -643,6 +645,7 @@ paths:
                 - {$ref: '#/components/schemas/Error100402403500DeliveryData'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
   /api/forward/get:
     get:
       operationId: getForwardSettingsGet
@@ -757,6 +760,7 @@ paths:
       operationId: addRule
       tags: [Rules]
       summary: Create or update a rule owned by the caller
+      description: Regular expressions use Go syntax with a 1024-byte limit. At most 32 conditions per rule and 100 rules per account.
       x-permission: owner
       description: Both paths use the same upsert; positive id updates, while omitted or zero id inserts.
       parameters:
@@ -785,6 +789,7 @@ paths:
       operationId: updateRule
       tags: [Rules]
       summary: Create or update a rule owned by the caller
+      description: Regular expressions use Go syntax with a 1024-byte limit. At most 32 conditions per rule and 100 rules per account.
       x-permission: owner
       description: Both paths use the same upsert; positive id updates, while omitted or zero id inserts.
       parameters:
@@ -1094,6 +1099,7 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
   /api/external/sync_now:
     post:
       operationId: syncExternalNow
@@ -2450,6 +2456,11 @@ components:
         type: integer
         description: Omit or use zero for the current account; only an administrator can select another user.
   responses:
+    PayloadTooLarge:
+      description: The JSON body, recipient count, MIME part, attachment, or message exceeds a resource limit.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error100EmptyData'}
     JSONMediaTypeRequired:
       description: A JSON request body requires Content-Type application/json.
       content:

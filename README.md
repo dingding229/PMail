@@ -298,6 +298,10 @@ docker compose down -v
 | `PMAIL_LEGACY_SETUP` | 设为 1 才允许旧初始化监听器。仅回环地址，令牌文件由日志指示，不要对外代理。 |
 | `PMAIL_TRUSTED_RELAYS` | 入站 SMTP 的可信中继 CIDR，逗号分隔；默认不信任私网。仅记录信任，不替代 SPF/DKIM/DMARC。 |
 | `PMAIL_POP3_ALLOW_PLAINTEXT_AUTH` | 默认关闭；110 在 STLS 前拒绝 USER/PASS。必要时仅在隔离网络临时开启。 |
+| `PMAIL_MAIL_JSON_MAX_BYTES` | 发信、草稿和手动转发 JSON 请求体的字节上限。默认 32 MiB，可设 1024–134217728；解码后邮件、附件和 MIME 段各有独立上限。 |
+| `PMAIL_POP3_MAX_CONNECTIONS` | 合计 POP3 110/995 的同时连接数上限（1–4096）。 |
+| `PMAIL_POP3_MAX_PER_IP` | 每来源 IP 的 POP3 同时连接数上限（1–4096），IPv4-mapped IPv6 合并计数。 |
+| `PMAIL_POP3_IDLE_SECONDS` | POP3 空闲断开秒数（1–3600）；断开不提交待删除标记。 |
 | `PMAIL_SMTP_OUTBOUND_ALLOW` | 逗号分隔的显式内网 SMTP 目标 CIDR 或精确 MX 主机名；默认拒绝私有/保留地址。 |
 | `PMAIL_SMTP_TLS_REQUIRED_DOMAINS` | 逗号分隔的精确收件域；必须验证 MX 的 STARTTLS 证书，否则不降级投递。其他域记录机会式降级。 |
 | `PMAIL_TRUSTED_PROXIES` | 逗号分隔的可信 Web 反代 CIDR，仅信任实际连接的代理。让代理覆盖 `X-Forwarded-Proto`、正确追加/清理 `X-Forwarded-For` 并保留 `Host`。 |
