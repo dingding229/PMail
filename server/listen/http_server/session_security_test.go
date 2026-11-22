@@ -13,6 +13,7 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/token"
 	"github.com/Jinnrry/pmail/session"
 	"github.com/Jinnrry/pmail/utils/password"
 	"github.com/alexedwards/scs/v2"
@@ -33,7 +34,7 @@ func newAuthFixture(t *testing.T) *authFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Sync2(&models.User{}); err != nil {
+	if err := engine.Sync2(&models.User{}, &models.APIToken{}); err != nil {
 		t.Fatal(err)
 	}
 	f := &authFixture{db: engine,
@@ -67,7 +68,13 @@ func (f *authFixture) call(t *testing.T, client *http.Client, path string, body 
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := client.Post(f.server.URL+path, "application/json", bytes.NewReader(data))
+	req, err := http.NewRequest(http.MethodPost, f.server.URL+path, bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", f.server.URL)
+	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,4 +195,45 @@ func TestSessionProfileEditPreservesCredentials(t *testing.T) {
 		t.Fatal(result)
 	}
 	f.login(t, "member", "initial-password")
+}
+
+func TestCrossOriginCookieWriteRejectedButBearerWriteAllowed(t *testing.T) {
+	f := newAuthFixture(t)
+	browser := f.login(t, "admin", "initial-password")
+	_, raw, err := token.Create(f.admin.ID, "cors-fixture", token.Admin, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The user edit route mutates only the fixture account and is shared by
+	// both requests: only authentication mode changes.
+	call := func(client *http.Client, bearer, display string) (int, response.Response) {
+		data, _ := json.Marshal(map[string]any{"id": f.member.ID, "display_name": display})
+		req, err := http.NewRequest(http.MethodPost, f.server.URL+"/api/user/edit", bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", "https://foreign.invalid")
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var body response.Response
+		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode, body
+	}
+	status, body := call(browser, "", "cookie must not edit")
+	if status != 403 || body.ErrorNo != response.NoAccessPrivileges {
+		t.Fatalf("cross-origin cookie: status=%d body=%+v", status, body)
+	}
+	status, body = call(&http.Client{}, raw, "bearer edit")
+	if status != 200 || body.ErrorNo != 0 {
+		t.Fatalf("cross-origin bearer: status=%d body=%+v", status, body)
+	}
 }

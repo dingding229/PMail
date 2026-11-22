@@ -367,7 +367,7 @@ func NewEmailFromReader(to []string, r io.Reader, size int) *Email {
 	ret.Cc = buildUsers(m.Header.Values("Cc"))
 	ret.ReplyTo = buildUsers(m.Header.Values("Reply-To"))
 	ret.Sender = buildUser(m.Header.Get("Sender"))
-	if ret.Sender == nil {
+	if ret.Sender == nil || ret.Sender.EmailAddress == "" {
 		ret.Sender = ret.From
 	}
 
@@ -690,7 +690,7 @@ func (e *Email) BuildBytes(ctx *context.Context, shouldSign bool) ([]byte, error
 	if _, err := wireAddressList(e.Bcc); err != nil {
 		return nil, err
 	}
-	if e.Sender != nil {
+	if e.Sender != nil && (e.Sender.EmailAddress != "" || e.Sender.Name != "") {
 		if _, err := wireAddressList([]*User{e.Sender}); err != nil {
 			return nil, err
 		}
