@@ -234,6 +234,9 @@ let mockTokens: ApiTokenItem[] = [
     user_id: 1,
     name: 'CI 部署告警通知',
     prefix: 'pmail_9a4f',
+    scope: 'send',
+    legacy_scope: false,
+    never_expires: false,
     last_used_at: dayjs().subtract(35, 'minute').toISOString(),
     expires_at: dayjs().add(68, 'day').toISOString(),
     created: '2026-10-01T08:00:00Z',
@@ -241,11 +244,26 @@ let mockTokens: ApiTokenItem[] = [
   {
     id: 2,
     user_id: 1,
-    name: '本地 CLI 脚本',
+    name: '只读监控巡检',
+    prefix: 'pmail_7e2d',
+    scope: 'read',
+    legacy_scope: false,
+    never_expires: false,
+    last_used_at: dayjs().subtract(2, 'hour').toISOString(),
+    expires_at: dayjs().add(25, 'day').toISOString(),
+    created: '2026-11-05T09:15:00Z',
+  },
+  {
+    id: 3,
+    user_id: 1,
+    name: '本地 CLI 脚本（旧版）',
     prefix: 'pmail_3c1b',
+    scope: 'legacy',
+    legacy_scope: true,
+    never_expires: true,
     last_used_at: null,
     expires_at: null,
-    created: '2026-11-10T14:20:00Z',
+    created: '2026-08-10T14:20:00Z',
   },
 ]
 
@@ -1033,7 +1051,24 @@ export const handlers = [
 
   http.post('/api/external/update', async ({ request }) => {
     await delay(100)
-    const body = (await request.json()) as Partial<ExternalAccount> & { id: number }
+    const body = (await request.json()) as Partial<ExternalAccount> & {
+      id: number
+      password?: string
+    }
+    const existing = mockExternalAccounts.find((a) => a.id === body.id)
+    if (existing) {
+      const endpointChanged =
+        (body.host !== undefined && body.host !== existing.host) ||
+        (body.port !== undefined && Number(body.port) !== existing.port) ||
+        (body.protocol !== undefined && body.protocol !== existing.protocol) ||
+        (body.username !== undefined && body.username !== existing.username) ||
+        (body.tls_mode !== undefined && body.tls_mode !== existing.tls_mode) ||
+        (body.insecure_skip_verify !== undefined &&
+          Boolean(body.insecure_skip_verify) !== Boolean(existing.insecure_skip_verify))
+      if (endpointChanged && !body.password?.trim()) {
+        return fail('修改服务器连接参数后必须重新输入密码', 100, 400)
+      }
+    }
     mockExternalAccounts = mockExternalAccounts.map((acc) =>
       acc.id === body.id ? { ...acc, ...body, updated: new Date().toISOString() } : acc,
     )
@@ -1070,16 +1105,28 @@ export const handlers = [
 
   http.post('/api/token/create', async ({ request }) => {
     await delay(120)
-    const body = (await request.json()) as { name?: string; expires_at?: string | null }
+    const body = (await request.json()) as {
+      name?: string
+      scope?: 'read' | 'send' | 'admin'
+      never_expires?: boolean
+      expires_at?: string | null
+    }
+    if (body.never_expires && body.expires_at) {
+      return fail('never_expires 与 expires_at 不能同时设置', 100, 400)
+    }
     const rand = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 14)
     const plaintext = `pmail_${rand}`
+    const neverExpires = Boolean(body.never_expires)
     const item: ApiTokenItem = {
       id: nextTokenId++,
       user_id: 1,
       name: body.name || 'API Token',
       prefix: plaintext.slice(0, 10),
+      scope: body.scope ?? 'read',
+      legacy_scope: false,
+      never_expires: neverExpires,
       last_used_at: null,
-      expires_at: body.expires_at ?? null,
+      expires_at: neverExpires ? null : (body.expires_at ?? dayjs().add(90, 'day').toISOString()),
       created: new Date().toISOString(),
     }
     mockTokens = [item, ...mockTokens]

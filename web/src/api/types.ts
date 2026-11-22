@@ -110,6 +110,33 @@ export interface EmailListRequest {
 
 export type MailAuthStatus = 'pass' | 'fail' | 'none' | 'not_applicable'
 
+export type MailAuthCheckResult =
+  | 'pass'
+  | 'fail'
+  | 'none'
+  | 'neutral'
+  | 'softfail'
+  | 'temperror'
+  | 'permerror'
+  | 'not_applicable'
+
+export type MailAuthDmarcPolicy = 'none' | 'quarantine' | 'reject'
+
+export interface MailAuthCheck {
+  result: MailAuthCheckResult
+  reason: string
+  domain?: string
+  aligned?: boolean
+  policy?: MailAuthDmarcPolicy
+}
+
+export interface MailAuthResults {
+  spf: MailAuthCheck
+  dkim: MailAuthCheck
+  dmarc: MailAuthCheck
+  trusted_relay: boolean
+}
+
 export interface EmailListItem {
   id: number
   title: string
@@ -128,6 +155,7 @@ export interface EmailListItem {
   attachments_list?: NormalizedAttachment[]
   dangerous: boolean
   auth_status?: MailAuthStatus
+  auth_results?: MailAuthResults | null
   type?: number
   status?: number
   error: string
@@ -172,6 +200,7 @@ export interface EmailDetail {
   spf_check: number
   dkim_check: number
   auth_status?: MailAuthStatus
+  auth_results?: MailAuthResults | null
   status: number
   cron_send_time?: string
   send_time: string
@@ -392,11 +421,17 @@ export interface ExternalSyncResult {
   message: string
 }
 
+export type ApiTokenScope = 'read' | 'send' | 'admin' | 'legacy'
+export type CreateTokenScope = 'read' | 'send' | 'admin'
+
 export interface ApiTokenItem {
   id: number
   user_id: number
   name: string
   prefix: string
+  scope?: ApiTokenScope
+  legacy_scope?: boolean
+  never_expires?: boolean
   last_used_at: string | null
   last_used_at_iso?: string | null
   expires_at: string | null

@@ -84,6 +84,43 @@ function isApiEnvelope(value: unknown): value is ApiEnvelope<unknown> {
   )
 }
 
+const MACHINE_ERROR_KEY_MAP: Record<string, string> = {
+  origin_forbidden: 'common.errors.originForbidden',
+  json_media_type_required: 'common.errors.jsonMediaTypeRequired',
+  token_scope_forbidden: 'common.errors.tokenScopeForbidden',
+  method_not_allowed: 'common.errors.methodNotAllowed',
+  payload_too_large: 'common.errors.payloadTooLarge',
+}
+
+function resolveApiErrorMessage(rawMessage: string | undefined, status: number): string {
+  const trimmed = rawMessage?.trim()
+  if (trimmed) {
+    const mappedKey = MACHINE_ERROR_KEY_MAP[trimmed]
+    if (mappedKey) {
+      return i18n.t(mappedKey)
+    }
+    return trimmed
+  }
+  switch (status) {
+    case 401:
+      return i18n.t('common.unauthorized')
+    case 403:
+      return i18n.t('common.forbidden')
+    case 405:
+      return i18n.t('common.errors.methodNotAllowed')
+    case 409:
+      return i18n.t('common.errors.conflict')
+    case 413:
+      return i18n.t('common.errors.payloadTooLarge')
+    case 415:
+      return i18n.t('common.errors.jsonMediaTypeRequired')
+    case 429:
+      return i18n.t('common.rateLimited')
+    default:
+      return i18n.t('common.unknownError')
+  }
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const {
     method = 'POST',
@@ -125,7 +162,13 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
         parsed = JSON.parse(rawText)
       } catch {
         if (!response.ok) {
-          throw new ApiError(rawText || i18n.t('common.unknownError'), {
+          const fallbackMsg =
+            response.status === 413 ||
+            response.status === 405 ||
+            response.status === 415
+              ? resolveApiErrorMessage(undefined, response.status)
+              : rawText || resolveApiErrorMessage(undefined, response.status)
+          throw new ApiError(fallbackMsg, {
             status: response.status,
           })
         }
@@ -137,10 +180,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   // Endpoints returning raw JSON (e.g. GET /api/bootstrap); still tolerate legacy envelope if ever returned
   if (rawJson) {
     if (!response.ok) {
-      const errMsg =
-        isApiEnvelope(parsed) && parsed.errorMsg
-          ? parsed.errorMsg
-          : i18n.t('common.unknownError')
+      const errMsg = resolveApiErrorMessage(
+        isApiEnvelope(parsed) ? parsed.errorMsg : undefined,
+        response.status,
+      )
       throw new ApiError(errMsg, {
         status: response.status,
         errorNo: isApiEnvelope(parsed) ? parsed.errorNo : response.status,
@@ -148,7 +191,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     }
     if (isApiEnvelope(parsed)) {
       if (parsed.errorNo !== 0) {
-        throw new ApiError(parsed.errorMsg || i18n.t('common.unknownError'), {
+        throw new ApiError(resolveApiErrorMessage(parsed.errorMsg, response.status), {
           status: response.status,
           errorNo: parsed.errorNo,
           data: parsed.data,
@@ -166,13 +209,13 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     if (!skipAuthRedirect && needBootstrapHandler) {
       needBootstrapHandler()
     }
-    const msg = envelope.errorMsg?.trim() || i18n.t('common.unknownError')
+    const msg = resolveApiErrorMessage(envelope.errorMsg, response.status)
     throw new ApiError(msg, { status: response.status, errorNo: API_ERROR_NO.NEED_SETUP, data: envelope.data })
   }
 
-  // 2. errorNo 405 (NoAccessPrivileges) -> display error only, NEVER redirect to login!
+  // 2. errorNo 405 (NoAccessPrivileges / origin_forbidden / token_scope_forbidden) -> display error only, NEVER redirect to login!
   if (envelope?.errorNo === API_ERROR_NO.NO_ACCESS) {
-    const msg = envelope.errorMsg?.trim() || i18n.t('common.forbidden')
+    const msg = resolveApiErrorMessage(envelope.errorMsg, response.status || 403)
     throw new ApiError(msg, {
       status: response.status,
       errorNo: API_ERROR_NO.NO_ACCESS,
@@ -187,7 +230,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     if (!skipAuthRedirect && unauthorizedHandler) {
       unauthorizedHandler()
     }
-    const msg = envelope?.errorMsg?.trim() || i18n.t('common.unauthorized')
+    const msg = resolveApiErrorMessage(envelope?.errorMsg, 401)
     throw new ApiError(msg, {
       status: response.status || 401,
       errorNo: envelope?.errorNo ?? 401,
@@ -200,7 +243,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     if (!skipAuthRedirect && needBootstrapHandler) {
       needBootstrapHandler()
     }
-    const msg = envelope?.errorMsg?.trim() || i18n.t('common.forbidden')
+    const msg = resolveApiErrorMessage(envelope?.errorMsg, 403)
     throw new ApiError(msg, {
       status: 403,
       errorNo: envelope?.errorNo ?? 403,
@@ -210,12 +253,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   // 5. Rate limited
   if (response.status === 429 || envelope?.errorNo === API_ERROR_NO.RATE_LIMITED) {
-    const msg = envelope?.errorMsg?.trim() || i18n.t('common.rateLimited')
+    const msg = resolveApiErrorMessage(envelope?.errorMsg, 429)
     throw new ApiError(msg, { status: 429, errorNo: 429, data: envelope?.data })
   }
 
   if (!response.ok) {
-    const msg = envelope?.errorMsg?.trim() || i18n.t('common.unknownError')
+    const msg = resolveApiErrorMessage(envelope?.errorMsg, response.status)
     throw new ApiError(msg, {
       status: response.status,
       errorNo: envelope?.errorNo ?? response.status,
@@ -225,7 +268,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   if (envelope) {
     if (envelope.errorNo !== 0) {
-      const msg = envelope.errorMsg?.trim() || i18n.t('common.unknownError')
+      const msg = resolveApiErrorMessage(envelope.errorMsg, response.status)
       throw new ApiError(msg, {
         status: response.status,
         errorNo: envelope.errorNo,

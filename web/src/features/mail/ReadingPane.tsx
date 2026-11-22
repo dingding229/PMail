@@ -19,11 +19,12 @@ import {
   Star,
   Trash2,
 } from 'lucide-react'
-import { SYSTEM_GROUP_IDS, type EmailDetail, type GroupOption } from '@/api'
+import { API_ERROR_NO, ApiError, SYSTEM_GROUP_IDS, type EmailDetail, type GroupOption } from '@/api'
 import { useEmailDetailQuery } from '@/hooks/useMailQueries'
 import { formatMailFullTime, formatRelativeTime, pickDate } from '@/lib/date'
 import { formatBytes, resolveAddressList, resolveAttachmentsList } from '@/lib/format'
 import { cn } from '@/lib/cn'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -43,6 +44,12 @@ import { SenderAvatar } from '@/components/common/SenderAvatar'
 import { SandboxedHtmlFrame } from './SandboxedHtmlFrame'
 import { PlainTextMailView } from './PlainTextMailView'
 import { AttachmentSection } from './AttachmentSection'
+import {
+  formatAuthReason,
+  formatAuthResultLabel,
+  formatDmarcPolicyLabel,
+  getAuthBadgeVariant,
+} from './authResults'
 import type { FolderSelection } from './types'
 
 interface ReadingPaneProps {
@@ -83,7 +90,7 @@ export function ReadingPane({
   onMove,
 }: ReadingPaneProps) {
   const { t, i18n } = useTranslation()
-  const { data: email, isLoading, isError, refetch } = useEmailDetailQuery(emailId)
+  const { data: email, isLoading, isError, error, refetch } = useEmailDetailQuery(emailId)
 
   const [detailsExpanded, setDetailsExpanded] = useState(false)
   const [hasExternalImages, setHasExternalImages] = useState(false)
@@ -205,19 +212,48 @@ export function ReadingPane({
   }
 
   if (isError || !email) {
+    const isForbidden =
+      error instanceof ApiError &&
+      (error.status === 403 || error.errorNo === API_ERROR_NO.NO_ACCESS)
+
     return (
       <div className="flex h-full flex-col items-center justify-center bg-[var(--surface-reading)] px-6 text-center">
-        <p className="text-[14px] font-medium text-[var(--ink-primary)]">{t('mail.detailError')}</p>
-        <div className="mt-3 flex items-center gap-2">
-          {isMobile && onBack && (
-            <Button variant="outline" size="sm" onClick={onBack}>
-              {t('common.back')}
-            </Button>
-          )}
-          <Button variant="secondary" size="sm" onClick={() => void refetch()}>
-            {t('app.retry')}
-          </Button>
-        </div>
+        {isForbidden ? (
+          <>
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--danger-soft)] text-[var(--danger)]">
+              <ShieldAlert className="h-5 w-5" />
+            </div>
+            <p className="mt-3 text-[15px] font-semibold text-[var(--ink-primary)]">
+              {t('mail.security.detailForbiddenTitle')}
+            </p>
+            <p className="mt-1.5 max-w-md text-[13px] leading-relaxed text-[var(--ink-muted)]">
+              {t('mail.security.detailForbiddenDesc')}
+            </p>
+            {isMobile && onBack && (
+              <div className="mt-4">
+                <Button variant="outline" size="sm" onClick={onBack}>
+                  {t('common.back')}
+                </Button>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="text-[14px] font-medium text-[var(--ink-primary)]">
+              {t('mail.detailError')}
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              {isMobile && onBack && (
+                <Button variant="outline" size="sm" onClick={onBack}>
+                  {t('common.back')}
+                </Button>
+              )}
+              <Button variant="secondary" size="sm" onClick={() => void refetch()}>
+                {t('app.retry')}
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     )
   }
@@ -579,6 +615,81 @@ export function ReadingPane({
                   <dt className="text-[var(--ink-muted)]">{t('mail.header.messageId')}</dt>
                   <dd className="min-w-0 break-all font-mono text-[11.5px] text-[var(--ink-secondary)]">
                     {email.msg_id}
+                  </dd>
+                </>
+              )}
+
+              {email.auth_results && (
+                <>
+                  <dt className="border-t border-[var(--border-hairline)] pt-2.5 text-[var(--ink-muted)]">
+                    {t('mail.security.authDetails.title')}
+                  </dt>
+                  <dd className="min-w-0 space-y-2 border-t border-[var(--border-hairline)] pt-2.5">
+                    {email.auth_results.trusted_relay && (
+                      <div>
+                        <Badge variant="accent">
+                          {t('mail.security.authDetails.trustedRelay')}
+                        </Badge>
+                      </div>
+                    )}
+                    {(
+                      [
+                        ['SPF', email.auth_results.spf],
+                        ['DKIM', email.auth_results.dkim],
+                        ['DMARC', email.auth_results.dmarc],
+                      ] as const
+                    ).map(([label, check]) => {
+                      const reasonText = formatAuthReason(check.reason, t)
+                      const showAlignment =
+                        typeof check.aligned === 'boolean' &&
+                        check.result !== 'none' &&
+                        check.result !== 'not_applicable'
+
+                      return (
+                        <div
+                          key={label}
+                          className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]"
+                        >
+                          <span className="w-12 shrink-0 font-mono text-[11.5px] font-semibold text-[var(--ink-secondary)]">
+                            {label}
+                          </span>
+                          <Badge variant={getAuthBadgeVariant(check.result)}>
+                            {formatAuthResultLabel(check.result, t)}
+                          </Badge>
+                          {check.domain && (
+                            <code className="rounded bg-[var(--surface-canvas)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--ink-secondary)]">
+                              {check.domain}
+                            </code>
+                          )}
+                          {showAlignment && (
+                            <span
+                              className={cn(
+                                'text-[11px] font-medium',
+                                check.aligned
+                                  ? 'text-[var(--success)]'
+                                  : 'text-[var(--ink-muted)]',
+                              )}
+                            >
+                              {check.aligned
+                                ? t('mail.security.authDetails.aligned')
+                                : t('mail.security.authDetails.unaligned')}
+                            </span>
+                          )}
+                          {label === 'DMARC' && check.policy && (
+                            <span className="text-[11px] text-[var(--ink-muted)]">
+                              {t('mail.security.authDetails.policyLabel', {
+                                policy: formatDmarcPolicyLabel(check.policy, t),
+                              })}
+                            </span>
+                          )}
+                          {reasonText && (
+                            <span className="text-[11.5px] text-[var(--ink-muted)]">
+                              {reasonText}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
                   </dd>
                 </>
               )}

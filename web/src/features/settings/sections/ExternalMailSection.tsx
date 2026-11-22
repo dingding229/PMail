@@ -17,6 +17,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import {
+  ApiError,
   externalApi,
   SYSTEM_GROUP_IDS,
   type ExternalAccount,
@@ -170,11 +171,59 @@ export function ExternalMailSection() {
     }
   }
 
+  const watchedProtocol = form.watch('protocol')
+  const watchedHost = form.watch('host')
+  const watchedPort = form.watch('port')
+  const watchedTlsMode = form.watch('tls_mode')
+  const watchedUsername = form.watch('username')
+  const watchedInsecure = form.watch('insecure_skip_verify')
+
+  const endpointChanged = useMemo(() => {
+    if (!editing) return false
+    return (
+      watchedHost.trim() !== editing.host ||
+      Number(watchedPort) !== editing.port ||
+      watchedProtocol !== editing.protocol ||
+      watchedUsername.trim() !== editing.username ||
+      watchedTlsMode !== editing.tls_mode ||
+      Boolean(watchedInsecure) !== Boolean(editing.insecure_skip_verify)
+    )
+  }, [
+    editing,
+    watchedHost,
+    watchedPort,
+    watchedProtocol,
+    watchedUsername,
+    watchedTlsMode,
+    watchedInsecure,
+  ])
+
+  const formatExternalError = (err: unknown): string => {
+    if (err instanceof ApiError) {
+      if (err.message && err.message !== t('common.unknownError')) {
+        return err.message
+      }
+      if (err.status === 400) return t('settings.external.errors.badRequest')
+      if (err.status === 403) return t('settings.external.errors.forbidden')
+      if (err.status === 409) return t('settings.external.errors.conflict')
+    }
+    return err instanceof Error ? err.message : t('common.unknownError')
+  }
+
   const saveMutation = useMutation({
     mutationFn: async (vals: FormValues) => {
-      if (!editing && !vals.password) {
+      const passwordTrimmed = vals.password.trim()
+      if (!editing && !passwordTrimmed) {
+        form.setError('password', { message: t('settings.external.validation.passwordRequired') })
         throw new Error(t('settings.external.validation.passwordRequired'))
       }
+      if (editing && endpointChanged && !passwordTrimmed) {
+        form.setError('password', {
+          message: t('settings.external.validation.passwordRequiredOnChange'),
+        })
+        throw new Error(t('settings.external.validation.passwordRequiredOnChange'))
+      }
+      form.clearErrors('password')
       const payload = {
         ...vals,
         name: vals.name || vals.username,
@@ -191,7 +240,7 @@ export function ExternalMailSection() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.externalAccounts })
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+      toast.error(formatExternalError(err))
     },
   })
 
@@ -213,7 +262,7 @@ export function ExternalMailSection() {
     },
     onError: (err) => {
       setTestedFolders(null)
-      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+      toast.error(formatExternalError(err))
     },
   })
 
@@ -487,15 +536,44 @@ export function ExternalMailSection() {
               </div>
 
               <div className="space-y-1">
-                <Label>{t('settings.external.fields.password')}</Label>
+                <Label>
+                  {t('settings.external.fields.password')}
+                  {(!editing || endpointChanged) && (
+                    <span className="ml-1 text-[var(--danger)]">*</span>
+                  )}
+                </Label>
                 <Input
                   type="password"
-                  {...form.register('password')}
-                  placeholder={editing ? t('settings.external.fields.passwordKeepHint') : ''}
+                  {...form.register('password', {
+                    onChange: () => {
+                      if (form.formState.errors.password) {
+                        form.clearErrors('password')
+                      }
+                    },
+                  })}
+                  placeholder={
+                    editing
+                      ? endpointChanged
+                        ? t('settings.external.fields.passwordReenterPlaceholder')
+                        : t('settings.external.fields.passwordKeepHint')
+                      : ''
+                  }
                   autoComplete="new-password"
                 />
+                {form.formState.errors.password && (
+                  <p className="text-[11.5px] text-[var(--danger)]">
+                    {form.formState.errors.password.message}
+                  </p>
+                )}
               </div>
             </div>
+
+            {editing && endpointChanged && (
+              <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--warning)]/35 bg-[var(--warning-soft)] px-3 py-2 text-[12px] leading-relaxed text-[var(--warning)]">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{t('settings.external.fields.passwordRequiredOnChangeHint')}</span>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="space-y-1">

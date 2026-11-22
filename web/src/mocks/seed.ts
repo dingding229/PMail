@@ -757,6 +757,53 @@ export function toEmailDetail(rec: MockEmailRecord): EmailDetail {
     spf_check: rec.dangerous || isDraftOrSent ? 0 : 1,
     dkim_check: rec.dangerous || isDraftOrSent ? 0 : 1,
     auth_status: resolveMockAuthStatus(rec),
+    auth_results: isDraftOrSent
+      ? null
+      : rec.dangerous
+        ? {
+            spf: {
+              result: 'fail',
+              reason: 'mail_from_no_match',
+              domain: rec.from_address.split('@')[1] || 'unknown.example',
+              aligned: false,
+            },
+            dkim: {
+              result: 'fail',
+              reason: 'signature_invalid',
+              domain: rec.from_address.split('@')[1] || 'unknown.example',
+              aligned: false,
+            },
+            dmarc: {
+              result: 'fail',
+              reason: 'no_aligned_pass',
+              domain: rec.from_address.split('@')[1] || 'unknown.example',
+              aligned: false,
+              policy: 'quarantine',
+            },
+            trusted_relay: false,
+          }
+        : {
+            spf: {
+              result: 'pass',
+              reason: 'mail_from_matched_ip4',
+              domain: rec.from_address.split('@')[1] || 'pmail.dev',
+              aligned: true,
+            },
+            dkim: {
+              result: 'pass',
+              reason: 'aligned_signature',
+              domain: rec.from_address.split('@')[1] || 'pmail.dev',
+              aligned: true,
+            },
+            dmarc: {
+              result: 'pass',
+              reason: 'aligned_spf_or_dkim',
+              domain: rec.from_address.split('@')[1] || 'pmail.dev',
+              aligned: true,
+              policy: 'reject',
+            },
+            trusted_relay: false,
+          },
     status: rec.status,
     send_time: rec.send_date,
     send_time_iso: iso,

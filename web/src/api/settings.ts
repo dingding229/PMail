@@ -44,8 +44,12 @@ export const externalApi = {
 
 export const tokenApi = {
   list: async () => (await apiPost<ApiTokenItem[] | null>('/api/token/list', {})) ?? [],
-  create: (payload: { name?: string; expires_at?: string | null }) =>
-    apiPost<TokenCreatedResponse>('/api/token/create', payload),
+  create: (payload: {
+    name?: string
+    scope?: 'read' | 'send' | 'admin'
+    never_expires?: boolean
+    expires_at?: string | null
+  }) => apiPost<TokenCreatedResponse>('/api/token/create', payload),
   remove: (id: number) => apiPost<null>('/api/token/delete', { id }),
 }
 
