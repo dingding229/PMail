@@ -18,6 +18,7 @@ func newQueueTestEngine(t *testing.T) *xorm.Engine {
 	if err != nil {
 		t.Fatal(err)
 	}
+	engine.SetMaxOpenConns(1) // SQLite :memory: databases are private to each connection.
 	if err := testschema.Sync(engine); err != nil {
 		engine.Close()
 		t.Fatal(err)

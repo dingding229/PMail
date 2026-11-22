@@ -19,8 +19,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const idleTimeout = 10 * time.Minute
-
 type popServer struct {
 	listener net.Listener
 	mu       sync.Mutex
@@ -65,8 +63,15 @@ func (s *popServer) serve(host string, implicitTLS bool, tlsConfig *tls.Config) 
 			conn.Close()
 			return
 		}
+		release, ok := admission.reserve(socketSource(conn.RemoteAddr()), envBound("PMAIL_POP3_MAX_CONNECTIONS", 128, 4096), envBound("PMAIL_POP3_MAX_PER_IP", 8, 4096))
+		if !ok {
+			s.mu.Unlock()
+			_ = conn.Close()
+			continue
+		}
 		s.conns[conn] = struct{}{}
 		s.wg.Go(func() {
+			defer release()
 			defer func() { conn.Close(); s.mu.Lock(); delete(s.conns, conn); s.mu.Unlock() }()
 			serveConnection(conn, host, implicitTLS, tlsConfig)
 		})
@@ -89,6 +94,7 @@ func Stop() {
 }
 
 func serveConnection(conn net.Conn, host string, secure bool, tlsConfig *tls.Config) {
+	idleTimeout := popIdleTimeout()
 	reader, writer := bufio.NewReaderSize(conn, 4096), bufio.NewWriter(conn)
 	send := func(response string) error {
 		if _, err := writer.WriteString(response + "\r\n"); err != nil {

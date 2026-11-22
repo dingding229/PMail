@@ -113,45 +113,38 @@ func ReserveBounceNotice(userID int, rcptTo string) (bool, error) {
 	}
 	now := time.Now()
 	key := fmt.Sprintf("%d:%s", userID, strings.ToLower(strings.TrimSpace(rcptTo)))
-	var notice models.BounceNotice
-	found, err := db.Instance.Where("notice_key=?", key).Get(&notice)
-	if err != nil {
-		return false, err
+	if len(key) > 128 {
+		key = fmt.Sprintf("%d:sha256:%s", userID, Fingerprint([]byte(key)))
 	}
-	if found {
-		if bounceNoticeRecent(notice.Created, now) {
-			return false, nil
+	for range 3 {
+		var row models.BounceNotice
+		found, err := db.Instance.Where("notice_key=?", key).Get(&row)
+		if err != nil {
+			return false, err
 		}
-		_, err = db.Instance.Table(&models.BounceNotice{}).ID(notice.ID).Cols("created").Update(&models.BounceNotice{Created: now})
-		return err == nil, err
-	}
-	_, err = db.Instance.Insert(&models.BounceNotice{
-		NoticeKey: key,
-		UserID:    userID,
-		RcptTo:    strings.TrimSpace(rcptTo),
-		Created:   now,
-	})
-	if err == nil {
-		return true, nil
-	}
-	if !db.IsUniqueViolation(err) {
-		return false, err
-	}
-	// Another worker may have won the unique-key race. Re-read it and apply
-	// the same window decision rather than emitting a duplicate notice.
-	notice = models.BounceNotice{}
-	found, readErr := db.Instance.Where("notice_key=?", key).Get(&notice)
-	if readErr != nil {
-		return false, readErr
-	}
-	if found {
-		if bounceNoticeRecent(notice.Created, now) {
-			return false, nil
+		if found {
+			last := row.Created
+			if row.WindowEpoch > 0 {
+				last = time.Unix(row.WindowEpoch, 0)
+			}
+			if bounceNoticeRecent(last, now) {
+				return false, nil
+			}
+			n, err := db.Instance.ID(row.ID).Where("window_epoch=?", row.WindowEpoch).NoAutoTime().Cols("created", "window_epoch").Update(&models.BounceNotice{WindowEpoch: now.Unix(), Created: now})
+			if err != nil || n > 0 {
+				return n > 0, err
+			}
+			continue
 		}
-		_, updateErr := db.Instance.Table(&models.BounceNotice{}).ID(notice.ID).Cols("created").Update(&models.BounceNotice{Created: now})
-		return updateErr == nil, updateErr
+		_, err = db.Instance.Insert(&models.BounceNotice{NoticeKey: key, UserID: userID, RcptTo: strings.TrimSpace(rcptTo), Created: now, WindowEpoch: now.Unix()})
+		if err == nil {
+			return true, nil
+		}
+		if !db.IsUniqueViolation(err) {
+			return false, err
+		}
 	}
-	return false, err
+	return false, nil
 }
 
 func Enqueue(kind string, userID, emailID int, mailFrom, rcptTo string, raw []byte) (models.OutboundQueue, error) {
@@ -188,11 +181,11 @@ func List(userID int, admin bool) ([]models.OutboundQueue, error) {
 }
 
 func Retry(id, userID int, admin bool) error {
-	q := db.Instance.ID(id)
+	q := db.Instance.ID(id).Where("status<>?", StatusSending)
 	if !admin {
 		q = q.Where("user_id=?", userID)
 	}
-	updated, err := q.Cols("status", "attempts", "next_retry_at", "last_error", "lease_until", "updated").Update(&models.OutboundQueue{
+	updated, err := q.Cols("status", "attempts", "next_retry_at", "last_error", "lease_until", "lease_epoch", "updated").Update(&models.OutboundQueue{
 		Status: StatusPending, Attempts: 0, NextRetryAt: time.Now(), LastError: "", LeaseUntil: nil, Updated: time.Now(),
 	})
 	if err == nil && updated == 0 {
@@ -202,7 +195,7 @@ func Retry(id, userID int, admin bool) error {
 }
 
 func Delete(id, userID int, admin bool) error {
-	q := db.Instance.ID(id)
+	q := db.Instance.ID(id).Where("status<>?", StatusSending)
 	if !admin {
 		q = q.Where("user_id=?", userID)
 	}
@@ -223,19 +216,23 @@ func DeliverLocal(ctx *pcontext.Context, email *parsemail.Email, recipient strin
 	return fn(ctx, email, parsemail.BuilderUser(recipient))
 }
 
-func Start(ctx context.Context) {
+func Start(ctx context.Context) <-chan struct{} {
+	var wg sync.WaitGroup
+	done := make(chan struct{})
 	workers := workerCount()
 	for i := 0; i < workers; i++ {
-		go worker(ctx, i)
+		wg.Go(func() { worker(ctx, i) })
 	}
-	go leaseRecovery(ctx)
-	go parentReconcileLoop(ctx)
+	wg.Go(func() { leaseRecovery(ctx) })
+	wg.Go(func() { parentReconcileLoop(ctx) })
+	go func() { wg.Wait(); close(done) }()
+	return done
 }
 
 func worker(ctx context.Context, id int) {
 	interval := time.Second
 	for ctx.Err() == nil {
-		row, ok, err := claimOne()
+		row, ok, err := claimOneContext(ctx)
 		if err != nil {
 			log.Errorf("outbound queue worker %d claim failed: %v", id, err)
 			wait(ctx, 5*time.Second)
@@ -246,7 +243,11 @@ func worker(ctx context.Context, id int) {
 			continue
 		}
 		if err := deliver(ctx, row); err != nil {
-			handleFailure(ctx, row, err)
+			if ctx.Err() != nil {
+				requeueCancelled(row)
+			} else {
+				handleFailure(ctx, row, err)
+			}
 		} else {
 			handleSuccess(row)
 		}
@@ -289,17 +290,20 @@ func leaseRecovery(ctx context.Context) {
 }
 
 func recoverExpiredLeases(now time.Time) error {
-	_, err := db.Instance.Exec("UPDATE outbound_queue SET status=?, lease_until=NULL, updated=? WHERE status=? AND lease_until IS NOT NULL AND lease_until<?", StatusPending, now, StatusSending, now)
+	_, err := db.Instance.Exec("UPDATE outbound_queue SET status=?, lease_until=NULL, lease_epoch=0, updated=? WHERE status=? AND ((lease_epoch>0 AND lease_epoch<=?) OR (lease_epoch=0 AND lease_until IS NOT NULL AND lease_until<?))", StatusPending, now, StatusSending, now.Unix(), now)
 	return err
 }
 
-func claimOne() (models.OutboundQueue, bool, error) {
+func claimOne() (models.OutboundQueue, bool, error) { return claimOneContext(context.Background()) }
+
+func claimOneContext(ctx context.Context) (models.OutboundQueue, bool, error) {
 	var row models.OutboundQueue
 	now := time.Now()
 	lease := now.Add(10 * time.Minute)
 	// Use the shared transaction helper with a concrete xorm session below.
 	var claimErr error
 	claimErr = db.Transaction(db.Instance, func(session *xorm.Session) error {
+		session.Context(ctx)
 		var found bool
 		if db.Instance.DriverName() == "sqlite" {
 			found, claimErr = session.Where("status=? AND next_retry_at<=?", StatusPending, now).Asc("id").Limit(1).Get(&row)
@@ -315,9 +319,12 @@ func claimOne() (models.OutboundQueue, bool, error) {
 		}
 		// Reuse the lease clock for updated; disable Xorm automatic timestamps
 		// so PostgreSQL sees only one assignment to that column.
-		_, claimErr = session.Table(&models.OutboundQueue{}).ID(row.ID).NoAutoTime().Cols("status", "attempts", "lease_until", "updated").Update(map[string]interface{}{
-			"status": StatusSending, "attempts": row.Attempts + 1, "lease_until": lease, "updated": now,
+		n, claimErr := session.Table(&models.OutboundQueue{}).ID(row.ID).Where("status=? AND lease_fence=?", StatusPending, row.LeaseFence).NoAutoTime().Cols("status", "attempts", "lease_until", "updated", "lease_fence", "lease_epoch").Update(map[string]interface{}{
+			"status": StatusSending, "attempts": row.Attempts + 1, "lease_until": lease, "updated": now, "lease_fence": row.LeaseFence + 1, "lease_epoch": lease.Unix(),
 		})
+		if claimErr == nil && n == 0 {
+			row = models.OutboundQueue{}
+		}
 		return claimErr
 	})
 	if claimErr != nil {
@@ -328,7 +335,9 @@ func claimOne() (models.OutboundQueue, bool, error) {
 	}
 	row.Attempts++
 	row.Status = StatusSending
+	row.LeaseFence++
 	row.LeaseUntil = &lease
+	row.LeaseEpoch = lease.Unix()
 	return row, true, nil
 }
 
@@ -343,15 +352,25 @@ func deliver(ctx context.Context, row models.OutboundQueue) error {
 	return fn(pctx, row.MailFrom, row.RawData, row.RcptTo)
 }
 
+func requeueCancelled(row models.OutboundQueue) {
+	_, err := db.Instance.Table(&models.OutboundQueue{}).ID(row.ID).Where("status=? AND lease_fence=?", StatusSending, row.LeaseFence).NoAutoTime().Cols("status", "attempts", "lease_until", "lease_epoch", "updated").Update(map[string]any{"status": StatusPending, "attempts": max(0, row.Attempts-1), "lease_until": nil, "lease_epoch": 0, "updated": time.Now()})
+	if err != nil {
+		log.Errorf("requeue cancelled delivery %d: %v", row.ID, err)
+	}
+}
+
 func handleSuccess(row models.OutboundQueue) {
 	now := time.Now()
-	_, err := db.Instance.Table(&models.OutboundQueue{}).ID(row.ID).NoAutoTime().Cols("status", "lease_until", "last_error", "updated").Update(map[string]interface{}{
-		"status": StatusSent, "lease_until": nil, "last_error": "", "updated": now,
+	n, err := db.Instance.Table(&models.OutboundQueue{}).ID(row.ID).Where("status=? AND lease_fence=?", StatusSending, row.LeaseFence).NoAutoTime().Cols("status", "lease_until", "lease_epoch", "last_error", "updated").Update(map[string]interface{}{
+		"status": StatusSent, "lease_until": nil, "lease_epoch": 0, "last_error": "", "updated": now,
 	})
 	if err != nil {
 		log.Errorf("mark outbound queue %d sent failed: %v", row.ID, err)
+		return
 	}
-	updateParent(row, false)
+	if n > 0 {
+		updateParent(row, false)
+	}
 }
 
 func handleFailure(ctx context.Context, row models.OutboundQueue, deliveryErr error) {
@@ -363,14 +382,14 @@ func handleFailure(ctx context.Context, row models.OutboundQueue, deliveryErr er
 	if final {
 		status = StatusFailed
 	}
-	_, err := db.Instance.Table(&models.OutboundQueue{}).ID(row.ID).NoAutoTime().Cols("status", "next_retry_at", "last_error", "lease_until", "updated").Update(map[string]interface{}{
-		"status": status, "next_retry_at": next, "last_error": deliveryErr.Error(), "lease_until": nil, "updated": now,
+	n, err := db.Instance.Table(&models.OutboundQueue{}).ID(row.ID).Where("status=? AND lease_fence=?", StatusSending, row.LeaseFence).NoAutoTime().Cols("status", "next_retry_at", "last_error", "lease_until", "lease_epoch", "updated").Update(map[string]interface{}{
+		"status": status, "next_retry_at": next, "last_error": deliveryErr.Error(), "lease_until": nil, "lease_epoch": 0, "updated": now,
 	})
 	if err != nil {
 		log.Errorf("mark outbound queue %d failure failed: %v", row.ID, err)
 		return
 	}
-	if final {
+	if final && n > 0 {
 		row.LastError = deliveryErr.Error()
 		updateParent(row, true)
 		handlers.RLock()

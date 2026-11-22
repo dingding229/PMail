@@ -149,7 +149,7 @@ func Init(serverVersion string) {
 		}
 		ctx, stopScheduler := stdcontext.WithCancel(stdcontext.Background())
 		registration.StartNotices(ctx, cfg.WebDomain)
-		cron_server.Start(ctx, cfg, cert)
+		drainScheduler := cron_server.Start(ctx, cfg, cert)
 
 		restart := false
 		select {
@@ -166,6 +166,13 @@ func Init(serverVersion string) {
 		pop3_server.Stop()
 		imap_server.Stop()
 		session.Stop()
+		drainCtx, drainCancel := stdcontext.WithTimeout(stdcontext.Background(), 15*time.Second)
+		drainErr := drainScheduler(drainCtx)
+		drainCancel()
+		if drainErr != nil {
+			log.Errorf("scheduler did not drain; declining listener reload: %v", drainErr)
+			return
+		}
 		if !restart {
 			db.Instance.Close()
 			return

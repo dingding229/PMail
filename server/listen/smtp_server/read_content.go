@@ -20,14 +20,17 @@ import (
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
+	"github.com/Jinnrry/pmail/services/group"
 	"github.com/Jinnrry/pmail/services/inboundauth"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/services/rule"
 	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/mailbudget"
 	"github.com/Jinnrry/pmail/utils/send"
 	smtp "github.com/emersion/go-smtp"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cast"
+	"xorm.io/xorm"
 )
 
 // DropUnknownRecipientEmails gates SPF/DKIM filtering before catch-all
@@ -35,36 +38,70 @@ import (
 // the actual filter level is controlled by PMAIL_SPAM_FILTER_LEVEL.
 const DropUnknownRecipientEmails = true
 
-// ImportExternal persists a message fetched from an external mailbox through
-// the same receive/rule/forward/hook path as SMTP, without SPF enforcement.
-func ImportExternal(ctx *context.Context, raw []byte, recipient string, targetGroupID int) (*models.Email, error) {
-	if len(raw) == 0 || strings.TrimSpace(recipient) == "" {
+// ImportExternal commits the message, its owner link and the caller's remote
+// deduplication marker together. Rule side effects happen only after commit.
+func ImportExternal(ctx *context.Context, raw []byte, recipient string, targetGroupID int, seen func(*xorm.Session) (bool, error)) (*models.Email, error) {
+	if ctx.UserID <= 0 || len(raw) == 0 || strings.TrimSpace(recipient) == "" {
 		return nil, oerrors.New("external message or recipient is missing")
 	}
-	email := parsemail.NewEmailFromReader([]string{recipient}, bytes.NewReader(raw), len(raw))
-	if email.MsgID != "" {
-		var existing models.Email
-		if found, err := db.Instance.Where("msg_id=?", email.MsgID).Get(&existing); err != nil {
-			return nil, err
-		} else if found {
-			return &existing, nil
-		}
-	}
-	email.Authentication = parsemail.NewEmailAuthentication(false, false)
-	email.AuthUnchecked = true
-	users, saved, err := saveEmail(ctx, len(raw), email, 0, int(consts.EmailTypeReceive), []string{recipient}, false, false)
+	email, err := parsemail.ParseLimited([]string{recipient}, bytes.NewReader(raw), len(raw))
 	if err != nil {
 		return nil, err
 	}
-	if len(users) == 0 || saved == nil {
-		return nil, oerrors.New("external recipient was not resolved")
+	if email.From == nil || email.From.EmailAddress == "" {
+		return nil, oerrors.New("external sender is missing")
 	}
-	if targetGroupID != 0 {
-		if _, err := db.Instance.Table(&models.UserEmail{}).Where("email_id=? AND user_id=?", saved.Id, users[0].ID).Cols("group_id").Update(map[string]interface{}{"group_id": targetGroupID}); err != nil {
-			return nil, err
+	email.Authentication = parsemail.NewEmailAuthentication(false, false)
+	email.AuthUnchecked = true
+	if email.MsgID == "" {
+		email.MsgID = parsemail.GenerateMsgID(domain.DefaultName())
+	}
+	email.Size = len(raw)
+	var saved *models.Email
+	var owner models.User
+	err = db.Transaction(db.Instance, func(tx *xorm.Session) error {
+		saved = nil
+		if ctx.Context != nil {
+			tx.Context(ctx.Context)
 		}
+		duplicate, err := seen(tx)
+		if err != nil || duplicate {
+			return err
+		}
+		if err = quota.LockAndCheck(tx, ctx.UserID, int64(email.Size)); err != nil {
+			return err
+		}
+		found, err := tx.ID(ctx.UserID).Get(&owner)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return address.ErrNotFound
+		}
+		if targetGroupID != 0 {
+			ok, err := tx.ID(targetGroupID).Where("user_id=?", ctx.UserID).Exist(&models.Group{})
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return group.ErrInvalidParent
+			}
+		}
+		row := storedEmail(email, 0, int(consts.EmailTypeReceive), email.MsgID, false, false)
+		if _, err = tx.Insert(&row); err != nil {
+			return err
+		}
+		if _, err = tx.Insert(&models.UserEmail{UserID: ctx.UserID, EmailID: row.Id, GroupId: targetGroupID}); err != nil {
+			return err
+		}
+		saved = &row
+		return nil
+	})
+	if err != nil || saved == nil {
+		return saved, err
 	}
-	processIncomingDelivery(ctx, email, saved, users, raw)
+	email.MessageId = int64(saved.Id)
+	processIncomingDelivery(ctx, email, saved, []*models.User{&owner}, raw)
 	return saved, nil
 }
 
@@ -141,7 +178,10 @@ func (s *Session) Data(r io.Reader) error {
 
 	log.WithContext(ctx).Debugf("收到邮件")
 
-	emailData, err := io.ReadAll(r)
+	emailData, err := mailbudget.Read(r, mailbudget.Message)
+	if oerrors.Is(err, mailbudget.ErrLimit) {
+		return sizeSMTPError()
+	}
 	if err != nil {
 		log.WithContext(ctx).Error("邮件内容无法读取", err)
 		return err
@@ -149,7 +189,13 @@ func (s *Session) Data(r io.Reader) error {
 
 	log.WithContext(ctx).Debugf("smtp data received bytes=%d sha256=%x", len(emailData), sha256.Sum256(emailData))
 
-	email := parsemail.NewEmailFromReader(s.To, bytes.NewReader(emailData), len(emailData))
+	email, err := parsemail.ParseLimited(s.To, bytes.NewReader(emailData), len(emailData))
+	if oerrors.Is(err, mailbudget.ErrLimit) {
+		return sizeSMTPError()
+	}
+	if err != nil {
+		return err
+	}
 	email.EnvelopeFrom = s.From
 	email.EnvelopeFromKnown = true
 	email.RawData = append([]byte(nil), emailData...)
@@ -252,32 +298,7 @@ func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserI
 		email.Size = size
 	}
 
-	modelEmail := models.Email{
-		Type:          cast.ToInt8(emailType),
-		Subject:       email.Subject,
-		ReplyTo:       json2string(email.ReplyTo),
-		FromName:      email.From.Name,
-		FromAddress:   email.From.EmailAddress,
-		To:            json2string(email.To),
-		Bcc:           json2string(email.Bcc),
-		Cc:            json2string(email.Cc),
-		Text:          sql.NullString{String: string(email.Text), Valid: true},
-		TextFormat:    email.TextFormat,
-		Html:          sql.NullString{String: string(email.HTML), Valid: true},
-		Sender:        json2string(email.Sender),
-		Attachments:   json2string(email.Attachments),
-		Size:          email.Size,
-		SPFCheck:      boolInt8(SPFStatus),
-		DKIMCheck:     boolInt8(dkimStatus),
-		AuthUnchecked: email.AuthUnchecked,
-		AuthResults:   sql.NullString{String: email.AuthResults.Storage(), Valid: email.AuthResults != nil},
-		SendUserID:    sendUserID,
-		SendDate:      time.Now(),
-		Status:        cast.ToInt8(email.Status),
-		CreateTime:    time.Now(),
-		CronSendTime:  time.Now(),
-		MsgID:         msgID,
-	}
+	modelEmail := storedEmail(email, sendUserID, emailType, msgID, SPFStatus, dkimStatus)
 
 	var userIDs []int
 	if emailType == int(consts.EmailTypeReceive) {
@@ -323,4 +344,38 @@ func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserI
 	email.MessageId = cast.ToInt64(saved.Id)
 	email.MsgID = saved.MsgID
 	return users, saved, nil
+}
+
+func storedEmail(email *parsemail.Email, sendUserID, emailType int, msgID string, SPFStatus, dkimStatus bool) models.Email {
+	return models.Email{
+		Type:          cast.ToInt8(emailType),
+		Subject:       email.Subject,
+		ReplyTo:       json2string(email.ReplyTo),
+		FromName:      email.From.Name,
+		FromAddress:   email.From.EmailAddress,
+		To:            json2string(email.To),
+		Bcc:           json2string(email.Bcc),
+		Cc:            json2string(email.Cc),
+		Text:          sql.NullString{String: string(email.Text), Valid: true},
+		TextFormat:    email.TextFormat,
+		Html:          sql.NullString{String: string(email.HTML), Valid: true},
+		Sender:        json2string(email.Sender),
+		Attachments:   json2string(email.Attachments),
+		Size:          email.Size,
+		SPFCheck:      boolInt8(SPFStatus),
+		DKIMCheck:     boolInt8(dkimStatus),
+		AuthUnchecked: email.AuthUnchecked,
+		AuthResults:   sql.NullString{String: email.AuthResults.Storage(), Valid: email.AuthResults != nil},
+		SendUserID:    sendUserID,
+		SendDate:      time.Now(),
+		Status:        cast.ToInt8(email.Status),
+		CreateTime:    time.Now(),
+		CronSendTime:  time.Now(),
+		MsgID:         msgID,
+	}
+
+}
+
+func sizeSMTPError() error {
+	return &smtp.SMTPError{Code: 552, EnhancedCode: smtp.EnhancedCode{5, 3, 4}, Message: "message exceeds configured resource limit"}
 }

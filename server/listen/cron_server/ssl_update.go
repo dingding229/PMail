@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"slices"
 	"time"
 
@@ -25,11 +26,20 @@ const (
 
 // Start is called for every service generation, independently of the TLS mode.
 // Future scheduler workers can share its context and stop on reload or shutdown.
-func Start(ctx context.Context, cfg *config.Config, active *tls.Certificate) {
+func Start(ctx context.Context, cfg *config.Config, active *tls.Certificate) func(context.Context) error {
 	go certificateMaintenance(ctx, cfg, active)
 	go auth.RunCleanup(ctx)
-	queue.Start(ctx)
-	external.Start(ctx)
+	queueDone := queue.Start(ctx)
+	waitExternal := external.Start(ctx)
+	return func(wait context.Context) error {
+		extErr := waitExternal(wait)
+		select {
+		case <-queueDone:
+			return extErr
+		case <-wait.Done():
+			return errors.Join(extErr, wait.Err())
+		}
+	}
 }
 
 func certificateMaintenance(ctx context.Context, cfg *config.Config, active *tls.Certificate) {

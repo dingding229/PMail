@@ -203,7 +203,12 @@ func resolveIncomingUsers(ctx *context.Context, email *parsemail.Email, emailTyp
 	recipients := incomingAddresses(email, reallyTo)
 	seen := map[int]bool{}
 	users := make([]*models.User, 0)
+	unknown := false
 	for _, raw := range recipients {
+		_, host, ok := strings.Cut(strings.TrimSpace(raw), "@")
+		if !ok || !domain.IsLocal(host) {
+			continue
+		}
 		if srsUser, isSRS, srsErr := forward.ResolveSRS(raw); isSRS {
 			if srsErr != nil {
 				return nil, false, srsErr
@@ -219,24 +224,32 @@ func resolveIncomingUsers(ctx *context.Context, email *parsemail.Email, emailTyp
 		if err != nil {
 			return nil, false, err
 		}
-		if found && !seen[user.ID] {
+		if !found {
+			unknown = true
+			continue
+		}
+		if !seen[user.ID] {
 			copy := user
 			users = append(users, &copy)
 			seen[user.ID] = true
 		}
 	}
-	if len(users) > 0 {
-		return users, false, nil
-	}
-	if !config.Instance.CatchAll {
-		return nil, true, nil
+	if !unknown || !config.Instance.CatchAll {
+		return users, len(users) == 0, nil
 	}
 	if DropUnknownRecipientEmails && ((config.Instance.SpamFilterLevel == 1 && !SPFStatus && !dkimStatus) || (config.Instance.SpamFilterLevel == 2 && !SPFStatus) || (config.Instance.SpamFilterLevel == 3 && !dkimStatus)) {
 		log.WithContext(ctx).Infof("unknown recipient rejected by catch-all spam policy: %v", recipients)
-		return nil, true, nil
+		return users, len(users) == 0, nil
 	}
-	if err := db.Instance.Table(&models.User{}).Where("is_admin=1 AND disabled=0").Find(&users); err != nil {
+	var admins []*models.User
+	if err := db.Instance.Table(&models.User{}).Where("is_admin=1 AND disabled=0").Find(&admins); err != nil {
 		return nil, false, err
+	}
+	for _, admin := range admins {
+		if !seen[admin.ID] {
+			users = append(users, admin)
+			seen[admin.ID] = true
+		}
 	}
 	if len(users) == 0 {
 		return nil, false, stderrors.New("no administrator available for unknown recipient")

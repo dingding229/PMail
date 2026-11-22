@@ -10,9 +10,9 @@ import (
 	"net"
 	"net/mail"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -23,6 +23,7 @@ import (
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/quota"
 	pcontext "github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/mailbudget"
 	"github.com/Jinnrry/pmail/utils/wiretext"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
@@ -42,17 +43,9 @@ var (
 	ErrAuth              = errors.New("external mailbox authentication failed")
 )
 
-var accountLocks sync.Map
-var workerSemaphore = make(chan struct{}, 3)
-
 const syncDeadline = 5 * time.Minute
 
 type syncCounterKey struct{}
-
-func accountMutex(id int) *sync.Mutex {
-	lock, _ := accountLocks.LoadOrStore(id, &sync.Mutex{})
-	return lock.(*sync.Mutex)
-}
 
 func List(userID int, admin bool) ([]models.ExternalAccount, error) {
 	var rows []models.ExternalAccount
@@ -211,24 +204,28 @@ func SyncNow(ctx context.Context, userID int, admin bool, id int) error {
 	}
 	// HTTP request contexts are cancelled after the response. Detach the
 	// background sync while retaining the request context as its value parent.
-	return launchSync(context.WithoutCancel(ctx), id)
+	return scheduleNow(id)
 }
 
 func TestConnection(input models.ExternalAccount, password string) ([]string, error) {
+	return TestConnectionContext(context.Background(), input, password)
+}
+
+func TestConnectionContext(ctx context.Context, input models.ExternalAccount, password string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	if !wiretext.Line(password) {
 		return nil, ErrControlCharacters
 	}
 	if err := normalize(&input); err != nil {
 		return nil, err
 	}
-	if err := validateHost(input.Host); err != nil {
-		return nil, err
-	}
+
 	if input.Protocol == "imap" {
-		return testIMAP(input, password)
+		return testIMAP(ctx, input, password)
 	}
 	if input.Protocol == "pop3" {
-		return testPOP3(input, password)
+		return testPOP3(ctx, input, password)
 	}
 	return nil, errors.New("unsupported external protocol")
 }
@@ -243,81 +240,25 @@ func Presets() []map[string]any {
 	}
 }
 
-func Start(ctx context.Context) {
-	workers := 3
-	if value, err := strconv.Atoi(strings.TrimSpace(getenv("PMAIL_FETCH_WORKERS"))); err == nil && value > 0 && value <= 32 {
-		workers = value
-	}
-	workerSemaphore = make(chan struct{}, workers)
-	go func() {
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				scan(ctx)
-			}
-		}
-	}()
-}
-
-func scan(ctx context.Context) {
+func scan(s *scheduler) {
 	var accounts []models.ExternalAccount
-	if err := db.Instance.Where("enabled=?", true).Find(&accounts); err != nil {
-		log.Errorf("external account scan failed: %v", err)
+	if err := db.Instance.Context(s.ctx).Where("enabled=?", true).Find(&accounts); err != nil {
+		log.Warnf("external mailbox scan: %v", err)
 		return
 	}
 	now := time.Now()
-	for _, account := range accounts {
-		if account.LastSyncAt != nil && now.Before(account.LastSyncAt.Add(time.Duration(max(account.IntervalMinutes, 2))*time.Minute)) {
+	for _, a := range accounts {
+		if a.LastSyncAt != nil && now.Before(a.LastSyncAt.Add(time.Duration(max(a.IntervalMinutes, 2))*time.Minute)) {
 			continue
 		}
-		if err := launchSync(ctx, account.ID); err != nil && !errors.Is(err, ErrSyncInProgress) {
-			log.WithField("account_id", account.ID).Warnf("external sync launch failed: %v", err)
-		}
+		_ = s.launch(a.ID)
 	}
-}
-
-var ErrSyncInProgress = errors.New("external account is already syncing")
-
-func launchSync(ctx context.Context, id int) error {
-	select {
-	case workerSemaphore <- struct{}{}:
-	default:
-		return ErrSyncInProgress
-	}
-	mu := accountMutex(id)
-	if !mu.TryLock() {
-		<-workerSemaphore
-		return ErrSyncInProgress
-	}
-	go func() {
-		defer func() {
-			mu.Unlock()
-			<-workerSemaphore
-		}()
-		if err := syncAccountLocked(ctx, id); err != nil {
-			log.WithField("account_id", id).Warnf("external sync failed: %v", err)
-		}
-	}()
-	return nil
-}
-
-func SyncAccount(ctx context.Context, id int) error {
-	mu := accountMutex(id)
-	if !mu.TryLock() {
-		return ErrSyncInProgress
-	}
-	defer mu.Unlock()
-	return syncAccountLocked(ctx, id)
 }
 
 func syncAccountLocked(ctx context.Context, id int) (resultErr error) {
 	started := time.Now()
 	var account models.ExternalAccount
-	ok, err := db.Instance.ID(id).Get(&account)
+	ok, err := db.Instance.Context(ctx).ID(id).Get(&account)
 	if err != nil || !ok {
 		if err == nil {
 			err = ErrNotFound
@@ -338,7 +279,7 @@ func syncAccountLocked(ctx context.Context, id int) (resultErr error) {
 		}).Info("external sync finished")
 	}()
 	attempted := time.Now()
-	if _, err = db.Instance.ID(id).Cols("last_sync_at", "last_error", "updated").Update(&models.ExternalAccount{LastSyncAt: &attempted, LastError: "", Updated: attempted}); err != nil {
+	if _, err = db.Instance.Context(ctx).ID(id).Cols("last_sync_at", "last_error", "updated").Update(&models.ExternalAccount{LastSyncAt: &attempted, LastError: "", Updated: attempted}); err != nil {
 		return err
 	}
 	syncCtx, cancel := context.WithTimeout(ctx, syncDeadline)
@@ -346,20 +287,20 @@ func syncAccountLocked(ctx context.Context, id int) (resultErr error) {
 	syncCtx = context.WithValue(syncCtx, syncCounterKey{}, &counter)
 	password, legacy, err := decryptAccount(account)
 	if err != nil {
-		resultErr = recordError(account, err, false)
+		resultErr = recordError(ctx, account, err, false)
 		return resultErr
 	}
 	if !wiretext.Line(password) || !wiretext.Line(account.Username) || !wiretext.Line(account.Folder) {
-		return recordError(account, ErrControlCharacters, false)
+		return recordError(ctx, account, ErrControlCharacters, false)
 	}
 	if legacy {
 		replacement, err := encryptAccount(account, password)
 		if err != nil {
-			return recordError(account, err, false)
+			return recordError(ctx, account, err, false)
 		}
-		n, err := db.Instance.ID(account.ID).Where("password_enc=?", account.PasswordEnc).NoAutoTime().Cols("password_enc").Update(&models.ExternalAccount{PasswordEnc: replacement})
+		n, err := db.Instance.Context(ctx).ID(account.ID).Where("password_enc=?", account.PasswordEnc).NoAutoTime().Cols("password_enc").Update(&models.ExternalAccount{PasswordEnc: replacement})
 		if err != nil {
-			return recordError(account, err, false)
+			return recordError(ctx, account, err, false)
 		}
 		if n == 0 {
 			return ErrCredentialRace
@@ -373,15 +314,15 @@ func syncAccountLocked(ctx context.Context, id int) (resultErr error) {
 		syncErr = syncPOP3(syncCtx, account, password)
 	}
 	if syncErr != nil {
-		resultErr = recordError(account, syncErr, isAuthError(syncErr))
+		resultErr = recordError(ctx, account, syncErr, isAuthError(syncErr))
 		return resultErr
 	}
 	success := time.Now()
-	_, resultErr = db.Instance.ID(account.ID).Cols("last_sync_at", "last_success_at", "last_error", "auth_failures", "updated").Update(&models.ExternalAccount{LastSyncAt: &attempted, LastSuccessAt: &success, LastError: "", AuthFailures: 0, Updated: success})
+	_, resultErr = db.Instance.Context(ctx).ID(account.ID).Cols("last_sync_at", "last_success_at", "last_error", "auth_failures", "updated").Update(&models.ExternalAccount{LastSyncAt: &attempted, LastSuccessAt: &success, LastError: "", AuthFailures: 0, Updated: success})
 	return resultErr
 }
 
-func recordError(account models.ExternalAccount, syncErr error, authFailure bool) error {
+func recordError(ctx context.Context, account models.ExternalAccount, syncErr error, authFailure bool) error {
 	failures := account.AuthFailures
 	if authFailure {
 		failures++
@@ -390,17 +331,16 @@ func recordError(account models.ExternalAccount, syncErr error, authFailure bool
 	if failures >= 3 || errors.Is(syncErr, quota.ErrExceeded) {
 		enabled = false
 	}
-	_, err := db.Instance.ID(account.ID).Cols("last_error", "auth_failures", "enabled", "updated").Update(&models.ExternalAccount{LastError: syncErr.Error(), AuthFailures: failures, Enabled: enabled, Updated: time.Now()})
+	_, err := db.Instance.Context(ctx).ID(account.ID).Cols("last_error", "auth_failures", "enabled", "updated").Update(&models.ExternalAccount{LastError: syncErr.Error(), AuthFailures: failures, Enabled: enabled, Updated: time.Now()})
 	return syncErrOrDB(syncErr, err)
 }
 
 func syncIMAP(ctx context.Context, account models.ExternalAccount, password string) error {
-	client, err := dialIMAP(account)
+	client, err := dialIMAP(ctx, account)
 	if err != nil {
 		return err
 	}
-	stopWatch := watchClientContext(ctx, client)
-	defer stopWatch()
+	defer context.AfterFunc(ctx, client.abort)()
 	defer client.Close()
 	if err := client.Login(account.Username, password).Wait(); err != nil {
 		return fmt.Errorf("%w: %w", ErrAuth, err)
@@ -415,90 +355,98 @@ func syncIMAP(ctx context.Context, account models.ExternalAccount, password stri
 		if err != nil {
 			return err
 		}
-		uidValidity := strconv.FormatUint(uint64(selected.UIDValidity), 10)
-		if account.LastUIDValidity != "" && account.LastUIDValidity != uidValidity {
-			account.LastUID = 0
+		var cursor models.ExternalCursor
+		_, err = db.Instance.Context(ctx).Where("account_id=? AND folder=?", account.ID, folder).Get(&cursor)
+		if err != nil {
+			return err
 		}
-		start := account.LastUID + 1
-		if start < 1 {
-			start = 1
+		validity := int64(selected.UIDValidity)
+		if cursor.UIDValidity != validity {
+			cursor.LastUID = 0
 		}
-		stop := int64(selected.UIDNext) - 1
-		if stop < start {
+		start := max(1, cursor.LastUID+1)
+		high := int64(selected.UIDNext) - 1
+		if high < start {
 			continue
 		}
+		stop := min(high, start+199)
 		set := imap.UIDSet{imap.UIDRange{Start: imap.UID(start), Stop: imap.UID(stop)}}
-		if account.LastUID == 0 && account.InitialDays > 0 {
-			search, searchErr := client.UIDSearch(&imap.SearchCriteria{Since: time.Now().Add(-time.Duration(account.InitialDays) * 24 * time.Hour)}, nil).Wait()
-			if searchErr != nil {
-				return searchErr
+		if cursor.LastUID == 0 && account.InitialDays > 0 {
+			search, err := client.UIDSearch(&imap.SearchCriteria{Since: time.Now().Add(-time.Duration(account.InitialDays) * 24 * time.Hour)}, nil).Wait()
+			if err != nil {
+				return err
 			}
-			if uids := search.AllUIDs(); len(uids) > 0 {
-				if len(uids) > 200 {
-					uids = uids[:200]
+			uids := search.AllUIDs()
+			slices.Sort(uids)
+			uids = slices.Compact(uids)
+			if len(uids) == 0 {
+				if err := storeCursor(ctx, account.ID, folder, validity, high); err != nil {
+					return err
 				}
-				set = imap.UIDSetNum(uids...)
-			} else {
 				continue
 			}
-		} else if stop-start > 199 {
-			set = imap.UIDSet{imap.UIDRange{Start: imap.UID(start), Stop: imap.UID(start + 199)}}
+			uids = uids[:min(200, len(uids))]
+			stop = int64(uids[len(uids)-1])
+			set = imap.UIDSetNum(uids...)
 		}
-		section := &imap.FetchItemBodySection{}
+
+		section := &imap.FetchItemBodySection{Peek: true}
+		var imported imap.UIDSet
 		cmd := client.Fetch(set, &imap.FetchOptions{UID: true, BodySection: []*imap.FetchItemBodySection{section}})
 		for {
 			msg := cmd.Next()
 			if msg == nil {
 				break
 			}
-			buffer, err := msg.Collect()
+			uid, raw, err := readIMAPMail(msg)
 			if err != nil {
-				_ = cmd.Close()
+				abortFetch(client, cmd)
 				return err
 			}
-			for _, body := range buffer.BodySection {
-				if err := importMessage(ctx, account, folder, uint64(selected.UIDValidity), uint64(buffer.UID), "", body.Bytes); err != nil {
-					_ = cmd.Close()
+			if uid > 0 && raw != nil {
+				if !set.Contains(uid) {
+					abortFetch(client, cmd)
+					return errors.New("unexpected remote UID")
+				}
+				if err := importMessage(ctx, account, folder, uint64(selected.UIDValidity), uint64(uid), "", raw); err != nil {
+					abortFetch(client, cmd)
 					return err
 				}
+				imported.AddNum(uid)
 			}
+
 		}
 		if err := cmd.Close(); err != nil {
 			return err
 		}
-		if account.DeleteRemote {
-			store := client.Store(set, &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{imap.FlagDeleted}}, nil)
-			if err := store.Close(); err != nil {
+		if account.DeleteRemote && len(imported) > 0 {
+			if err := deleteImported(imported, client.Caps().Has(imap.CapUIDPlus),
+				func(ids imap.UIDSet) error {
+					return client.Store(ids, &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{imap.FlagDeleted}}, nil).Close()
+				},
+				func(ids imap.UIDSet) error { _, err := client.UIDExpunge(ids).Collect(); return err }); err != nil {
 				return err
 			}
-			if _, err := client.UIDExpunge(set).Collect(); err != nil {
-				if _, fallbackErr := client.Expunge().Collect(); fallbackErr != nil {
-					return fmt.Errorf("uid expunge: %v; expunge fallback: %w", err, fallbackErr)
-				}
-			}
 		}
-		if _, err := db.Instance.ID(account.ID).Cols("last_uidvalidity", "last_uid", "updated").Update(&models.ExternalAccount{LastUIDValidity: uidValidity, LastUID: stop, Updated: time.Now()}); err != nil {
+		if err := storeCursor(ctx, account.ID, folder, validity, stop); err != nil {
 			return err
 		}
+		if _, err := db.Instance.Context(ctx).ID(account.ID).Cols("last_uidvalidity", "last_uid").Update(&models.ExternalAccount{LastUIDValidity: strconv.FormatInt(validity, 10), LastUID: stop}); err != nil {
+			return err
+		}
+
 	}
 	return nil
 }
 
 func syncPOP3(ctx context.Context, account models.ExternalAccount, password string) error {
-	conn, err := dialPOP3(account)
+	conn, reader, err := connectPOP(ctx, account)
 	if err != nil {
 		return err
 	}
-	reader := bufio.NewReader(conn)
 	stopWatch := watchConnContext(ctx, conn)
 	defer stopWatch()
-	defer func() {
-		_ = popCommand(conn, reader, "QUIT")
-		_ = conn.Close()
-	}()
-	if _, err := readPOP3(reader); err != nil {
-		return err
-	}
+	defer conn.Close()
 	if err := popCommand(conn, reader, "USER "+account.Username); err != nil {
 		return fmt.Errorf("%w: %w", ErrAuth, err)
 	}
@@ -536,39 +484,86 @@ func syncPOP3(ctx context.Context, account models.ExternalAccount, password stri
 		}
 		count++
 	}
-	return nil
+	return popCommand(conn, reader, "QUIT")
 }
 
 func importMessage(ctx context.Context, account models.ExternalAccount, folder string, uidValidity, uid uint64, uidl string, raw []byte) error {
-	mid := messageID(raw)
-	if (uid != 0 || uidValidity != 0) && seen(account.ID, folder, uidValidity, uid, uidl) {
-		return nil
-	}
-	if uid == 0 && uidValidity == 0 && mid != "" && seenMessage(account.ID, mid) {
-		return nil
-	}
-	already, err := beginSeen(account.ID, folder, uidValidity, uid, uidl, mid)
-	if err != nil || already {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	primary, err := address.Primary(account.UserID)
 	if err != nil {
-		_ = deleteSeen(account.ID, folder, uidValidity, uid, uidl)
 		return err
 	}
-	pctx := &pcontext.Context{UserID: account.UserID}
-	if _, err = smtp_server.ImportExternal(pctx, raw, primary.Address, account.TargetGroupID); err != nil {
-		_ = deleteSeen(account.ID, folder, uidValidity, uid, uidl)
+	pctx := &pcontext.Context{Context: ctx, UserID: account.UserID}
+	row, err := smtp_server.ImportExternal(pctx, raw, primary.Address, account.TargetGroupID, func(tx *xorm.Session) (bool, error) {
+		q := tx.ID(account.ID).Where("user_id=?", account.UserID).Cols("id")
+		if db.Instance.DriverName() != "sqlite" {
+			q.ForUpdate()
+		}
+		var owner models.ExternalAccount
+		ok, err := q.Get(&owner)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			return false, ErrNotFound
+		}
+		rec := models.ExternalSeen{AccountID: account.ID, Folder: folder, UIDValidity: int64(uidValidity), UID: int64(uid), UIDL: uidl, MessageID: messageID(raw), Status: "done"}
+		var previous models.ExternalSeen
+		found, err := tx.Where("account_id=? AND folder=? AND uidvalidity=? AND uid=? AND uidl=?", rec.AccountID, rec.Folder, rec.UIDValidity, rec.UID, rec.UIDL).Get(&previous)
+		if err != nil {
+			return false, err
+		}
+		if found {
+			if previous.Status == "done" {
+				return true, nil
+			}
+			// Pre-transaction versions may have left a pending marker. Re-import
+			// rather than guessing whether the remote message is safe to delete.
+			_, err = tx.ID(previous.ID).Cols("status", "message_id").Update(&rec)
+		} else {
+			_, err = tx.Insert(&rec)
+		}
+		return false, err
+	})
+	if err == nil && row != nil {
+		if v := ctx.Value(syncCounterKey{}); v != nil {
+			atomic.AddInt64(v.(*int64), 1)
+		}
+	}
+	return err
+}
+
+func storeCursor(ctx context.Context, id int, folder string, validity, uid int64) error {
+	return db.Transaction(db.Instance, func(tx *xorm.Session) error {
+		tx.Context(ctx)
+		q := tx.ID(id).Cols("id")
+		if db.Instance.DriverName() != "sqlite" {
+			q.ForUpdate()
+		}
+		found, err := q.Get(&models.ExternalAccount{})
+		if err != nil {
+			return err
+		}
+		if !found {
+			return ErrNotFound
+		}
+		var old models.ExternalCursor
+		found, err = tx.Where("account_id=? AND folder=?", id, folder).Get(&old)
+		if err != nil {
+			return err
+		}
+		if !found {
+			_, err = tx.Insert(&models.ExternalCursor{AccountID: id, Folder: folder, UIDValidity: validity, LastUID: uid})
+			return err
+		}
+		if old.UIDValidity == validity && old.LastUID >= uid {
+			return nil
+		}
+		_, err = tx.Where("account_id=? AND folder=?", id, folder).Cols("uidvalidity", "last_uid").Update(&models.ExternalCursor{UIDValidity: validity, LastUID: uid})
 		return err
-	}
-	if err = finishSeen(account.ID, folder, uidValidity, uid, uidl, mid); err != nil {
-		log.Errorf("external_seen completion failed account=%d folder=%s uid=%d: %v", account.ID, folder, uid, err)
-		return err
-	}
-	if value := ctx.Value(syncCounterKey{}); value != nil {
-		atomic.AddInt64(value.(*int64), 1)
-	}
-	return nil
+	})
 }
 
 func messageID(raw []byte) string {
@@ -681,20 +676,32 @@ func connectionControl() func(string, string, syscall.RawConn) error {
 	}
 }
 
-func dialIMAP(a models.ExternalAccount) (*imapclient.Client, error) {
-	addresses, err := safeAddresses(a.Host, a.Port)
+type externalIMAP struct {
+	*imapclient.Client
+	abort func()
+}
+
+// go-imap pauses its decoder until the current literal is consumed. Close
+// the transport first; then let Close observe a read failure on the literal.
+func abortFetch(client *externalIMAP, command *imapclient.FetchCommand) {
+	client.abort()
+	_ = command.Close()
+}
+
+func dialIMAP(ctx context.Context, a models.ExternalAccount) (*externalIMAP, error) {
+	addresses, err := safeAddresses(ctx, a.Host, a.Port)
 	if err != nil {
 		return nil, err
 	}
 	var last error
 	for _, addr := range addresses {
 		d := &net.Dialer{Timeout: 60 * time.Second, Control: connectionControl()}
-		conn, dialErr := d.Dial("tcp", addr)
+		conn, dialErr := d.DialContext(ctx, "tcp", addr)
 		if dialErr != nil {
 			last = dialErr
 			continue
 		}
-		if err = conn.SetDeadline(time.Now().Add(syncDeadline)); err != nil {
+		if err = conn.SetDeadline(connectionDeadline(ctx)); err != nil {
 			_ = conn.Close()
 			last = err
 			continue
@@ -705,17 +712,19 @@ func dialIMAP(a models.ExternalAccount) (*imapclient.Client, error) {
 		switch a.TLSMode {
 		case "tls":
 			tlsConn := tls.Client(conn, tlsConfig)
-			err = tlsConn.Handshake()
+			err = tlsConn.HandshakeContext(ctx)
 			if err == nil {
 				client = imapclient.New(tlsConn, opts)
 			}
 		case "starttls":
+			stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 			client, err = imapclient.NewStartTLS(conn, opts)
+			stop()
 		default:
 			client = imapclient.New(conn, opts)
 		}
 		if err == nil && client != nil {
-			return client, nil
+			return &externalIMAP{Client: client, abort: func() { _ = conn.Close() }}, nil
 		}
 		last = err
 		if client == nil {
@@ -725,27 +734,27 @@ func dialIMAP(a models.ExternalAccount) (*imapclient.Client, error) {
 	return nil, last
 }
 
-func dialPOP3(a models.ExternalAccount) (net.Conn, error) {
-	addresses, err := safeAddresses(a.Host, a.Port)
+func dialPOP3(ctx context.Context, a models.ExternalAccount) (net.Conn, error) {
+	addresses, err := safeAddresses(ctx, a.Host, a.Port)
 	if err != nil {
 		return nil, err
 	}
 	var last error
 	for _, addr := range addresses {
 		d := net.Dialer{Timeout: 60 * time.Second, Control: connectionControl()}
-		conn, dialErr := d.Dial("tcp", addr)
+		conn, dialErr := d.DialContext(ctx, "tcp", addr)
 		if dialErr != nil {
 			last = dialErr
 			continue
 		}
-		if err = conn.SetDeadline(time.Now().Add(syncDeadline)); err != nil {
+		if err = conn.SetDeadline(connectionDeadline(ctx)); err != nil {
 			_ = conn.Close()
 			last = err
 			continue
 		}
 		if a.TLSMode == "tls" {
 			tlsConn := tls.Client(conn, &tls.Config{ServerName: a.Host, InsecureSkipVerify: a.InsecureSkipVerify})
-			if err = tlsConn.Handshake(); err != nil {
+			if err = tlsConn.HandshakeContext(ctx); err != nil {
 				_ = conn.Close()
 				last = err
 				continue
@@ -755,18 +764,6 @@ func dialPOP3(a models.ExternalAccount) (net.Conn, error) {
 		return conn, nil
 	}
 	return nil, last
-}
-
-func watchClientContext(ctx context.Context, client *imapclient.Client) func() {
-	stop := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = client.Close()
-		case <-stop:
-		}
-	}()
-	return func() { close(stop) }
 }
 
 func watchConnContext(ctx context.Context, conn net.Conn) func() {
@@ -781,12 +778,13 @@ func watchConnContext(ctx context.Context, conn net.Conn) func() {
 	return func() { close(stop) }
 }
 
-func testIMAP(a models.ExternalAccount, password string) ([]string, error) {
-	c, err := dialIMAP(a)
+func testIMAP(ctx context.Context, a models.ExternalAccount, password string) ([]string, error) {
+	c, err := dialIMAP(ctx, a)
 	if err != nil {
 		return nil, err
 	}
 	defer c.Close()
+	defer context.AfterFunc(ctx, c.abort)()
 	if err := c.Login(a.Username, password).Wait(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrAuth, err)
 	}
@@ -800,16 +798,13 @@ func testIMAP(a models.ExternalAccount, password string) ([]string, error) {
 	}
 	return out, nil
 }
-func testPOP3(a models.ExternalAccount, password string) ([]string, error) {
-	c, err := dialPOP3(a)
+func testPOP3(ctx context.Context, a models.ExternalAccount, password string) ([]string, error) {
+	c, r, err := connectPOP(ctx, a)
 	if err != nil {
 		return nil, err
 	}
 	defer c.Close()
-	r := bufio.NewReader(c)
-	if _, err = readPOP3(r); err != nil {
-		return nil, err
-	}
+	defer watchConnContext(ctx, c)()
 	if err = popCommand(c, r, "USER "+a.Username); err != nil {
 		return nil, err
 	}
@@ -837,7 +832,7 @@ func popCommand(c net.Conn, r *bufio.Reader, command string) error {
 	return err
 }
 func readPOP3(r *bufio.Reader) (string, error) {
-	line, err := r.ReadString('\n')
+	line, err := readPOPLine(r)
 	if err != nil {
 		return "", err
 	}
@@ -851,8 +846,9 @@ func readMultiPOP3(r *bufio.Reader) ([]string, error) {
 		return nil, err
 	}
 	var out []string
+	size := 0
 	for {
-		line, err := r.ReadString('\n')
+		line, err := readPOPLine(r)
 		if err != nil {
 			return nil, err
 		}
@@ -860,7 +856,11 @@ func readMultiPOP3(r *bufio.Reader) ([]string, error) {
 		if line == "." {
 			return out, nil
 		}
-		out = append(out, strings.TrimPrefix(line, ".."))
+		size += len(line) + 2
+		if size > mailbudget.POPListing {
+			return nil, mailbudget.ErrLimit
+		}
+		out = append(out, unDot(line))
 	}
 }
 func popRetrieve(c net.Conn, r *bufio.Reader, num string) ([]byte, error) {
@@ -875,14 +875,17 @@ func popRetrieve(c net.Conn, r *bufio.Reader, num string) ([]byte, error) {
 	}
 	var b bytes.Buffer
 	for {
-		line, err := r.ReadString('\n')
+		line, err := readPOPLine(r)
 		if err != nil {
 			return nil, err
 		}
 		if strings.TrimRight(line, "\r\n") == "." {
 			return b.Bytes(), nil
 		}
-		b.WriteString(strings.TrimPrefix(line, ".."))
+		if b.Len()+len(line) > mailbudget.Message {
+			return nil, mailbudget.ErrLimit
+		}
+		b.WriteString(unDot(line))
 	}
 }
 func syncErrOrDB(original, dbErr error) error {
@@ -892,10 +895,107 @@ func syncErrOrDB(original, dbErr error) error {
 	return original
 }
 func ptrTime(t time.Time) *time.Time { return &t }
-func max(a, b int) int {
-	if a > b {
-		return a
+func getenv(key string) string       { return os.Getenv(key) }
+
+func readIMAPMail(msg *imapclient.FetchMessageData) (imap.UID, []byte, error) {
+	var uid imap.UID
+	var raw []byte
+	for item := msg.Next(); item != nil; item = msg.Next() {
+		switch v := item.(type) {
+		case imapclient.FetchItemDataUID:
+			uid = v.UID
+		case imapclient.FetchItemDataBodySection:
+			if v.Literal == nil {
+				continue
+			}
+			if raw != nil {
+				return 0, nil, mailbudget.ErrLimit
+			}
+			var err error
+			raw, err = readExternalLiteral(v.Literal)
+			if err != nil {
+				return 0, nil, err
+			}
+		}
 	}
-	return b
+	return uid, raw, nil
 }
-func getenv(key string) string { return os.Getenv(key) }
+
+func readPOPLine(r *bufio.Reader) (string, error) {
+	var result strings.Builder
+	for {
+		buf, err := r.ReadSlice('\n')
+		if result.Len()+len(buf) > mailbudget.POPLine {
+			return "", mailbudget.ErrLimit
+		}
+		result.Write(buf)
+		if !errors.Is(err, bufio.ErrBufferFull) {
+			return result.String(), err
+		}
+	}
+}
+
+func unDot(line string) string {
+	if strings.HasPrefix(line, "..") {
+		return line[1:]
+	}
+	return line
+}
+
+func connectionDeadline(ctx context.Context) time.Time {
+	d := time.Now().Add(syncDeadline)
+	if end, ok := ctx.Deadline(); ok && end.Before(d) {
+		return end
+	}
+	return d
+}
+
+func connectPOP(ctx context.Context, a models.ExternalAccount) (net.Conn, *bufio.Reader, error) {
+	c, err := dialPOP3(ctx, a)
+	if err != nil {
+		return nil, nil, err
+	}
+	stop := context.AfterFunc(ctx, func() { _ = c.Close() })
+	defer stop()
+	r := bufio.NewReader(c)
+	if _, err = readPOP3(r); err != nil {
+		_ = c.Close()
+		return nil, nil, err
+	}
+	if a.TLSMode == "starttls" {
+		if err = popCommand(c, r, "STLS"); err != nil {
+			_ = c.Close()
+			return nil, nil, err
+		}
+		if r.Buffered() != 0 {
+			_ = c.Close()
+			return nil, nil, errors.New("unexpected bytes before POP3 TLS negotiation")
+		}
+		tlsConn := tls.Client(c, &tls.Config{ServerName: a.Host, InsecureSkipVerify: a.InsecureSkipVerify})
+		if err = tlsConn.HandshakeContext(ctx); err != nil {
+			_ = c.Close()
+			return nil, nil, err
+		}
+		return tlsConn, bufio.NewReader(tlsConn), nil
+	}
+	return c, r, nil
+}
+
+func deleteImported(ids imap.UIDSet, uidPlus bool, mark, expunge func(imap.UIDSet) error) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if err := mark(ids); err != nil {
+		return err
+	}
+	if uidPlus {
+		return expunge(ids)
+	}
+	return nil
+}
+func readExternalLiteral(r imap.LiteralReader) ([]byte, error) {
+	if r.Size() > mailbudget.Message {
+		return nil, mailbudget.ErrLimit
+	}
+	return mailbudget.Read(r, mailbudget.Message)
+}

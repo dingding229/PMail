@@ -116,7 +116,13 @@ func (s *Session) Mail(from string, opts *smtp.MailOptions) error {
 func (s *Session) Rcpt(to string, opts *smtp.RcptOptions) error {
 	log.WithContext(s.Ctx).Debugf("Rcpt Success %+v", to)
 	_, host, ok := strings.Cut(strings.TrimSpace(to), "@")
+	if s.Ctx.UserID <= 0 && (!ok || !domain.IsLocal(host)) {
+		return &smtp.SMTPError{Code: 550, EnhancedCode: smtp.EnhancedCode{5, 7, 1}, Message: "relaying denied"}
+	}
 	if ok && domain.IsLocal(host) {
+		if forward.SRSAddress(to) && !forward.AllowSRSLookup(s.RemoteAddress) {
+			return &smtp.SMTPError{Code: 452, EnhancedCode: smtp.EnhancedCode{4, 7, 0}, Message: "bounce lookup rate exceeded"}
+		}
 		if _, isSRS, srsErr := forward.ResolveSRS(to); isSRS {
 			if srsErr != nil {
 				return &smtp.SMTPError{Code: 550, EnhancedCode: smtp.EnhancedCode{5, 1, 1}, Message: "Invalid SRS recipient"}

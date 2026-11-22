@@ -3,9 +3,7 @@ package forward
 import (
 	"bytes"
 	"crypto/hmac"
-	"crypto/sha1"
 	"crypto/sha256"
-	"encoding/base32"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -199,7 +197,10 @@ func EnqueueForUser(ctx *pcontext.Context, userID int, email *parsemail.Email, r
 	if primary, primaryErr := address.Primary(userID); primaryErr == nil && primary.Domain != "" {
 		fromDomain = primary.Domain
 	}
-	mailFrom := BuildSRS(email.From.EmailAddress, fromDomain)
+	mailFrom, err := BuildSRS(email.From.EmailAddress, fromDomain)
+	if err != nil {
+		return err
+	}
 	decorated, err := parsemail.SignBytes(forwardedRaw, "mailer-daemon@"+fromDomain)
 	if err != nil {
 		return err
@@ -240,100 +241,6 @@ func Apply(ctx *pcontext.Context, userID int, email *parsemail.Email, raw []byte
 			log.Errorf("mark forwarded copy deleted email=%d user=%d failed: %v", email.MessageId, userID, err)
 		}
 	}
-}
-
-func BuildSRS(original, forwardDomain string) string {
-	local, host, err := address.Split(original)
-	if err != nil {
-		return original
-	}
-	tt := base32Days(time.Now().UTC())
-	payload := tt + "=" + host + "=" + local
-	h := hmac.New(sha1.New, []byte(config.Instance.SecretKey))
-	_, _ = h.Write([]byte(payload))
-	hash := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(h.Sum(nil))[:4]
-	return "SRS0=" + hash + "=" + payload + "@" + forwardDomain
-}
-
-func ResolveSRS(raw string) (models.User, bool, error) {
-	local, host, ok := strings.Cut(strings.TrimSpace(raw), "@")
-	if !ok || !domain.IsLocal(host) || !strings.HasPrefix(strings.ToUpper(local), "SRS0=") {
-		return models.User{}, false, nil
-	}
-	original, err := parseSRS(local, host)
-	if err != nil {
-		return models.User{}, true, err
-	}
-	var row models.OutboundQueue
-	found, err := db.Instance.Where("kind=? AND mail_from=?", queue.KindForward, local+"@"+host).Desc("id").Get(&row)
-	if err != nil {
-		return models.User{}, true, err
-	}
-	if found && row.UserID > 0 {
-		var user models.User
-		ok, err := db.Instance.ID(row.UserID).Get(&user)
-		return user, true, errOrNotFound(ok, err)
-	}
-	// A retained forwarding setting is a fallback for rows already cleaned up.
-	var settings []models.ForwardSetting
-	if err := db.Instance.Where("enabled=?", true).Find(&settings); err != nil {
-		return models.User{}, true, err
-	}
-	for _, setting := range settings {
-		for _, target := range Targets(setting.Targets) {
-			if strings.EqualFold(target, original) {
-				var user models.User
-				ok, err := db.Instance.ID(setting.UserID).Get(&user)
-				return user, true, errOrNotFound(ok, err)
-			}
-		}
-	}
-	return models.User{}, true, address.ErrNotFound
-}
-
-func errOrNotFound(ok bool, err error) error {
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return address.ErrNotFound
-	}
-	return nil
-}
-
-func parseSRS(local, forwardDomain string) (string, error) {
-	parts := strings.Split(local, "=")
-	if len(parts) != 5 || !strings.EqualFold(parts[0], "SRS0") || len(parts[1]) != 4 || len(parts[2]) != 2 {
-		return "", ErrInvalidSRS
-	}
-	var day int
-	for _, c := range strings.ToUpper(parts[2]) {
-		value := strings.IndexRune("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", c)
-		if value < 0 {
-			return "", ErrInvalidSRS
-		}
-		day = day*32 + value
-	}
-	current := int(time.Now().UTC().Unix() / 86400)
-	modulus := 32 * 32
-	age := (current%modulus - day + modulus) % modulus
-	if age > 21 {
-		return "", ErrInvalidSRS
-	}
-	payload := parts[2] + "=" + parts[3] + "=" + parts[4]
-	h := hmac.New(sha1.New, []byte(config.Instance.SecretKey))
-	_, _ = h.Write([]byte(payload))
-	expected := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(h.Sum(nil))[:4]
-	if !hmac.Equal([]byte(strings.ToUpper(parts[1])), []byte(strings.ToUpper(expected))) {
-		return "", ErrInvalidSRS
-	}
-	return parts[4] + "@" + parts[3], nil
-}
-
-func base32Days(t time.Time) string {
-	value := int(t.Unix() / 86400)
-	alphabet := "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
-	return string([]byte{alphabet[(value/32)%32], alphabet[value%32]})
 }
 
 func nodeID() string {

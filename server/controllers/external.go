@@ -10,6 +10,7 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/external"
 	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/mailbudget"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -89,7 +90,7 @@ func ExternalTest(ctx *context.Context, w http.ResponseWriter, r *http.Request) 
 		apiError(ctx, w, http.StatusBadRequest, responseParams, "external_password_required")
 		return
 	}
-	folders, err := external.TestConnection(body.ExternalAccount, body.Password)
+	folders, err := external.TestConnectionContext(r.Context(), body.ExternalAccount, body.Password)
 	if err != nil {
 		externalFailure(ctx, w, err, "external_connection_failed")
 		return
@@ -134,6 +135,8 @@ func localizeExternal(ctx *context.Context, row *models.ExternalAccount) {
 	detail := strings.ToLower(row.LastError)
 	key := "external_sync_failed"
 	switch {
+	case strings.Contains(detail, mailbudget.ErrLimit.Error()):
+		key = "mail_resource_limit"
 	case strings.Contains(detail, "authentication"), strings.Contains(detail, "invalid credentials"):
 		key = "external_invalid_auth"
 	case strings.Contains(detail, external.ErrPrivateHost.Error()):
@@ -147,6 +150,10 @@ func localizeExternal(ctx *context.Context, row *models.ExternalAccount) {
 }
 
 func externalFailure(ctx *context.Context, w http.ResponseWriter, err error, fallback string) {
+	if errors.Is(err, mailbudget.ErrLimit) {
+		apiError(ctx, w, http.StatusRequestEntityTooLarge, responseParams, "mail_resource_limit")
+		return
+	}
 	if db.IsUniqueViolation(err) {
 		serviceError(ctx, w, err)
 		return
