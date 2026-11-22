@@ -132,6 +132,9 @@ func (e *spfEvaluator) check(ctx context.Context, domain, value string, addr net
 					return spfUnknown
 				}
 				for _, item := range mx {
+					if item == nil || item.Host == "." {
+						continue
+					}
 					result = e.addresses(ctx, item.Host, bits, addr)
 					if result != spfNoPass {
 						break
@@ -207,7 +210,8 @@ func (e *spfEvaluator) addresses(ctx context.Context, host string, bits int, add
 	if addr.Is4() {
 		family = "ip4"
 	}
-	found, err := e.r.LookupNetIP(ctx, family, host)
+	// MX targets can be returned with arbitrary case and without a root dot.
+	found, err := e.r.LookupNetIP(ctx, family, fqdn(host))
 	if err != nil && !missingDNS(err) {
 		return spfUnknown
 	}

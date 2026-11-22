@@ -294,6 +294,10 @@ func TestMaster(t *testing.T) {
 		t.FailNow()
 	}
 
+	if !t.Run("testDraftSaveTwice", func(t *testing.T) { testDraftSaveTwice(t, admin) }) {
+		t.FailNow()
+	}
+
 	inbox := dto.SearchTag{Type: 0, Status: -1, GroupId: 0}
 	const sendPath = "/api/email/send"
 	requireResponse(t, sendPath, sendIntegrationMail(t, admin, testAdmin, "Catch-all fixture", "unassigned"), 200, 0, nil)
@@ -376,4 +380,32 @@ func TestMaster(t *testing.T) {
 		t.Fatal("token create response contained no token")
 	}
 	findMail(t, mailList(t, testClient(t), issued.Token, inbox), "Batch 9")
+}
+
+// Uses the same configured backend as TestMaster, including PostgreSQL.
+func testDraftSaveTwice(t *testing.T, client *http.Client) {
+	const save = "/api/email/draft/save"
+	var first, second struct {
+		ID int `json:"id"`
+	}
+	res := postIntegration(t, client, save, map[string]string{"subject": "initial draft", "text": "before"}, &first)
+	if first.ID <= 0 {
+		t.Fatalf("draft ID not assigned: %s", res.Body)
+	}
+	t.Cleanup(func() {
+		postIntegration(t, client, "/api/email/draft/delete", map[string]int{"id": first.ID}, nil)
+	})
+	res = postIntegration(t, client, save, map[string]any{"id": first.ID, "subject": "revised draft", "text": "after"}, &second)
+	if second.ID != first.ID {
+		t.Fatalf("draft update changed ID %d: %s", first.ID, res.Body)
+	}
+	var detail struct {
+		ID      int    `json:"id"`
+		Subject string `json:"subject"`
+		Text    string `json:"text"`
+	}
+	res = postIntegration(t, client, "/api/email/detail", map[string]int{"id": first.ID}, &detail)
+	if detail.ID != first.ID || detail.Subject != "revised draft" || detail.Text != "after" {
+		t.Fatalf("draft content not updated: %s", res.Body)
+	}
 }

@@ -188,3 +188,27 @@ func TestDraftRemainsAfterFailureAndIsRemovedAfterAcceptedSend(t *testing.T) {
 		t.Fatalf("accepted draft remains: %v, %v", found, err)
 	}
 }
+
+func TestSaveDraftTwiceKeepsIDAndUpdatesContent(t *testing.T) {
+	owner, _ := composeFixture(t)
+	type saved struct {
+		ID int `json:"id"`
+	}
+	var first, second saved
+	status, code, data := callCompose(t, SaveDraft, owner, `{"subject":"before", "text":"initial body"}`)
+	if err := json.Unmarshal(data, &first); err != nil || status != 200 || code != 0 || first.ID <= 0 {
+		t.Fatalf("initial save: HTTP %d, errorNo %d, data %s", status, code, data)
+	}
+	payload, err := json.Marshal(map[string]any{"id": first.ID, "subject": "after", "text": "revised body"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, code, data = callCompose(t, SaveDraft, owner, string(payload))
+	if err := json.Unmarshal(data, &second); err != nil || status != 200 || code != 0 || second.ID != first.ID {
+		t.Fatalf("repeat save of %d: HTTP %d, errorNo %d, data %s", first.ID, status, code, data)
+	}
+	var row models.Email
+	if found, err := db.Instance.ID(first.ID).Get(&row); err != nil || !found || row.Subject != "after" || row.Text.String != "revised body" || row.UpdateTime.IsZero() {
+		t.Fatalf("stored draft not updated: id=%d, subject=%q, updated=%v, err=%v", row.Id, row.Subject, row.UpdateTime, err)
+	}
+}

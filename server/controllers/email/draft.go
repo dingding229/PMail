@@ -127,7 +127,7 @@ func persistDraft(draft *models.Email, keepAttachments bool) error {
 			draft.Attachments = stored.Attachments
 		}
 		draft.Size = len(draft.Text.String) + len(draft.Html.String) + len(draft.Attachments)
-		updates := map[string]any{"from_address": draft.FromAddress, "from_name": draft.FromName, "sender": draft.Sender, "subject": draft.Subject, "to": draft.To, "cc": draft.Cc, "bcc": draft.Bcc, "text": draft.Text.String, "html": draft.Html.String, "text_format": draft.TextFormat, "attachments": draft.Attachments, "size": draft.Size, "send_date": now, "update_time": now}
+		updates := map[string]any{"from_address": draft.FromAddress, "from_name": draft.FromName, "sender": draft.Sender, "subject": draft.Subject, "to": draft.To, "cc": draft.Cc, "bcc": draft.Bcc, "text": draft.Text.String, "html": draft.Html.String, "text_format": draft.TextFormat, "attachments": draft.Attachments, "size": draft.Size, "send_date": now}
 		_, err = tx.Table(&models.Email{}).ID(draft.Id).Where("send_user_id=? AND status=?", draft.SendUserID, consts.EmailStatusDrafts).Update(updates)
 		return err
 	})

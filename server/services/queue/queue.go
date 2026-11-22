@@ -313,7 +313,9 @@ func claimOne() (models.OutboundQueue, bool, error) {
 			row = models.OutboundQueue{}
 			return nil
 		}
-		_, claimErr = session.Table(&models.OutboundQueue{}).ID(row.ID).Cols("status", "attempts", "lease_until", "updated").Update(map[string]interface{}{
+		// Reuse the lease clock for updated; disable Xorm automatic timestamps
+		// so PostgreSQL sees only one assignment to that column.
+		_, claimErr = session.Table(&models.OutboundQueue{}).ID(row.ID).NoAutoTime().Cols("status", "attempts", "lease_until", "updated").Update(map[string]interface{}{
 			"status": StatusSending, "attempts": row.Attempts + 1, "lease_until": lease, "updated": now,
 		})
 		return claimErr
@@ -343,7 +345,7 @@ func deliver(ctx context.Context, row models.OutboundQueue) error {
 
 func handleSuccess(row models.OutboundQueue) {
 	now := time.Now()
-	_, err := db.Instance.Table(&models.OutboundQueue{}).ID(row.ID).Cols("status", "lease_until", "last_error", "updated").Update(map[string]interface{}{
+	_, err := db.Instance.Table(&models.OutboundQueue{}).ID(row.ID).NoAutoTime().Cols("status", "lease_until", "last_error", "updated").Update(map[string]interface{}{
 		"status": StatusSent, "lease_until": nil, "last_error": "", "updated": now,
 	})
 	if err != nil {
@@ -361,7 +363,7 @@ func handleFailure(ctx context.Context, row models.OutboundQueue, deliveryErr er
 	if final {
 		status = StatusFailed
 	}
-	_, err := db.Instance.Table(&models.OutboundQueue{}).ID(row.ID).Cols("status", "next_retry_at", "last_error", "lease_until", "updated").Update(map[string]interface{}{
+	_, err := db.Instance.Table(&models.OutboundQueue{}).ID(row.ID).NoAutoTime().Cols("status", "next_retry_at", "last_error", "lease_until", "updated").Update(map[string]interface{}{
 		"status": status, "next_retry_at": next, "last_error": deliveryErr.Error(), "lease_until": nil, "updated": now,
 	})
 	if err != nil {
@@ -473,7 +475,7 @@ func ReconcileParent(emailID, userID int) error {
 		nullableError = errorText
 	}
 	return db.Transaction(db.Instance, func(tx *xorm.Session) error {
-		if _, err := tx.Table(&models.Email{}).ID(emailID).Cols("status", "error", "update_time").Update(map[string]interface{}{"status": status, "error": nullableError, "update_time": time.Now()}); err != nil {
+		if _, err := tx.Table(&models.Email{}).ID(emailID).Cols("status", "error").Update(map[string]interface{}{"status": status, "error": nullableError}); err != nil {
 			return err
 		}
 		if _, err := tx.Table(&models.UserEmail{}).Where("email_id=? AND user_id=? AND status=?", emailID, userID, consts.EmailStatusDeliveryPending).Cols("status").Update(map[string]interface{}{"status": status}); err != nil {

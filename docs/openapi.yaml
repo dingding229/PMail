@@ -2847,7 +2847,9 @@ components:
         msg_id: {type: string, description: Persisted RFC Message-ID.}
         text_format:
           enum: [plain, flowed, markdown, patch]
-        has_code: {type: boolean}
+        has_code:
+          type: boolean
+          description: True for recognizable patch content, fenced Markdown code, or HTML pre/code elements. Plain-text code without any of those markers is false.
       required:
       - id
       - to_list
