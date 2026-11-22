@@ -58,6 +58,7 @@
 }
 .brand strong {
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 .crumb {
   font-size: 13px;

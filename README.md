@@ -1,6 +1,6 @@
-# PMail v3
+# PMail Pro
 
-PMail is a self-hosted mail platform with PostgreSQL as its default database, multi-domain mailboxes, aliases, queue-backed outbound delivery, automatic/rule/manual forwarding, external IMAP/POP3 collection, API tokens, and a responsive Vue 3 web UI.
+PMail Pro is an enhanced fork of [PMail](https://github.com/Jinnrry/PMail). PMail is a self-hosted mail platform with PostgreSQL as its default database, multi-domain mailboxes, aliases, queue-backed outbound delivery, automatic/rule/manual forwarding, external IMAP/POP3 collection, API tokens, and a responsive Vue 3 web UI.
 
 ![Desktop UI placeholder](docs/images/desktop.png)
 ![Mobile UI placeholder](docs/images/mobile.png)
@@ -30,7 +30,7 @@ All deployment variables are documented in `.env.example`. Important variables:
 | Variable | Meaning |
 |---|---|
 | `PMAIL_PROJECT_NAME` | Docker Compose project name; use a different value for each deployment on one host. |
-| `PMAIL_IMAGE` | Empty/local mode uses the project-scoped `pmail-<project>:local` image; set a registry image such as `yourname/pmail:3.0.0` to pull instead. |
+| `PMAIL_IMAGE` | Empty/local mode uses the project-scoped `pmail-<project>:local` image; set a registry image such as `yourname/pmail-pro:3.0.0` to pull instead. |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | PostgreSQL bootstrap settings. |
 | `PMAIL_DB_TYPE`, `PMAIL_DB_DSN` | Database type/DSN; Compose normally supplies PostgreSQL. |
 | `PMAIL_DOMAIN`, `PMAIL_DOMAINS`, `PMAIL_WEB_DOMAIN` | Mail and web domains. |
@@ -92,14 +92,14 @@ Run separate deployments with distinct project names, for example `./deploy/depl
 | Kind | Name | Notes |
 | --- | --- | --- |
 | Variable | `DOCKERHUB_USERNAME` | Docker Hub user or organization |
-| Variable | `DOCKERHUB_IMAGE` | Optional, defaults to `<DOCKERHUB_USERNAME>/pmail` |
+| Variable | `DOCKERHUB_IMAGE` | Optional, defaults to `<DOCKERHUB_USERNAME>/pmail-pro` |
 | Secret | `DOCKERHUB_TOKEN` | Docker Hub personal access token with Read & Write scope |
 
 Triggers:
 - Pushing a `v*` tag (e.g. `v3.0.0`) publishes `3.0.0`, `3.0`, `3`, `latest` and `sha-xxxxxxx`; pre-release tags containing `-` do not move `latest`.
-- Running "Docker image" manually from the Actions tab publishes the branch name (e.g. `feature-v3`), `sha-xxxxxxx` and an optional custom tag.
+- Running "PMail Pro Docker image" manually from the Actions tab publishes the branch name (e.g. `feature-v3`), `sha-xxxxxxx` and an optional custom tag.
 
-Set `PMAIL_IMAGE=yourname/pmail:3.0.0` in `.env` to pull it; `UPGRADE_VERSION=3.1.0 ./deploy/deploy.sh upgrade` switches versions (defaults to `latest`) with automatic rollback.
+Set `PMAIL_IMAGE=yourname/pmail-pro:3.0.0` in `.env` to pull it; `UPGRADE_VERSION=3.1.0 ./deploy/deploy.sh upgrade` switches versions (defaults to `latest`) with automatic rollback.
 
 ## Backup, restore and upgrade
 

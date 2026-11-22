@@ -110,7 +110,7 @@ onBeforeUnmount(() => {
         <n-button text class="mobile-menu" :aria-label="t('shell_menu')" @click="ui.drawer = true">
           <n-icon><MenuOutline /></n-icon>
         </n-button>
-        <span class="brand-mark">P</span><strong>PMail</strong
+        <span class="brand-mark">P</span><strong class="brand-name">{{ t('appName') }}</strong
         ><span class="crumb">{{ title }}</span>
       </div>
       <div class="top-actions">

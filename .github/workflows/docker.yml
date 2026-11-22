@@ -1,9 +1,9 @@
-name: Docker image
+name: PMail Pro Docker image
 
 # 构建 linux/amd64 + linux/arm64 镜像并推送到 Docker Hub。
 # 需要在仓库 Settings → Secrets and variables → Actions 中配置：
 #   Variables: DOCKERHUB_USERNAME（Docker Hub 用户名或组织名）
-#              DOCKERHUB_IMAGE（可选，默认 <DOCKERHUB_USERNAME>/pmail）
+#              DOCKERHUB_IMAGE（可选，默认 <DOCKERHUB_USERNAME>/pmail-pro）
 #   Secrets:   DOCKERHUB_TOKEN（Docker Hub Access Token，需 Read & Write 权限）
 
 on:
@@ -25,7 +25,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE: ${{ vars.DOCKERHUB_IMAGE || format('{0}/pmail', vars.DOCKERHUB_USERNAME) }}
+  IMAGE: ${{ vars.DOCKERHUB_IMAGE || format('{0}/pmail-pro', vars.DOCKERHUB_USERNAME) }}
 
 jobs:
   publish:
