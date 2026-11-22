@@ -16,15 +16,12 @@ WORKDIR /build/server
 COPY server/go.mod server/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY server/ ./
-COPY --from=frontend /build/fe/dist ./listen/http_server/dist
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     set -eu; \
     export CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH"; \
     if [ "$GOARCH" = arm ] && [ -n "$TARGETVARIANT" ]; then export GOARM="${TARGETVARIANT#v}"; fi; \
-    mkdir -p /out/plugins; \
-    go build -trimpath -ldflags "-s -w -X 'main.version=$VERSION' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$GITHASH' -X 'main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)'" -o /out/pmail .; \
-    go build -trimpath -ldflags '-s -w' -o /out/plugins/wechat_push ./hooks/wechat_push; \
-    go build -trimpath -ldflags '-s -w' -o /out/plugins/spam_block ./hooks/spam_block
+    mkdir -p /out; \
+    go build -trimpath -ldflags "-s -w -X 'main.version=$VERSION' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$GITHASH' -X 'main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)'" -o /out/pmail .
 
 FROM alpine:3.24.4
 WORKDIR /work
@@ -32,7 +29,8 @@ RUN apk add --no-cache ca-certificates tzdata \
     && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && echo Asia/Shanghai > /etc/timezone \
     && mkdir -m 700 /work/config
-COPY --from=backend /out/ /work/
+COPY --from=backend /out/pmail /work/pmail
+COPY --from=frontend /build/fe/dist/ /work/web/
 VOLUME ["/work/config"]
 EXPOSE 25 80 110 143 443 465 587 993 995
 HEALTHCHECK --interval=30s --timeout=5s --start-period=75s --retries=3 CMD ["/work/pmail", "healthcheck"]

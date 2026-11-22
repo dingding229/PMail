@@ -1,11 +1,8 @@
 package detail
 
 import (
-	"database/sql"
-	"encoding/json"
 	"fmt"
 	"github.com/Jinnrry/pmail/db"
-	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/list"
@@ -43,17 +40,6 @@ func GetEmailDetail(ctx *context.Context, id int, markRead bool) (*response.Emai
 		_, err = db.Instance.Where("id=?", ue.ID).Update(&ue)
 		if err != nil {
 			log.WithContext(ctx).Errorf("SQL error:%+v", err)
-		}
-	}
-
-	// 将内容中的cid内容替换成url
-	if email.Attachments != "" {
-		var atts []parsemail.Attachment
-		_ = json.Unmarshal([]byte(email.Attachments), &atts)
-		for _, att := range atts {
-			email.Html = sql.NullString{
-				String: strings.ReplaceAll(email.Html.String, fmt.Sprintf("cid:%s", att.ContentID), fmt.Sprintf("/attachments/%d/%s", id, att.ContentID)),
-			}
 		}
 	}
 

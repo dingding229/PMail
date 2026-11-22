@@ -2,7 +2,6 @@ package http_server
 
 import (
 	"crypto/tls"
-	"embed"
 	"errors"
 	"fmt"
 	"github.com/Jinnrry/pmail/config"
@@ -21,9 +20,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 )
-
-//go:embed dist/*
-var local embed.FS
 
 var httpsServer *http.Server
 var httpsSocket net.Listener
@@ -49,7 +45,7 @@ func HttpsStart(cert tls.Certificate) bool {
 	router(mux)
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
-		Handler:      session.Instance.LoadAndSave(mux),
+		Handler:      webMiddleware(apiSessions(mux)),
 		ReadTimeout:  90 * time.Second,
 		WriteTimeout: 90 * time.Second,
 		ErrorLog:     olog.New(&nullWrite{}, "", olog.Ldate),
@@ -84,6 +80,11 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if w.Header().Get("Content-Type") == "" {
 			w.Header().Set("Content-Type", "application/json")
+		}
+
+		publicBootstrap := r.URL.Path == "/api/bootstrap"
+		if publicBootstrap {
+			w.Header().Set("Cache-Control", "no-store")
 		}
 
 		ctx := &context.Context{}
@@ -124,12 +125,12 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 				}
 			}
 			if ctx.UserID == 0 {
-				if r.URL.Path != "/api/ping" && r.URL.Path != "/api/login" {
+				if r.URL.Path != "/api/ping" && r.URL.Path != "/api/login" && !publicBootstrap {
 					response.NewErrorResponse(response.NeedLogin, i18n.GetText(ctx.Lang, "login_exp"), "").FPrint(w)
 					return
 				}
 			}
-		} else if r.URL.Path != "/api/setup" {
+		} else if r.URL.Path != "/api/setup" && !publicBootstrap {
 			response.NewErrorResponse(response.NeedSetup, "", "").FPrint(w)
 			return
 		}

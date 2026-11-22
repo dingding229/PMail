@@ -10,8 +10,7 @@ export {
   ruleApi,
   tokenApi,
   queueApi,
-  externalApi,
-  pluginApi
+  externalApi
 } from './settings'
 export { setupApi } from './setup'
 export const unwrap = (response, fallback = null) => response?.data ?? fallback
@@ -27,8 +26,7 @@ import {
   ruleApi,
   tokenApi,
   queueApi,
-  externalApi,
-  pluginApi
+  externalApi
 } from './settings'
 import { setupApi } from './setup'
 export const api = {
@@ -44,6 +42,5 @@ export const api = {
   tokens: tokenApi,
   queue: queueApi,
   external: externalApi,
-  plugins: pluginApi,
   setup: setupApi.save
 }

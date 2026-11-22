@@ -1,0 +1,93 @@
+package http_server
+
+import (
+	"net/http"
+	"net/url"
+	"strings"
+
+	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/session"
+)
+
+func inNamespace(path, prefix string) bool {
+	return path == prefix || strings.HasPrefix(path, prefix+"/")
+}
+
+func apiOrAttachment(path string) bool {
+	return inNamespace(path, "/api") || inNamespace(path, "/attachments")
+}
+
+// Do not load or vary by session for static assets, ACME, or health checks.
+func apiSessions(next http.Handler) http.Handler {
+	withSession := session.Instance.LoadAndSave(next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if apiOrAttachment(r.URL.Path) && r.URL.Path != "/api/ping" {
+			withSession.ServeHTTP(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func webMiddleware(next http.Handler) http.Handler {
+	origins := map[string]bool{}
+	for _, origin := range config.CORSOrigins() {
+		origin = strings.TrimSpace(origin)
+		u, err := url.Parse(origin)
+		if err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" && origin == u.Scheme+"://"+u.Host {
+			origins[origin] = true
+		}
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for name, value := range map[string]string{
+			"X-Content-Type-Options": "nosniff",
+			"Referrer-Policy":        "same-origin",
+			"X-Frame-Options":        "DENY",
+		} {
+			if w.Header().Get(name) == "" {
+				w.Header().Set(name, value)
+			}
+		}
+		if len(origins) == 0 || !apiOrAttachment(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		origin := r.Header.Get("Origin")
+		preflightMethod := r.Header.Get("Access-Control-Request-Method")
+		preflight := r.Method == http.MethodOptions && preflightMethod != ""
+		w.Header().Add("Vary", "Origin")
+		if preflight {
+			w.Header().Add("Vary", "Access-Control-Request-Method, Access-Control-Request-Headers")
+			if !origins[origin] || !allowedCORSRequest(preflightMethod, r.Header.Get("Access-Control-Request-Headers")) {
+				http.Error(w, "CORS preflight denied", http.StatusForbidden)
+				return
+			}
+		}
+		if origins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
+		}
+		if preflight {
+			w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Lang, Token, X-PMail-Lang, Range")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func allowedCORSRequest(method, headers string) bool {
+	if method != http.MethodGet && method != http.MethodHead && method != http.MethodPost && method != http.MethodOptions {
+		return false
+	}
+	for header := range strings.SplitSeq(headers, ",") {
+		switch strings.ToLower(strings.TrimSpace(header)) {
+		case "", "authorization", "content-type", "lang", "token", "x-pmail-lang", "range":
+		default:
+			return false
+		}
+	}
+	return true
+}

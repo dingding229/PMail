@@ -18,8 +18,6 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/dto/parsemail"
-	"github.com/Jinnrry/pmail/hooks"
-	"github.com/Jinnrry/pmail/hooks/framework"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/domain"
 	listservice "github.com/Jinnrry/pmail/services/list"
@@ -334,58 +332,6 @@ func TestSameMessageIDCreatesIndependentSubmissions(t *testing.T) {
 	assertMessageIDCount(t, engine, "reused-message-id@example.com", 2)
 }
 
-func TestSendAfterHookCompletesBeforeFinalPersistAndSMTPResult(t *testing.T) {
-	engine, _ := newAuditTestEngine(t)
-	hook := &blockingSendAfterHook{
-		authenticationCaptureHook: &authenticationCaptureHook{},
-		started:                   make(chan struct{}),
-		release:                   make(chan struct{}),
-		done:                      make(chan struct{}),
-	}
-	hooks.HookList = map[string]framework.EmailHook{"blocking": hook}
-
-	result := make(chan error, 1)
-	go func() {
-		result <- newAuditTestSession().deliverOutgoingEmail(newAuditTestEmail("sync-hook@example.com"), successfulAuditSender)
-	}()
-	t.Cleanup(func() {
-		select {
-		case <-hook.release:
-		default:
-			close(hook.release)
-		}
-	})
-
-	select {
-	case <-hook.started:
-	case <-time.After(time.Second):
-		t.Fatal("SendAfter hook was not started")
-	}
-	assertAuditStatuses(t, engine, consts.EmailStatusDeliveryPending)
-
-	select {
-	case err := <-result:
-		t.Fatalf("delivery returned before SendAfter hook completed: %v", err)
-	case <-time.After(50 * time.Millisecond):
-	}
-	close(hook.release)
-
-	select {
-	case <-hook.done:
-	case <-time.After(time.Second):
-		t.Fatal("SendAfter hook did not finish")
-	}
-	select {
-	case err := <-result:
-		if err != nil {
-			t.Fatalf("deliverOutgoingEmail() error = %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("delivery did not return after SendAfter hook completed")
-	}
-	assertAuditStatuses(t, engine, consts.EmailStatusSent)
-}
-
 func TestOutgoingPendingAuditMailboxVisibility(t *testing.T) {
 	engine, _ := newAuditTestEngine(t)
 	session := newAuditTestSession()
@@ -426,19 +372,6 @@ func TestOutgoingPendingAuditMailboxVisibility(t *testing.T) {
 	}
 }
 
-type blockingSendAfterHook struct {
-	*authenticationCaptureHook
-	started chan struct{}
-	release chan struct{}
-	done    chan struct{}
-}
-
-func (h *blockingSendAfterHook) SendAfter(*context.Context, *parsemail.Email, map[string]error) {
-	defer close(h.done)
-	close(h.started)
-	<-h.release
-}
-
 func newAuditTestEngine(t *testing.T) (*xorm.Engine, string) {
 	t.Helper()
 	dsn := filepath.Join(t.TempDir(), "audit.db") + "?_pragma=busy_timeout(20)"
@@ -463,14 +396,11 @@ func newAuditTestEngine(t *testing.T) (*xorm.Engine, string) {
 
 	oldDB := db.Instance
 	oldConfig := config.Instance
-	oldHooks := hooks.HookList
 	db.Instance = engine
 	config.Instance = &config.Config{DbType: config.DBTypeSQLite, Domain: "example.com", Domains: []string{"example.com"}, CatchAll: true}
-	hooks.HookList = nil
 	t.Cleanup(func() {
 		db.Instance = oldDB
 		config.Instance = oldConfig
-		hooks.HookList = oldHooks
 		_ = engine.Close()
 	})
 	return engine, dsn

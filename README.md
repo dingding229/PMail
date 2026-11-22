@@ -292,13 +292,16 @@ docker compose down -v
 | `PMAIL_ADMIN_ACCOUNT` / `PMAIL_ADMIN_PASSWORD` | 首次启动的管理员账号（默认 `admin`）与密码（默认随机生成）；不会重置已有账号的密码 |
 | `PMAIL_SECRET_KEY` | 外部邮箱凭据的加密密钥、SRS 密钥等；留空时生成 `pmail_config` 卷内的 `secret.key`，必须与数据一并保留 |
 | `PMAIL_WEB_MODE` | `proxy` 默认仅提供网页 HTTP；公网直连使用覆盖文件选择 `public`。两种模式都默认 HTTP-01 申请邮件证书 |
+| `PMAIL_WEB_ROOT` | 静态前端构建产物目录，默认 `/work/web`；本地可用相对路径（相对进程工作目录） |
+| `PMAIL_CORS_ORIGINS` | 可选开发联调白名单，逗号分隔的完整源，例如 `http://localhost:5173`；默认禁用，不改变 Cookie SameSite |
+| `PMAIL_DEFAULT_LANG` | 引导接口提供的前端默认语言，默认 `zh-CN` |
 | `PMAIL_WEB_BIND` / `PMAIL_MAIL_BIND` | 宿主机网页和邮件绑定地址，网页默认 `172.17.0.1`（直连 `0.0.0.0`），邮件默认 `0.0.0.0` |
 | `PMAIL_HTTP_PORT` / `PMAIL_HTTPS_PORT` | 容器内网页监听端口，默认 `80/443` |
 | `PMAIL_HOST_*_PORT` | 宿主机端口映射，网页默认 `8080/8443`，直连覆盖为 `80/443` |
 | `PMAIL_SSL_TYPE` | 显式设置优先于网页模式：`0` ACME HTTP-01、`1` 自有证书、`2` ACME DNS-01、`3` 禁用 PMail TLS（包括加密邮件端口） |
 | `PMAIL_HTTPS_ENABLED` | 显式设置优先于网页模式：`0/1` 启用 PMail 网页 HTTPS，`2` 仅网页 HTTP；模式 `3` 强制仅网页 HTTP |
 | `PMAIL_LOG_LEVEL` | `debug`、`info`、`warn` 或 `error` |
-| `PMAIL_SPAM_FILTER_LEVEL` | `0` 至 `3`，分别表示关闭、SPF 与 DKIM 均失败、SPF 失败、DKIM 失败时过滤 |
+| `PMAIL_SPAM_FILTER_LEVEL` | `0` 至 `3`，分别表示关闭、SPF 与 DKIM 均失败、SPF 失败、DKIM 失败时过滤（服务端内置） |
 | `PMAIL_CATCH_ALL` / `PMAIL_ALLOW_USER_ALIAS` | 未知本地收件人是否交给管理员；是否允许普通用户自助创建别名 |
 | `PMAIL_QUEUE_WORKERS` / `PMAIL_FETCH_WORKERS` | 外发队列和外部邮箱收取并发数；基础 Compose 不透传，需在自定义覆盖文件中传入容器环境 |
 | `PMAIL_FETCH_ALLOW_PRIVATE` | 允许外部邮箱连接私网，仅用于受控环境；基础 Compose 不透传 |
@@ -326,3 +329,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml build pmail
 CI 的[工作流](.github/workflows/ci.yml)分别检查前后端、执行 Go 的常规与集成测试。在 `server/` 目录使用 `go test -tags integration ./...` 运行集成测试；需要能绑定固定邮件端口的权限和独立、空白的 PostgreSQL 测试库（`PMAIL_TEST_PG_DSN`），该库账号还须能建 schema。可选的 MySQL 主程序集成测试用 `PMAIL_TEST_MYSQL_DSN` 与 `go test -tags integration . -args mysql`，不要使用生产库。
 
 [镜像发布工作流](.github/workflows/docker.yml)构建 `linux/amd64` 和 `linux/arm64` 并推送到 Docker Hub：需配置变量 `DOCKERHUB_USERNAME`、读写权限密钥 `DOCKERHUB_TOKEN`，以及可选变量 `DOCKERHUB_IMAGE`（默认 `<DOCKERHUB_USERNAME>/pmail-pro`）。稳定 `v*` 标签更新 `latest`，预发布标签不更新；也可以手动触发并指定额外标签。
+
+### Web 前端与 API
+
+同一镜像内，网页构建产物独立存放在 `/work/web`（C1 仍构建 `fe/`）；Go 二进制不再内嵌网页。若独立运行 Makefile 打包的二进制，请从解压目录设置 `PMAIL_WEB_ROOT=./web`。网页文件暂不可用时，API 仍工作。前端联调以 [OpenAPI 契约](docs/openapi.yaml) 为准；使用 `GET /api/bootstrap` 获取初始状态，无需先登录。

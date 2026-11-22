@@ -12,15 +12,12 @@ import (
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
-	"github.com/Jinnrry/pmail/hooks"
-	"github.com/Jinnrry/pmail/hooks/framework"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/services/quota"
-	"github.com/Jinnrry/pmail/utils/async"
 	"github.com/Jinnrry/pmail/utils/context"
 	smtp "github.com/emersion/go-smtp"
 	log "github.com/sirupsen/logrus"
@@ -47,7 +44,6 @@ func (s *Session) deliverOutgoingEmail(email *parsemail.Email, sender outgoingSe
 	}
 
 	deliveryErr, domainErrors := sender(ctx, email)
-	runSendAfterHooks(ctx, email, domainErrors)
 
 	var errorText string
 	if deliveryErr != nil {
@@ -82,19 +78,6 @@ func hasQueuedRecipients(results map[string]error) bool {
 		}
 	}
 	return false
-}
-
-func runSendAfterHooks(ctx *context.Context, email *parsemail.Email, domainErrors map[string]error) {
-	process := async.New(ctx)
-	for _, hook := range hooks.AllHooks() {
-		if hook == nil {
-			continue
-		}
-		process.WaitProcess(func(value any) {
-			value.(framework.EmailHook).SendAfter(ctx, email, domainErrors)
-		}, hook)
-	}
-	process.Wait()
 }
 
 func persistDeliveryResult(ctx *context.Context, emailID int, status int8, errorText any) error {

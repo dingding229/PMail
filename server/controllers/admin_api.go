@@ -16,8 +16,7 @@ import (
 )
 
 func apiError(w http.ResponseWriter, status, code int, msg string) {
-	w.WriteHeader(status)
-	response.NewErrorResponse(code, msg, "").FPrint(w)
+	response.NewErrorResponse(code, msg, "").FPrintStatus(w, status)
 }
 
 func adminOnly(ctx *context.Context, w http.ResponseWriter) bool {

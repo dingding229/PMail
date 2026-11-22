@@ -9,9 +9,9 @@ import (
 	"github.com/Jinnrry/pmail/utils/ip"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cast"
-	"io/fs"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -20,14 +20,19 @@ var setupServer *http.Server
 
 func SetupStart() {
 	mux := http.NewServeMux()
-	fe, err := fs.Sub(local, "dist")
-	if err != nil {
-		panic(err)
+	var setupRequests sync.Mutex
+	serializeSetup := func(handler http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			// Legacy setup replaces the global config and DB; bootstrap reads them.
+			setupRequests.Lock()
+			defer setupRequests.Unlock()
+			handler(w, r)
+		}
 	}
-	mux.Handle("/", http.FileServer(http.FS(fe)))
-	mux.HandleFunc("/api/", contextIterceptor(controllers.Setup))
-	// 挑战请求类似这样 /.well-known/acme-challenge/QPyMAyaWw9s5JvV1oruyqWHG7OqkHMJEHPoUz2046KM
-	mux.HandleFunc("/.well-known/", controllers.AcmeChallenge)
+	mux.HandleFunc("/", staticWeb())
+	mux.HandleFunc("POST /api/setup", serializeSetup(contextIterceptor(controllers.Setup)))
+	mux.HandleFunc("GET /api/bootstrap", serializeSetup(contextIterceptor(controllers.Bootstrap)))
+	mux.HandleFunc("GET "+acmePrefix+"{token}", controllers.AcmeChallenge)
 
 	HttpPort := config.Instance.HttpPort
 	if HttpPort <= 0 {
@@ -50,11 +55,11 @@ func SetupStart() {
 
 	setupServer = &http.Server{
 		Addr:         fmt.Sprintf(":%d", HttpPort),
-		Handler:      mux,
+		Handler:      webMiddleware(mux),
 		ReadTimeout:  time.Second * 60,
 		WriteTimeout: time.Second * 60,
 	}
-	err = setupServer.ListenAndServe()
+	err := setupServer.ListenAndServe()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		panic(err)
 	}

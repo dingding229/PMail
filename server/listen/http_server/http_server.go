@@ -6,9 +6,7 @@ import (
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/controllers"
 	"github.com/Jinnrry/pmail/controllers/email"
-	"github.com/Jinnrry/pmail/session"
 	log "github.com/sirupsen/logrus"
-	"io/fs"
 	"net"
 	"net/http"
 	"time"
@@ -27,14 +25,10 @@ func HttpStop() {
 }
 
 func router(mux *http.ServeMux) {
-	fe, err := fs.Sub(local, "dist")
-	if err != nil {
-		panic(err)
-	}
-	mux.Handle("/", http.FileServer(http.FS(fe)))
-	// 挑战请求类似这样 /.well-known/acme-challenge/QPyMAyaWw9s5JvV1oruyqWHG7OqkHMJEHPoUz2046KM
-	mux.HandleFunc("/.well-known/", controllers.AcmeChallenge)
+	mux.HandleFunc("/", staticWeb())
+	mux.HandleFunc("GET "+acmePrefix+"{token}", controllers.AcmeChallenge)
 	mux.HandleFunc("/api/ping", controllers.Ping)
+	mux.HandleFunc("GET /api/bootstrap", contextIterceptor(controllers.Bootstrap))
 	mux.HandleFunc("/api/login", contextIterceptor(controllers.Login))
 	mux.HandleFunc("/api/logout", contextIterceptor(controllers.Logout))
 	mux.HandleFunc("/api/group", contextIterceptor(controllers.GetUserGroup))
@@ -65,8 +59,12 @@ func router(mux *http.ServeMux) {
 	mux.HandleFunc("/api/rule/add", contextIterceptor(controllers.UpsertRule))
 	mux.HandleFunc("/api/rule/update", contextIterceptor(controllers.UpsertRule))
 	mux.HandleFunc("/api/rule/del", contextIterceptor(controllers.DelRule))
-	mux.HandleFunc("/attachments/", contextIterceptor(controllers.GetAttachments))
-	mux.HandleFunc("/attachments/download/", contextIterceptor(controllers.Download))
+	mux.HandleFunc("GET /api/attachments/{id}", contextIterceptor(controllers.GetAttachments))
+	mux.HandleFunc("GET /api/attachments/download/{id}", contextIterceptor(controllers.Download))
+	legacyInline := contextIterceptor(controllers.GetAttachments)
+	mux.HandleFunc("GET /attachments/{emailId}/{cid}", legacyInline)
+	mux.HandleFunc("POST /attachments/{emailId}/{cid}", legacyInline)
+	mux.HandleFunc("GET /attachments/download/{emailId}/{index}", contextIterceptor(controllers.Download))
 	mux.HandleFunc("/api/user/create", contextIterceptor(controllers.CreateUser))
 	mux.HandleFunc("/api/user/edit", contextIterceptor(controllers.EditUser))
 	mux.HandleFunc("/api/user/info", contextIterceptor(controllers.Info))
@@ -89,8 +87,6 @@ func router(mux *http.ServeMux) {
 	mux.HandleFunc("/api/token/list", contextIterceptor(controllers.TokenList))
 	mux.HandleFunc("/api/token/create", contextIterceptor(controllers.TokenCreate))
 	mux.HandleFunc("/api/token/delete", contextIterceptor(controllers.TokenDelete))
-	mux.HandleFunc("/api/plugin/settings/", contextIterceptor(controllers.SettingsHtml))
-	mux.HandleFunc("/api/plugin/list", contextIterceptor(controllers.GetPluginList))
 }
 
 func HttpStart(httpsReady bool) {
@@ -102,17 +98,17 @@ func HttpStart(httpsReady bool) {
 
 	var handler http.Handler = mux
 	if httpsReady {
-		mux.HandleFunc("/.well-known/", controllers.AcmeChallenge)
+		mux.HandleFunc("GET "+acmePrefix+"{token}", controllers.AcmeChallenge)
 		mux.HandleFunc("/api/ping", controllers.Ping)
 		mux.HandleFunc("/", controllers.Interceptor)
 	} else {
 		// Serve HTTP directly rather than redirecting to an unavailable HTTPS listener.
 		router(mux)
-		handler = session.Instance.LoadAndSave(mux)
+		handler = apiSessions(mux)
 	}
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
-		Handler:      handler,
+		Handler:      webMiddleware(handler),
 		ReadTimeout:  90 * time.Second,
 		WriteTimeout: 90 * time.Second,
 	}

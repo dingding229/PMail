@@ -21,6 +21,3 @@ fe/components.d.ts
 
 # Keep the Go embed directory present in source/test copies; frontend build output replaces it.
 dist/*
-!server/listen/http_server/dist/
-server/listen/http_server/dist/*
-!server/listen/http_server/dist/placeholder.txt

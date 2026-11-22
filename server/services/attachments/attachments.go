@@ -46,26 +46,26 @@ func GetAttachments(ctx *context.Context, emailId int, cid string) *parsemail.At
 	return nil
 }
 
-func GetAttachmentsByIndex(ctx *context.Context, emailId int, index int) (string, []byte) {
+func GetAttachmentsByIndex(ctx *context.Context, emailId int, index int) *parsemail.Attachment {
 
 	// 获取邮件内容
 	var email models.Email
 	_, err := db.Instance.ID(emailId).Get(&email)
 	if err != nil {
 		log.WithContext(ctx).Errorf("SQL error:%+v", err)
-		return "", nil
+		return nil
 	}
 
 	// 检查权限
 	if !auth.HasAuth(ctx, &email) {
-		return "", nil
+		return nil
 	}
 
 	var atts []parsemail.Attachment
 	_ = json.Unmarshal([]byte(email.Attachments), &atts)
 
 	if index >= 0 && index < len(atts) {
-		return atts[index].Filename, atts[index].Content
+		return &atts[index]
 	}
-	return "", nil
+	return nil
 }

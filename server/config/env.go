@@ -142,3 +142,19 @@ func loadSecretKey() (string, error) {
 	}
 	return key, nil
 }
+
+func WebRoot() string {
+	if value := strings.TrimSpace(os.Getenv("PMAIL_WEB_ROOT")); value != "" {
+		return value
+	}
+	return "/work/web"
+}
+
+func DefaultLang() string {
+	if value := strings.TrimSpace(os.Getenv("PMAIL_DEFAULT_LANG")); value != "" {
+		return value
+	}
+	return "zh-CN"
+}
+
+func CORSOrigins() []string { return strings.Split(os.Getenv("PMAIL_CORS_ORIGINS"), ",") }

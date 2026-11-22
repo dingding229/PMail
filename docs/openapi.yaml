@@ -1,0 +1,3568 @@
+openapi: 3.1.0
+info:
+  title: PMail Pro HTTP API
+  version: 4.0.0-dev
+  description: |-
+    C1 runtime contract. Cookie, Bearer token, and the legacy Token header are alternative credentials; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource; any admin override is stated per operation.
+
+    JSON responses use {errorNo, errorMsg, data} unless stated otherwise. Legacy failures can return HTTP 200. x-error-codes lists application codes by HTTP status. Don't infer success from HTTP status alone. Unregistered API URLs and unsupported attachment subpaths never return SPA HTML. The legacy setup endpoint is available only on the setup listener; when HTTPS is active the plain HTTP listener serves ping and ACME directly and redirects other requests to HTTPS. Listed GET/POST variants are supported contracts; incidental verbs accepted by some older handlers are not part of the contract.
+
+    x-status: planned means not available in C1; the in-place planned POST DNS replacement is nested under x-planned-replacement. With development CORS enabled, allowlisted origins can send credentialed requests and preflight API/attachment paths. Cookie SameSite behavior is unchanged.
+servers:
+- {url: /}
+security:
+- {Session: []}
+- {BearerToken: []}
+- {LegacyToken: []}
+x-application-error-codes:
+  '100': Invalid parameters or credentials (or resource rejected by some legacy handlers).
+  '402': Legacy setup required; API is not initialized.
+  '403': Login required or session revoked.
+  '405': Insufficient permission.
+  '500': Server or delivery failure.
+paths:
+  /api/ping:
+    get:
+      operationId: pingGet
+      tags: [Bootstrap]
+      summary: Check HTTP liveness
+      x-permission: public
+      security: []
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PongLiteralSuccess'}
+    post:
+      operationId: pingPost
+      tags: [Bootstrap]
+      summary: Check HTTP liveness
+      x-permission: public
+      security: []
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PongLiteralSuccess'}
+  /api/bootstrap:
+    get:
+      operationId: bootstrap
+      tags: [Bootstrap]
+      summary: Discover UI initialization state
+      x-permission: public
+      description: No login is required. A valid cookie or API token supplies the login state and domain names. Registration
+        and the registration key endpoint are not implemented in C1.
+      security:
+      - {}
+      - {Session: []}
+      - {BearerToken: []}
+      - {LegacyToken: []}
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [500], '500': [500], '503': [500]}
+      responses:
+        '200':
+          description: Unwrapped JSON object on success; a legacy JSON error envelope may still be returned.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/Bootstrap'}
+                - {$ref: '#/components/schemas/Error500'}
+          headers:
+            Cache-Control:
+              schema: {const: no-store}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    head:
+      tags: [Bootstrap]
+      x-permission: public
+      description: No login is required. A valid cookie or API token supplies the login state and domain names. Registration
+        and the registration key endpoint are not implemented in C1.
+      security:
+      - {}
+      - {Session: []}
+      - {BearerToken: []}
+      - {LegacyToken: []}
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [500], '500': [500], '503': [500]}
+      operationId: bootstrapHead
+      summary: Discover UI initialization state (headers only)
+      responses:
+        '200':
+          description: Unwrapped JSON object on success; a legacy JSON error envelope may still be returned.
+          headers:
+            Cache-Control:
+              schema: {const: no-store}
+        '500': {description: Error (no body).}
+        '503': {description: Error (no body).}
+  /api/login:
+    post:
+      operationId: login
+      tags: [Auth]
+      summary: Authenticate and set the browser session
+      x-permission: public
+      security: []
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Credentials'}
+      x-error-codes: {'200': [100, 402, 500], '400': [100], '405': [100], '429': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/LoginUserSuccess'}
+                - {$ref: '#/components/schemas/Error100402500'}
+          headers:
+            Set-Cookie:
+              description: Session cookie set/renewed, or cleared on logout/password change.
+              schema: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/logout:
+    post:
+      operationId: logout
+      tags: [Auth]
+      summary: Destroy the browser session
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/StringValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+          headers:
+            Set-Cookie:
+              description: Session cookie set/renewed, or cleared on logout/password change.
+              schema: {type: string}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/setup:
+    post:
+      operationId: legacySetup
+      tags: [Bootstrap]
+      summary: Read or write a legacy setup step
+      x-permission: public
+      description: Available on the legacy uninitialized listener only; not a general configuration API. A non-matching
+        step/action pair is not supported.
+      security: []
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SetupRequest'}
+      x-error-codes: {'200': [402, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/SetupResultSuccess'}
+                - {$ref: '#/components/schemas/Error402500'}
+        '404':
+          description: No such route or challenge token.
+          content:
+            text/plain:
+              schema: {type: string}
+  /api/register:
+    post:
+      operationId: register
+      tags: [Auth]
+      summary: Create the first administrator with a one-time key
+      x-permission: public
+      description: Planned for C2. Establishes the same browser session as login.
+      x-status: planned
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RegisterRequest'}
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CurrentUserSuccess'}
+          headers:
+            Set-Cookie:
+              description: Session cookie set/renewed, or cleared on logout/password change.
+              schema: {type: string}
+  /api/group:
+    get:
+      operationId: groupTreeGet
+      tags: [Groups]
+      summary: Get nested groups and built-in mailbox navigation tags
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/GroupNodeListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+    post:
+      operationId: groupTreePost
+      tags: [Groups]
+      summary: Get nested groups and built-in mailbox navigation tags
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/GroupNodeListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+  /api/group/list:
+    get:
+      operationId: groupListGet
+      tags: [Groups]
+      summary: Get the flat group picker list
+      x-permission: user
+      description: Includes inbox, junk and deleted defaults plus custom groups.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/GroupListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+    post:
+      operationId: groupListPost
+      tags: [Groups]
+      summary: Get the flat group picker list
+      x-permission: user
+      description: Includes inbox, junk and deleted defaults plus custom groups.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/GroupListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+  /api/group/add:
+    post:
+      operationId: createGroup
+      tags: [Groups]
+      summary: Create a mailbox group
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateGroupRequest'}
+      x-error-codes: {'200': [402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/IntegerValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+  /api/group/del:
+    post:
+      operationId: deleteGroup
+      tags: [Groups]
+      summary: Delete a group owned by the caller
+      x-permission: owner
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdRequest'}
+      x-error-codes: {'200': [402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/BooleanValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+  /api/email/list:
+    post:
+      operationId: listMail
+      tags: [Mail]
+      summary: List or search messages
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MailListRequest'}
+      x-error-codes: {'200': [402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/MailPageSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+  /api/email/detail:
+    post:
+      operationId: mailDetail
+      tags: [Mail]
+      summary: Read a message and mark it read
+      x-permission: owner
+      description: Mailbox members or admins only. The legacy handler reports inaccessible mail as errorNo 500. See MailListItem
+        for the per-user read marker.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdRequest'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/EmailDetailSuccess'}
+                - {$ref: '#/components/schemas/Error100402403500'}
+  /api/email/del:
+    post:
+      operationId: deleteMail
+      tags: [Mail]
+      summary: Delete messages from the current mailbox
+      x-permission: owner
+      description: Without forcedDel, moves mail to Deleted; forcedDel removes its mailbox links.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DeleteMessagesRequest'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/SuccessLiteralSuccess'}
+                - {$ref: '#/components/schemas/Error100402403500'}
+  /api/email/read:
+    post:
+      operationId: readMail
+      tags: [Mail]
+      summary: Mark messages read
+      x-permission: owner
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MessageIdsRequest'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/SuccessLiteralSuccess'}
+                - {$ref: '#/components/schemas/Error100402403500'}
+  /api/email/move:
+    post:
+      operationId: moveMail
+      tags: [Mail]
+      summary: Move messages to a built-in or custom mailbox group
+      x-permission: owner
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MoveMessagesRequest'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/SuccessLiteralSuccess'}
+                - {$ref: '#/components/schemas/Error100402403500'}
+  /api/email/send:
+    post:
+      operationId: sendMail
+      tags: [Mail]
+      summary: Send a message and report per-recipient delivery
+      x-permission: user
+      description: Select an authorized sending address (or omit it for the primary address). A complete delivery failure
+        returns errorNo 500 with the delivery result when it is available.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SendMailRequest'}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/DeliveryResultSuccess'}
+                - {$ref: '#/components/schemas/Error100402403500DeliveryData'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/email/forward:
+    post:
+      operationId: forwardMail
+      tags: [Mail]
+      summary: Forward a message with optional original attachments
+      x-permission: owner
+      description: Mailbox members or admins only. A complete delivery failure returns errorNo 500 with the per-recipient
+        result when available.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ForwardMailRequest'}
+      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/DeliveryResultSuccess'}
+                - {$ref: '#/components/schemas/Error100402403500DeliveryData'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/forward/get:
+    get:
+      operationId: getForwardSettingsGet
+      tags: [Forwarding]
+      summary: Read the current account’s forwarding settings
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500], '405': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/ForwardSettingsViewSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: getForwardSettingsPost
+      tags: [Forwarding]
+      summary: Read the current account’s forwarding settings
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500], '405': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/ForwardSettingsViewSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/forward/set:
+    post:
+      operationId: setForwardSettings
+      tags: [Forwarding]
+      summary: Set the current account’s forwarding settings
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ForwardSettingsRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '405': [100]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/ForwardSettingSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+  /api/rule/get:
+    get:
+      operationId: listRulesGet
+      tags: [Rules]
+      summary: List rules in descending sort order
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/RuleNullableListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+    post:
+      operationId: listRulesPost
+      tags: [Rules]
+      summary: List rules in descending sort order
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/RuleNullableListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+  /api/rule/add:
+    post:
+      operationId: addRule
+      tags: [Rules]
+      summary: Create or update a rule owned by the caller
+      x-permission: owner
+      description: Both paths use the same upsert; positive id updates, while omitted or zero id inserts.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RuleRequest'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/SuccLiteralSuccess'}
+                - {$ref: '#/components/schemas/Error100402403500'}
+  /api/rule/update:
+    post:
+      operationId: updateRule
+      tags: [Rules]
+      summary: Create or update a rule owned by the caller
+      x-permission: owner
+      description: Both paths use the same upsert; positive id updates, while omitted or zero id inserts.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RuleRequest'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/SuccLiteralSuccess'}
+                - {$ref: '#/components/schemas/Error100402403500'}
+  /api/rule/del:
+    post:
+      operationId: deleteRule
+      tags: [Rules]
+      summary: Delete a rule owned by the caller
+      x-permission: owner
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdRequest'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/SuccLiteralSuccess'}
+                - {$ref: '#/components/schemas/Error100402403500'}
+  /api/queue/list:
+    get:
+      operationId: listQueueGet
+      tags: [Queue]
+      summary: List queued deliveries (all users for an administrator)
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/QueueItemNullableListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: listQueuePost
+      tags: [Queue]
+      summary: List queued deliveries (all users for an administrator)
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/QueueItemNullableListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/queue/retry:
+    post:
+      operationId: retryQueueItem
+      tags: [Queue]
+      summary: Retry a queued delivery
+      x-permission: owner
+      description: Queue item owner or admin. An invisible item is reported as not found.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '404': [100], '405': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/NullValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/queue/delete:
+    post:
+      operationId: deleteQueueItem
+      tags: [Queue]
+      summary: Delete a queued delivery
+      x-permission: owner
+      description: Queue item owner or admin. An invisible item is reported as not found.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '404': [100], '405': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/NullValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/external/list:
+    get:
+      operationId: listExternalGet
+      tags: [External]
+      summary: List external mailboxes (all users for an administrator)
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/ExternalAccountNullableListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: listExternalPost
+      tags: [External]
+      summary: List external mailboxes (all users for an administrator)
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/ExternalAccountNullableListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/external/create:
+    post:
+      operationId: createExternal
+      tags: [External]
+      summary: Add an external mailbox to the current account
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ExternalCreateRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '405': [100]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/ExternalAccountSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+  /api/external/update:
+    post:
+      operationId: updateExternal
+      tags: [External]
+      summary: Change an external mailbox
+      x-permission: owner
+      description: Mailbox owner or admin. Send the complete editable form; not every omitted field preserves the stored
+        value.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ExternalUpdateRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '405': [100]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/ExternalAccountSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+  /api/external/delete:
+    post:
+      operationId: deleteExternal
+      tags: [External]
+      summary: Delete an external mailbox
+      x-permission: owner
+      description: Mailbox owner or admin.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '404': [100], '405': [100]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/NullValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+  /api/external/test:
+    post:
+      operationId: testExternal
+      tags: [External]
+      summary: Test external mail settings without saving
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ExternalTestRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '405': [100]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/ExternalTestResultSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+  /api/external/sync_now:
+    post:
+      operationId: syncExternalNow
+      tags: [External]
+      summary: Start an external mailbox sync
+      x-permission: owner
+      description: Mailbox owner or admin. A started result does not mean the sync has completed.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '404': [100], '405': [100], '409': [100]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/ExternalSyncResultSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/external/presets:
+    get:
+      operationId: externalPresets
+      tags: [External]
+      summary: List external provider connection presets
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/ExternalPresetListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+  /api/settings/modify_password:
+    post:
+      operationId: legacyChangePassword
+      tags: [Users]
+      summary: Change the current account password and destroy the browser session
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ChangePasswordRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '401': [403], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/NullValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+          headers:
+            Set-Cookie:
+              description: Session cookie set/renewed, or cleared on logout/password change.
+              schema: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/user/change_password:
+    post:
+      operationId: changePassword
+      tags: [Users]
+      summary: Change the current account password and destroy the browser session
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ChangePasswordRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '401': [403], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/NullValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+          headers:
+            Set-Cookie:
+              description: Session cookie set/renewed, or cleared on logout/password change.
+              schema: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/user/info:
+    get:
+      operationId: userInfoGet
+      tags: [Users]
+      summary: Get lightweight login and domain information
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/UserInfoSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+    post:
+      operationId: userInfoPost
+      tags: [Users]
+      summary: Get lightweight login and domain information
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/UserInfoSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+  /api/user/me:
+    get:
+      operationId: currentUserGet
+      tags: [Users]
+      summary: Read the current profile or update its display name
+      x-permission: user
+      description: With POST, supply display_name to update it; GET and an empty POST are read-only.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '404': [100], '405': [100], '409': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/CurrentUserSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: currentUserPost
+      tags: [Users]
+      summary: Read the current profile or update its display name
+      x-permission: user
+      description: With POST, supply display_name to update it; GET and an empty POST are read-only.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EditMeRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '404': [100], '405': [100], '409': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/CurrentUserSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/user/list:
+    get:
+      operationId: listUsersGet
+      tags: [Users]
+      summary: List users and their address and storage information
+      x-permission: admin
+      description: To paginate, send a POST body; GET returns the first page with the default size.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/UserPageSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: listUsersPost
+      tags: [Users]
+      summary: List users and their address and storage information
+      x-permission: admin
+      description: To paginate, send a POST body; GET returns the first page with the default size.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UserListRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/UserPageSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/user/create:
+    post:
+      operationId: adminUserCreate
+      tags: [Users]
+      summary: Create a mailbox account
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateUserRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/UserSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/user/edit:
+    post:
+      operationId: adminUserEdit
+      tags: [Users]
+      summary: Edit a mailbox account
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EditUserRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/UserSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/user/reset_password:
+    post:
+      operationId: adminUserResetPassword
+      tags: [Users]
+      summary: Reset a mailbox account password
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ResetPasswordRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/NullValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/user/set_quota:
+    post:
+      operationId: adminUserSetQuota
+      tags: [Users]
+      summary: Set a mailbox storage quota
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SetQuotaRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/NullValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/user/delete:
+    post:
+      operationId: adminUserDelete
+      tags: [Users]
+      summary: Disable a mailbox account without deleting its mail
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/NullValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/address/list:
+    get:
+      operationId: addressListQuery
+      tags: [Addresses]
+      summary: List a user’s addresses
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/AddressUserId'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/AddressListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: addressList
+      tags: [Addresses]
+      summary: List a user’s addresses
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AddressListRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/AddressListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/address/create:
+    post:
+      operationId: createAddress
+      tags: [Addresses]
+      summary: Create a mailbox alias
+      x-permission: user
+      description: Admins can manage any user. Ordinary users can create their own aliases only when PMAIL_ALLOW_USER_ALIAS
+        is enabled.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AddressCreateRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/AddressSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/address/delete:
+    post:
+      operationId: addressDelete
+      tags: [Addresses]
+      summary: Delete a mailbox alias
+      x-permission: owner
+      description: Address owner or admin.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/NullValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/address/set_primary:
+    post:
+      operationId: addressSetPrimary
+      tags: [Addresses]
+      summary: Make a mailbox address primary
+      x-permission: owner
+      description: Address owner or admin.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/NullValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/address/update:
+    post:
+      operationId: addressUpdate
+      tags: [Addresses]
+      summary: Update the send permission on a mailbox address
+      x-permission: owner
+      description: Address owner or admin.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AddressUpdateRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/NullValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/domain/list:
+    get:
+      operationId: listDomainsGet
+      tags: [Domains]
+      summary: List mail domains
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/DomainListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+    post:
+      operationId: listDomainsPost
+      tags: [Domains]
+      summary: List mail domains
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/DomainListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+  /api/domain/create:
+    post:
+      operationId: createDomain
+      tags: [Domains]
+      summary: Add a mail domain
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NewDomainRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100], '409': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/DomainSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/domain/delete:
+    post:
+      operationId: deleteDomain
+      tags: [Domains]
+      summary: Delete a non-default domain with no assigned addresses
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '409': [100], '500': [
+          500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/NullValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/domain/set_default:
+    post:
+      operationId: defaultDomain
+      tags: [Domains]
+      summary: Set the default mail domain
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/NullValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/domain/dns:
+    get:
+      operationId: domainDnsLegacyQuery
+      tags: [Domains]
+      summary: Check the current MX/SPF/DKIM/DMARC records
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/DnsDomainId'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/LegacyDomainDnsRecordListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: domainDnsLegacy
+      tags: [Domains]
+      summary: Check the current MX/SPF/DKIM/DMARC records
+      x-permission: admin
+      description: C1 currently returns a list of legacy records. C3 will replace the POST contract in place (see x-planned-replacement).
+        The planned response is not yet returned.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/LegacyDomainDnsRecordListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+      x-planned-replacement:
+        x-status: planned
+        summary: Localized DNS setup and verification guide
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DomainDnsRequest'}
+        responses:
+          '200':
+            description: DNS guidance in the standard envelope.
+            content:
+              application/json:
+                schema: {$ref: '#/components/schemas/DomainDnsSuccess'}
+          '400': {$ref: '#/components/responses/BadRequest'}
+          '403': {$ref: '#/components/responses/Forbidden'}
+          '404': {$ref: '#/components/responses/NotFound'}
+          '405': {$ref: '#/components/responses/MethodNotAllowed'}
+          '500': {$ref: '#/components/responses/InternalError'}
+  /api/domain/dns/zone:
+    get:
+      operationId: exportDomainZone
+      tags: [Domains]
+      summary: Download a BIND zone file
+      x-permission: admin
+      x-status: planned
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/DnsDomainId'}
+      x-error-codes: {'400': [100], '403': [405], '404': [100], '500': [500]}
+      responses:
+        '200':
+          description: BIND zone file.
+          headers:
+            Content-Disposition:
+              description: Attachment download disposition and filename (present on downloads and non-inline types).
+              schema: {type: string}
+          content:
+            text/plain:
+              schema: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/token/list:
+    get:
+      operationId: listTokensGet
+      tags: [Tokens]
+      summary: List tokens belonging to the current account
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/TokenNullableListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: listTokensPost
+      tags: [Tokens]
+      summary: List tokens belonging to the current account
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      x-error-codes: {'200': [402, 403, 500], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/TokenNullableListSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/token/create:
+    post:
+      operationId: createToken
+      tags: [Tokens]
+      summary: Issue an API token for the current account
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateTokenRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '405': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/TokenCreatedSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/token/delete:
+    post:
+      operationId: deleteToken
+      tags: [Tokens]
+      summary: Revoke an API token
+      x-permission: owner
+      description: Token owner or admin. Deleting a missing or non-visible ID may succeed without removing anything.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdRequest'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '405': [100], '500': [500]}
+      responses:
+        '200':
+          description: Success or legacy application error; inspect errorNo.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/NullValueSuccess'}
+                - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/attachments/{id}:
+    get:
+      operationId: inlineAttachment
+      tags: [Attachments]
+      summary: Retrieve an attachment (only whitelisted image types are inline)
+      x-permission: owner
+      description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
+        serves mail HTML or SVG inline.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/AttachmentId'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      responses:
+        '200':
+          description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
+          headers:
+            Content-Disposition:
+              description: Attachment download disposition and filename (present on downloads and non-inline types).
+              schema: {type: string}
+            Cache-Control:
+              schema: {const: 'private, no-store'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error100402403500'}
+            application/octet-stream:
+              schema: {type: string, format: binary}
+            image/png:
+              schema: {type: string, format: binary}
+            image/jpeg:
+              schema: {type: string, format: binary}
+            image/gif:
+              schema: {type: string, format: binary}
+            image/webp:
+              schema: {type: string, format: binary}
+            image/bmp:
+              schema: {type: string, format: binary}
+            image/x-icon:
+              schema: {type: string, format: binary}
+    head:
+      tags: [Attachments]
+      x-permission: owner
+      description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
+        serves mail HTML or SVG inline.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/AttachmentId'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      operationId: inlineAttachmentHead
+      summary: Retrieve an attachment (only whitelisted image types are inline) (headers only)
+      responses:
+        '200':
+          description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
+          headers:
+            Content-Disposition:
+              description: Attachment download disposition and filename (present on downloads and non-inline types).
+              schema: {type: string}
+            Cache-Control:
+              schema: {const: 'private, no-store'}
+  /api/attachments/download/{id}:
+    get:
+      operationId: downloadAttachment
+      tags: [Attachments]
+      summary: Download an attachment as application/octet-stream
+      x-permission: owner
+      description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
+        serves mail HTML or SVG inline.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/AttachmentId'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      responses:
+        '200':
+          description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
+          headers:
+            Content-Disposition:
+              description: Attachment download disposition and filename (present on downloads and non-inline types).
+              schema: {type: string}
+            Cache-Control:
+              schema: {const: 'private, no-store'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error100402403500'}
+            application/octet-stream:
+              schema: {type: string, format: binary}
+    head:
+      tags: [Attachments]
+      x-permission: owner
+      description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
+        serves mail HTML or SVG inline.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/AttachmentId'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      operationId: downloadAttachmentHead
+      summary: Download an attachment as application/octet-stream (headers only)
+      responses:
+        '200':
+          description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
+          headers:
+            Content-Disposition:
+              description: Attachment download disposition and filename (present on downloads and non-inline types).
+              schema: {type: string}
+            Cache-Control:
+              schema: {const: 'private, no-store'}
+  /attachments/{emailId}/{cid}:
+    get:
+      operationId: legacyInlineAttachmentGet
+      tags: [Attachments]
+      summary: Retrieve an attachment (only whitelisted image types are inline)
+      x-permission: owner
+      description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
+        serves mail HTML or SVG inline.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/AttachmentEmailId'}
+      - {$ref: '#/components/parameters/AttachmentCid'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      responses:
+        '200':
+          description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
+          headers:
+            Content-Disposition:
+              description: Attachment download disposition and filename (present on downloads and non-inline types).
+              schema: {type: string}
+            Cache-Control:
+              schema: {const: 'private, no-store'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error100402403500'}
+            application/octet-stream:
+              schema: {type: string, format: binary}
+            image/png:
+              schema: {type: string, format: binary}
+            image/jpeg:
+              schema: {type: string, format: binary}
+            image/gif:
+              schema: {type: string, format: binary}
+            image/webp:
+              schema: {type: string, format: binary}
+            image/bmp:
+              schema: {type: string, format: binary}
+            image/x-icon:
+              schema: {type: string, format: binary}
+      deprecated: true
+    post:
+      operationId: legacyInlineAttachmentPost
+      tags: [Attachments]
+      summary: Retrieve an attachment (only whitelisted image types are inline)
+      x-permission: owner
+      description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
+        serves mail HTML or SVG inline.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/AttachmentEmailId'}
+      - {$ref: '#/components/parameters/AttachmentCid'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      responses:
+        '200':
+          description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
+          headers:
+            Content-Disposition:
+              description: Attachment download disposition and filename (present on downloads and non-inline types).
+              schema: {type: string}
+            Cache-Control:
+              schema: {const: 'private, no-store'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error100402403500'}
+            application/octet-stream:
+              schema: {type: string, format: binary}
+            image/png:
+              schema: {type: string, format: binary}
+            image/jpeg:
+              schema: {type: string, format: binary}
+            image/gif:
+              schema: {type: string, format: binary}
+            image/webp:
+              schema: {type: string, format: binary}
+            image/bmp:
+              schema: {type: string, format: binary}
+            image/x-icon:
+              schema: {type: string, format: binary}
+      deprecated: true
+    head:
+      tags: [Attachments]
+      x-permission: owner
+      description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
+        serves mail HTML or SVG inline.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/AttachmentEmailId'}
+      - {$ref: '#/components/parameters/AttachmentCid'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      operationId: legacyInlineAttachmentGetHead
+      summary: Retrieve an attachment (only whitelisted image types are inline) (headers only)
+      responses:
+        '200':
+          description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
+          headers:
+            Content-Disposition:
+              description: Attachment download disposition and filename (present on downloads and non-inline types).
+              schema: {type: string}
+            Cache-Control:
+              schema: {const: 'private, no-store'}
+      deprecated: true
+  /attachments/download/{emailId}/{index}:
+    get:
+      operationId: legacyDownloadAttachment
+      tags: [Attachments]
+      summary: Download an attachment as application/octet-stream
+      x-permission: owner
+      description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
+        serves mail HTML or SVG inline.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/AttachmentEmailId'}
+      - {$ref: '#/components/parameters/AttachmentIndex'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      responses:
+        '200':
+          description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
+          headers:
+            Content-Disposition:
+              description: Attachment download disposition and filename (present on downloads and non-inline types).
+              schema: {type: string}
+            Cache-Control:
+              schema: {const: 'private, no-store'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error100402403500'}
+            application/octet-stream:
+              schema: {type: string, format: binary}
+      deprecated: true
+    head:
+      tags: [Attachments]
+      x-permission: owner
+      description: Mail owner or administrator; ordinary callers require a mailbox link to the message. The response never
+        serves mail HTML or SVG inline.
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/AttachmentEmailId'}
+      - {$ref: '#/components/parameters/AttachmentIndex'}
+      x-error-codes: {'200': [100, 402, 403, 500]}
+      operationId: legacyDownloadAttachmentHead
+      summary: Download an attachment as application/octet-stream (headers only)
+      responses:
+        '200':
+          description: Attachment bytes, or a JSON error envelope if unavailable, unauthorized, empty, or invalid.
+          headers:
+            Content-Disposition:
+              description: Attachment download disposition and filename (present on downloads and non-inline types).
+              schema: {type: string}
+            Cache-Control:
+              schema: {const: 'private, no-store'}
+      deprecated: true
+  /api/attachments/preview/{id}:
+    get:
+      operationId: previewAttachment
+      tags: [Attachments]
+      summary: Preview the decoded text of a text/code attachment
+      x-permission: user
+      description: Signed-in mailbox owner or admin. Planned for C3.
+      x-status: planned
+      parameters:
+      - {$ref: '#/components/parameters/Lang'}
+      - {$ref: '#/components/parameters/AttachmentId'}
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AttachmentPreviewSuccess'}
+  /.well-known/acme-challenge/{token}:
+    get:
+      operationId: acmeChallenge
+      tags: [Infrastructure]
+      summary: Read the active ACME HTTP-01 key authorization
+      x-permission: public
+      security: []
+      parameters:
+      - {$ref: '#/components/parameters/ChallengeToken'}
+      responses:
+        '200':
+          description: Current token key authorization as plain text.
+          content:
+            text/plain:
+              schema: {type: string}
+        '404':
+          description: No such route or challenge token.
+          content:
+            text/plain:
+              schema: {type: string}
+    head:
+      tags: [Infrastructure]
+      x-permission: public
+      security: []
+      parameters:
+      - {$ref: '#/components/parameters/ChallengeToken'}
+      operationId: acmeChallengeHead
+      summary: Read the active ACME HTTP-01 key authorization (headers only)
+      responses:
+        '200': {description: Current token key authorization as plain text.}
+        '404': {description: No such route or challenge token.}
+components:
+  securitySchemes:
+    Session: {type: apiKey, in: cookie, name: session}
+    BearerToken: {type: http, scheme: bearer}
+    LegacyToken: {type: apiKey, in: header, name: Token}
+  parameters:
+    Lang:
+      name: Lang
+      in: header
+      required: false
+      schema: {type: string}
+      description: Legacy response language header; defaults to en. The v4 bootstrap default_lang setting is for UI initialization.
+    AttachmentId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^[1-9][0-9]*\.[0-9]+$
+        examples: ['42.0']
+      description: 'Composite ID: positive email ID, a dot, then the zero-based attachment Index from the detail response.'
+    AttachmentEmailId:
+      name: emailId
+      in: path
+      required: true
+      schema: {type: integer, minimum: 1}
+    AttachmentCid:
+      name: cid
+      in: path
+      required: true
+      schema: {type: string}
+      description: Original Content-ID (URL-encoded as one path segment).
+    AttachmentIndex:
+      name: index
+      in: path
+      required: true
+      schema: {type: integer, minimum: 0}
+    ChallengeToken:
+      name: token
+      in: path
+      required: true
+      schema: {type: string}
+    DnsDomainId:
+      name: id
+      in: query
+      required: true
+      schema: {type: integer, minimum: 1}
+    AddressUserId:
+      name: user_id
+      in: query
+      required: false
+      schema:
+        type: integer
+        description: Omit or use zero for the current account; only an administrator can select another user.
+  responses:
+    BadRequest:
+      description: Invalid parameters or credentials (or resource rejected by some legacy handlers).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error100EmptyData'}
+    Unauthorized:
+      description: Login required or session revoked.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error403EmptyData'}
+    Forbidden:
+      description: Insufficient permission.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error405EmptyData'}
+    NotFound:
+      description: Resource not found or not visible to the caller.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error100EmptyData'}
+    MethodNotAllowed:
+      description: Unsupported HTTP method; when the controller handles the rejection, HTTP 405 is wrapped as errorNo
+        100.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error100EmptyData'}
+    Conflict:
+      description: Operation conflicts with the resource state or uniqueness constraints.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error100EmptyData'}
+    TooManyRequests:
+      description: Login rate limit reached.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error100EmptyData'}
+    InternalError:
+      description: Server or delivery failure.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error500EmptyData'}
+    Unavailable:
+      description: Server or delivery failure.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error500EmptyData'}
+  schemas:
+    Envelope:
+      type: object
+      required: [errorNo, errorMsg, data]
+      properties:
+        errorNo: {type: integer}
+        errorMsg: {type: string}
+        data: {}
+    Error100EmptyData:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {enum: [100]}
+          errorMsg: {type: string}
+          data: {const: ''}
+    Error403EmptyData:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {enum: [403]}
+          errorMsg: {type: string}
+          data: {const: ''}
+    Error405EmptyData:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {enum: [405]}
+          errorMsg: {type: string}
+          data: {const: ''}
+    Error500EmptyData:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {enum: [500]}
+          errorMsg: {type: string}
+          data: {const: ''}
+    IdRequest:
+      type: object
+      required: [id]
+      properties:
+        id: {type: integer, minimum: 1}
+    MessageIdsRequest:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items: {type: integer, minimum: 1}
+          minItems: 1
+    DeleteMessagesRequest:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items: {type: integer, minimum: 1}
+          minItems: 1
+        forcedDel: {type: boolean, default: false}
+    MoveMessagesRequest:
+      type: object
+      required: [ids, group_id]
+      properties:
+        ids:
+          type: array
+          items: {type: integer, minimum: 1}
+          minItems: 1
+        group_id: {type: integer, description: Custom group ID or built-in group ID (see Group).}
+        group_name: {type: string, description: Legacy input accepted by the decoder but ignored by this handler.}
+    Credentials:
+      type: object
+      required: [account, password]
+      properties:
+        account: {type: string}
+        password: {type: string, format: password, writeOnly: true}
+    LoginUser:
+      type: object
+      required: [account, name, is_admin, domains]
+      properties:
+        account: {type: string}
+        name: {type: string}
+        is_admin: {type: integer, enum: [0, 1]}
+        domains:
+          type: array
+          items: {type: string}
+    UserInfo:
+      type: object
+      required: [account, name, is_admin, domains]
+      properties:
+        account: {type: string}
+        name: {type: string}
+        is_admin: {type: boolean}
+        domains:
+          type: array
+          items: {type: string}
+    Bootstrap:
+      type: object
+      required: [version, need_register, logged_in, default_lang, web_domain, domains, features]
+      properties:
+        version: {type: string, const: 4.0.0-dev}
+        need_register:
+          type: boolean
+          description: True if no user exists (also true before the legacy setup listener has a DB). Disabled users still
+            count.
+        logged_in: {type: boolean}
+        default_lang: {type: string, default: zh-CN}
+        web_domain: {type: string}
+        domains:
+          type: array
+          items: {type: string}
+          description: Empty for anonymous callers.
+        features:
+          type: object
+          required: [register_key]
+          properties:
+            register_key:
+              type: boolean
+              description: True advertises the v4 registration-key capability; POST /api/register itself is still planned
+                in C1.
+    RegisterRequest:
+      type: object
+      required: [registration_key, account, password]
+      properties:
+        registration_key: {type: string, writeOnly: true}
+        account: {type: string}
+        password: {type: string, format: password, writeOnly: true}
+        display_name: {type: string}
+    ChangePasswordRequest:
+      type: object
+      required: [old_password]
+      properties:
+        old_password: {type: string, format: password, writeOnly: true}
+        new_password: {type: string, format: password, writeOnly: true}
+        password:
+          type: string
+          format: password
+          writeOnly: true
+          description: Legacy alias for new_password; used when new_password is empty.
+      anyOf:
+      - required: [new_password]
+      - required: [password]
+    SearchTag:
+      type: object
+      required: [type, status, group_id]
+      properties:
+        type: {type: integer, enum: [-1, 0, 1], description: -1 any; 0 received; 1 sent.}
+        status:
+          type: integer
+          description: 'Mailbox status: -1 any, 0 inbox/waiting, 1 sent, 2 failed, 3 deleted, 4 draft, 5 junk, 6 delivery
+            pending.'
+        group_id: {type: integer, description: -1 any; 0 default; positive custom group ID.}
+    MailListRequest:
+      type: object
+      properties:
+        keyword: {type: string}
+        tag:
+          type: string
+          contentMediaType: application/json
+          contentSchema: {$ref: '#/components/schemas/SearchTag'}
+          examples: ['{"type":0,"status":-1,"group_id":0}']
+          description: A JSON-encoded SearchTag string, not a JSON object. Use the tag returned by /api/group.
+        current_page:
+          type: integer
+          description: One-based when supplied; zero/omission requests the first offset and the response echoes 0.
+        page_size:
+          type: integer
+          default: 15
+          description: Supply page_size explicitly with current_page > 1; the controller calculates the offset before
+            applying its size default.
+    MailAddress:
+      type: object
+      required: [Name, EmailAddress]
+      properties:
+        Name: {type: string}
+        EmailAddress: {type: string}
+    MailListItem:
+      type: object
+      required: [id, title, desc, datetime, is_read, sender, to, dangerous, error]
+      properties:
+        id: {type: integer}
+        title: {type: string}
+        desc: {type: string}
+        datetime:
+          type: string
+          pattern: ^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$
+          description: Server-local time formatted as YYYY-MM-DD HH:mm:ss, without a UTC offset.
+        is_read: {type: boolean}
+        sender: {$ref: '#/components/schemas/MailAddress'}
+        to:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/MailAddress'}
+        dangerous: {type: boolean, description: True if neither SPF nor DKIM passed.}
+        error: {type: string}
+    MailPage:
+      type: object
+      required: [current_page, total_page, list]
+      properties:
+        current_page: {type: integer}
+        total_page: {type: integer, minimum: 0}
+        list:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/MailListItem'}
+    Attachment:
+      type: object
+      required: [Filename, ContentType, Index]
+      properties:
+        Filename: {type: string}
+        ContentType: {type: string}
+        Index: {type: integer, minimum: 0, description: Zero-based index; use <mail id>.<Index> for either new attachment
+            route.}
+    EmailDetail:
+      type: object
+      properties:
+        id: {type: integer}
+        type: {enum: [0, 1]}
+        subject: {type: string}
+        reply_to:
+          type: string
+          contentMediaType: application/json
+          contentSchema:
+            type: [array, 'null']
+            items: {$ref: '#/components/schemas/MailAddress'}
+          description: Legacy string containing JSON (or an empty string in older stored mail); decode before use.
+        from_name: {type: string}
+        from_address: {type: string}
+        to:
+          type: string
+          contentMediaType: application/json
+          contentSchema:
+            type: [array, 'null']
+            items: {$ref: '#/components/schemas/MailAddress'}
+          description: Legacy string containing JSON (or an empty string in older stored mail); decode before use.
+        bcc:
+          type: string
+          contentMediaType: application/json
+          contentSchema:
+            type: [array, 'null']
+            items: {$ref: '#/components/schemas/MailAddress'}
+          description: Legacy string containing JSON (or an empty string in older stored mail); decode before use.
+        cc:
+          type: string
+          contentMediaType: application/json
+          contentSchema:
+            type: [array, 'null']
+            items: {$ref: '#/components/schemas/MailAddress'}
+          description: Legacy string containing JSON (or an empty string in older stored mail); decode before use.
+        text: {type: string}
+        html:
+          type: string
+          description: Stored HTML with cid links rewritten to the protected attachment API; render it in an isolated/sanitized
+            reader.
+        sender:
+          type: string
+          contentMediaType: application/json
+          contentSchema:
+            anyOf:
+            - {$ref: '#/components/schemas/MailAddress'}
+            - {type: 'null'}
+          description: Legacy string containing JSON (or an empty string in older stored mail); decode before use.
+        attachments:
+          type: array
+          items: {$ref: '#/components/schemas/Attachment'}
+        spf_check: {type: integer, enum: [0, 1]}
+        dkim_check: {type: integer, enum: [0, 1]}
+        status:
+          type: integer
+          description: 0 waiting/inbound, 1 sent, 2 failed, 3 deleted/spoofed, 4 draft, 5 junk, 6 delivery pending.
+        cron_send_time: {type: string, format: date-time}
+        send_time:
+          type: string
+          pattern: ^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$
+          description: Server-local time formatted as YYYY-MM-DD HH:mm:ss, without a UTC offset.
+        update_time:
+          type: string
+          pattern: ^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$
+          description: Server-local time formatted as YYYY-MM-DD HH:mm:ss, without a UTC offset.
+        send_user_id: {type: integer}
+        size: {type: integer}
+        error: {type: string}
+        send_date:
+          type: string
+          pattern: ^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$
+          description: Server-local time formatted as YYYY-MM-DD HH:mm:ss, without a UTC offset.
+        create_time:
+          type: string
+          pattern: ^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$
+          description: Server-local time formatted as YYYY-MM-DD HH:mm:ss, without a UTC offset.
+        msg_id: {type: string, description: Persisted RFC Message-ID.}
+        text_format:
+          enum: [plain, flowed, markdown, patch]
+          x-status: planned
+        has_code: {type: boolean, x-status: planned}
+      required:
+      - id
+      - type
+      - subject
+      - reply_to
+      - from_name
+      - from_address
+      - to
+      - bcc
+      - cc
+      - text
+      - html
+      - sender
+      - attachments
+      - spf_check
+      - dkim_check
+      - status
+      - cron_send_time
+      - send_time
+      - update_time
+      - send_user_id
+      - size
+      - error
+      - send_date
+      - create_time
+      - msg_id
+      description: Only persisted/selected message headers are exposed here (Subject, From, Sender, Reply-To, To, Cc,
+        Bcc, send_date and Message-ID); there is no raw headers map. Legacy Email.MarshalJSON also omits the embedded
+        mailbox-only is_read, serial_number and ue_id fields.
+    AttachmentPreview:
+      type: object
+      required: [filename, language, charset, truncated, size, content]
+      properties:
+        filename: {type: string}
+        language: {type: string}
+        charset: {type: string}
+        truncated: {type: boolean}
+        size: {type: integer, minimum: 0}
+        content: {type: string}
+    ComposeAddress:
+      type: object
+      required: [email]
+      properties:
+        name: {type: string}
+        email: {type: string}
+    ComposeAttachment:
+      type: object
+      required: [name, data]
+      properties:
+        name: {type: string}
+        data: {type: string, description: 'Data URL in data:<mime>;base64,<bytes> form.'}
+    SendMailRequest:
+      type: object
+      required: [to, subject]
+      properties:
+        reply_to:
+          type: array
+          items: {$ref: '#/components/schemas/ComposeAddress'}
+          description: Legacy accepted field; not consumed by the current send handler.
+        from:
+          type: object
+          properties:
+            name: {type: string}
+            email: {type: string}
+        from_address: {type: string}
+        to:
+          type: array
+          items: {$ref: '#/components/schemas/ComposeAddress'}
+          minItems: 1
+        bcc:
+          type: array
+          items: {$ref: '#/components/schemas/ComposeAddress'}
+        cc:
+          type: array
+          items: {$ref: '#/components/schemas/ComposeAddress'}
+        subject: {type: string, minLength: 1}
+        text: {type: string}
+        html: {type: string}
+        sender: {$ref: '#/components/schemas/ComposeAddress', description: Optional explicit envelope sender.}
+        read_receipt:
+          type: array
+          items: {type: string}
+          description: Legacy accepted field; not consumed by the current send handler.
+        attrs:
+          type: array
+          items: {$ref: '#/components/schemas/ComposeAttachment'}
+    ForwardMailRequest:
+      type: object
+      required: [email_id, to]
+      properties:
+        email_id: {type: integer, minimum: 1}
+        to:
+          type: array
+          items: {type: string}
+          minItems: 1
+        cc:
+          type: array
+          items: {type: string}
+        text: {type: string}
+        html: {type: string}
+        from_address: {type: string}
+        include_attachments: {type: boolean, default: true}
+    RecipientDelivery:
+      type: object
+      required: [address, status, error]
+      properties:
+        address: {type: string}
+        status:
+          enum: [delivered, queued, failed]
+        error: {type: string}
+    DeliveryResult:
+      type: object
+      required: [status, recipients]
+      properties:
+        status:
+          enum: [sent, queued, failed]
+        recipients:
+          type: array
+          items: {$ref: '#/components/schemas/RecipientDelivery'}
+    GroupNode:
+      type: object
+      required: [id, label, tag, children]
+      properties:
+        id: {type: integer}
+        label: {type: string}
+        tag:
+          type: string
+          contentMediaType: application/json
+          contentSchema: {$ref: '#/components/schemas/SearchTag'}
+          examples: ['{"type":0,"status":-1,"group_id":0}']
+          description: A JSON-encoded SearchTag string, not a JSON object. Use the tag returned by /api/group.
+        children:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/GroupNode'}
+    Group:
+      type: object
+      required: [id, name, parent_id, full_path]
+      properties:
+        id:
+          type: integer
+          description: 'Built-in IDs: 2000000000 inbox, 2000000001 sent, 2000000002 drafts, 2000000003 deleted, and 2000000004
+            junk.'
+        name: {type: string}
+        parent_id: {type: integer}
+        full_path: {type: string}
+    CreateGroupRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        parent_id: {type: integer, default: 0}
+    ForwardSetting:
+      type: object
+      required: [user_id, enabled, targets, keep_copy, updated]
+      properties:
+        user_id: {type: integer}
+        enabled: {type: boolean}
+        targets:
+          type: string
+          contentMediaType: application/json
+          contentSchema:
+            type: array
+            items: {type: string}
+          description: Stored encoding (JSON array string or legacy comma-separated string); empty if not configured.
+        keep_copy: {type: boolean}
+        updated: {type: string, format: date-time}
+    ForwardSettingsView:
+      type: object
+      required: [setting, targets]
+      properties:
+        setting: {$ref: '#/components/schemas/ForwardSetting'}
+        targets:
+          type: [array, 'null']
+          items: {type: string}
+    ForwardSettingsRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: {type: boolean}
+        targets:
+          type: array
+          items: {type: string}
+        keep_copy: {type: boolean, default: true}
+    RuleCondition:
+      type: object
+      required: [field, type, rule]
+      properties:
+        field:
+          enum: [From, Subject, To, Cc, Text, Html, Content]
+        type:
+          enum: [regex, contains, equal]
+          description: Regular expression match, substring match, or full equality.
+        rule: {type: string, description: Pattern for regex; literal for contains/equal.}
+    Rule:
+      type: object
+      required: [id, user_id, name, rules, action, params, sort]
+      properties:
+        id: {type: integer, default: 0}
+        user_id: {type: integer, readOnly: true}
+        name: {type: string}
+        rules:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/RuleCondition'}
+          description: Every recognized condition must match (AND); an empty list matches all messages.
+        action: {enum: [1, 2, 3, 4], description: 1 mark read; 2 forward; 3 move to deleted; 4 move to group.}
+        params:
+          type: string
+          description: 'Action 2: one address, a comma-separated list, or a JSON-encoded string array. Action 4: a group
+            ID encoded as a decimal string. Actions 1 and 3 ignore params.'
+        sort: {type: integer, description: Higher values run first.}
+    RuleRequest:
+      type: object
+      required: [name, rules, action]
+      properties:
+        id: {type: integer, default: 0}
+        name: {type: string}
+        rules:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/RuleCondition'}
+          description: Every recognized condition must match (AND); an empty list matches all messages.
+        action: {enum: [1, 2, 3, 4], description: 1 mark read; 2 forward; 3 move to deleted; 4 move to group.}
+        params:
+          type: string
+          description: 'Action 2: one address, a comma-separated list, or a JSON-encoded string array. Action 4: a group
+            ID encoded as a decimal string. Actions 1 and 3 ignore params.'
+        sort: {type: integer, description: Higher values run first.}
+    QueueItem:
+      type: object
+      properties:
+        id: {type: integer}
+        kind:
+          enum: [send, forward, bounce]
+        user_id: {type: integer}
+        email_id: {type: integer}
+        mail_from: {type: string}
+        rcpt_to: {type: string}
+        attempts: {type: integer}
+        max_attempts: {type: integer}
+        next_retry_at: {type: string, format: date-time}
+        status:
+          enum: [pending, sending, sent, failed]
+        last_error: {type: string}
+        created: {type: string, format: date-time}
+        updated: {type: string, format: date-time}
+      required: [id, kind, user_id, mail_from, rcpt_to, attempts, max_attempts, next_retry_at, status, last_error, created,
+        updated]
+    ExternalPreset:
+      type: object
+      required: [name, protocol, host, port, tls_mode]
+      properties:
+        name: {type: string}
+        protocol:
+          enum: [imap, pop3]
+        host: {type: string}
+        port: {type: integer, minimum: 0, maximum: 65535}
+        tls_mode:
+          enum: [tls, starttls, none]
+    ExternalAccount:
+      type: object
+      required:
+      - id
+      - user_id
+      - name
+      - protocol
+      - host
+      - port
+      - tls_mode
+      - username
+      - folder
+      - interval_minutes
+      - initial_days
+      - delete_remote
+      - target_group_id
+      - enabled
+      - insecure_skip_verify
+      - last_sync_at
+      - last_success_at
+      - last_error
+      - created
+      - updated
+      properties:
+        id: {type: integer}
+        user_id: {type: integer}
+        name: {type: string}
+        protocol:
+          enum: [imap, pop3]
+        host: {type: string}
+        port: {type: integer, minimum: 0, maximum: 65535}
+        tls_mode:
+          enum: [tls, starttls, none]
+        username: {type: string}
+        folder: {type: string, default: INBOX}
+        interval_minutes: {type: integer, description: Values below 2 use 10 minutes.}
+        initial_days: {type: integer, description: Negative values use 30; 0 means no age cutoff.}
+        delete_remote: {type: boolean}
+        target_group_id: {type: integer}
+        enabled: {type: boolean}
+        insecure_skip_verify: {type: boolean}
+        last_sync_at:
+          type: [string, 'null']
+          format: date-time
+        last_success_at:
+          type: [string, 'null']
+          format: date-time
+        last_error: {type: string}
+        created: {type: string, format: date-time}
+        updated: {type: string, format: date-time}
+    ExternalCreateRequest:
+      type: object
+      required: [protocol, host, tls_mode, username, password]
+      properties:
+        name: {type: string}
+        protocol:
+          enum: [imap, pop3]
+        host: {type: string}
+        port: {type: integer, minimum: 0, maximum: 65535}
+        tls_mode:
+          enum: [tls, starttls, none]
+        username: {type: string}
+        folder: {type: string, default: INBOX}
+        interval_minutes: {type: integer, description: Values below 2 use 10 minutes.}
+        initial_days: {type: integer, description: Negative values use 30; 0 means no age cutoff.}
+        delete_remote: {type: boolean}
+        target_group_id: {type: integer}
+        enabled: {type: boolean}
+        insecure_skip_verify: {type: boolean}
+        password: {type: string, format: password, writeOnly: true}
+    ExternalUpdateRequest:
+      type: object
+      required: [id]
+      properties:
+        id: {type: integer, minimum: 1}
+        name: {type: string}
+        protocol:
+          enum: [imap, pop3]
+        host: {type: string}
+        port: {type: integer, minimum: 0, maximum: 65535}
+        tls_mode:
+          enum: [tls, starttls, none]
+        username: {type: string}
+        folder: {type: string, default: INBOX}
+        interval_minutes: {type: integer, description: Values below 2 use 10 minutes.}
+        initial_days: {type: integer, description: Negative values use 30; 0 means no age cutoff.}
+        delete_remote: {type: boolean}
+        target_group_id: {type: integer}
+        enabled: {type: boolean}
+        insecure_skip_verify: {type: boolean}
+        password: {type: string, format: password, writeOnly: true, description: Empty or omitted preserves the stored
+            password.}
+    ExternalTestRequest:
+      type: object
+      required: [protocol, host, tls_mode, username, password]
+      properties:
+        name: {type: string}
+        protocol:
+          enum: [imap, pop3]
+        host: {type: string}
+        port: {type: integer, minimum: 0, maximum: 65535}
+        tls_mode:
+          enum: [tls, starttls, none]
+        username: {type: string}
+        folder: {type: string, default: INBOX}
+        interval_minutes: {type: integer, description: Values below 2 use 10 minutes.}
+        initial_days: {type: integer, description: Negative values use 30; 0 means no age cutoff.}
+        delete_remote: {type: boolean}
+        target_group_id: {type: integer}
+        enabled: {type: boolean}
+        insecure_skip_verify: {type: boolean}
+        password: {type: string, format: password, writeOnly: true}
+    ExternalTestResult:
+      type: object
+      required: [folders]
+      properties:
+        folders:
+          type: [array, 'null']
+          items: {type: string}
+    ExternalSyncResult:
+      type: object
+      required: [status, message]
+      properties:
+        status: {const: started}
+        message: {const: external sync started}
+    Domain:
+      type: object
+      required: [id, name, is_default, dkim_selector, created, updated]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        is_default: {type: boolean}
+        dkim_selector: {type: string}
+        created: {type: string, format: date-time}
+        updated: {type: string, format: date-time}
+    NewDomainRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+    LegacyDomainDnsRecord:
+      type: object
+      required: [type, name, expected, actual, match]
+      properties:
+        type:
+          enum: [MX, TXT]
+        name: {type: string}
+        expected: {type: string}
+        actual:
+          type: array
+          items: {type: string}
+        match: {type: boolean}
+        lookup_error: {type: string}
+    DomainDnsRequest:
+      type: object
+      required: [id]
+      properties:
+        id: {type: integer, minimum: 1}
+        refresh: {type: boolean, default: false}
+    DnsRecord:
+      type: object
+      required: [key, purpose, type, host, fqdn, value, ttl, required, status, actual, description]
+      properties:
+        key: {type: string}
+        purpose: {type: string}
+        type: {type: string}
+        host: {type: string, description: 'Relative name to enter in DNS: e.g. @, mail or default._domainkey.'}
+        fqdn: {type: string}
+        value: {type: string}
+        priority: {type: integer}
+        ttl: {type: integer}
+        required: {type: boolean}
+        status:
+          enum: [ok, missing, mismatch, error, advice]
+        actual:
+          type: array
+          items: {type: string}
+        description: {type: string, description: Localized.}
+        fix_hint: {type: string, description: Localized.}
+    DomainDns:
+      type: object
+      required: [domain, mail_host, web_domain, all_required_ok, checked_at, records]
+      properties:
+        domain: {type: string}
+        mail_host: {type: string}
+        web_domain: {type: string}
+        server_ipv4: {type: string, format: ipv4}
+        server_ipv6: {type: string, format: ipv6}
+        all_required_ok: {type: boolean}
+        checked_at: {type: string, format: date-time}
+        records:
+          type: array
+          items: {$ref: '#/components/schemas/DnsRecord'}
+    MailboxAddress:
+      type: object
+      required: [id, user_id, local_part, domain_id, is_primary, can_send, created]
+      properties:
+        id: {type: integer}
+        user_id: {type: integer}
+        local_part: {type: string}
+        domain_id: {type: integer}
+        is_primary: {type: boolean}
+        can_send: {type: boolean}
+        created: {type: string, format: date-time}
+    Address:
+      type: object
+      required: [id, user_id, local_part, domain_id, is_primary, can_send, created, domain, address]
+      properties:
+        id: {type: integer}
+        user_id: {type: integer}
+        local_part: {type: string}
+        domain_id: {type: integer}
+        is_primary: {type: boolean}
+        can_send: {type: boolean}
+        created: {type: string, format: date-time}
+        domain: {type: string}
+        address: {type: string}
+    AddressListRequest:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          description: Omit or use zero for the current account; only an administrator can select another user.
+    AddressCreateRequest:
+      type: object
+      required: [local_part, domain_id]
+      properties:
+        user_id:
+          type: integer
+          description: Omit or use zero for the current account; only an administrator can select another user.
+        local_part: {type: string}
+        domain_id: {type: integer, minimum: 1}
+        can_send: {type: boolean, default: true}
+    AddressUpdateRequest:
+      type: object
+      required: [id, can_send]
+      properties:
+        id: {type: integer, minimum: 1}
+        can_send: {type: boolean}
+    User:
+      type: object
+      required: [id, account, name, disabled, is_admin, quota_mb, created, last_login_at]
+      properties:
+        id: {type: integer}
+        account: {type: string}
+        name: {type: string}
+        disabled: {type: integer, enum: [0, 1]}
+        is_admin: {type: integer, enum: [0, 1]}
+        quota_mb: {type: integer, description: 0 means no quota.}
+        created: {type: string, format: date-time}
+        last_login_at:
+          type: [string, 'null']
+          format: date-time
+    CurrentUser:
+      type: object
+      required: [id, account, name, disabled, is_admin, quota_mb, created, last_login_at, display_name, addresses, used_bytes]
+      properties:
+        id: {type: integer}
+        account: {type: string}
+        name: {type: string}
+        disabled: {type: integer, enum: [0, 1]}
+        is_admin: {type: integer, enum: [0, 1]}
+        quota_mb: {type: integer, description: 0 means no quota.}
+        created: {type: string, format: date-time}
+        last_login_at:
+          type: [string, 'null']
+          format: date-time
+        display_name: {type: string}
+        addresses:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/Address'}
+        used_bytes: {type: integer}
+    UserPage:
+      type: object
+      required: [current_page, total_page, list]
+      properties:
+        current_page: {type: integer}
+        total_page: {type: integer, minimum: 0}
+        list:
+          type: array
+          items: {$ref: '#/components/schemas/CurrentUser'}
+    UserListRequest:
+      type: object
+      properties:
+        current_page: {type: integer, minimum: 1, maximum: 1000000, default: 1}
+        page_size: {type: integer, minimum: 1, maximum: 100, default: 15}
+    CreateUserRequest:
+      type: object
+      required: [account, password]
+      properties:
+        account: {type: string, maxLength: 20}
+        username: {type: string, maxLength: 50, description: Legacy display_name alias.}
+        display_name: {type: string, maxLength: 50}
+        password: {type: string, format: password, writeOnly: true}
+        disabled: {type: integer, enum: [0, 1]}
+        quota_mb: {type: integer, minimum: 0}
+      anyOf:
+      - required: [display_name]
+      - required: [username]
+    EditUserRequest:
+      type: object
+      required: [id]
+      properties:
+        id: {type: integer, minimum: 1}
+        account: {type: string, maxLength: 20}
+        username: {type: string, maxLength: 50, description: Legacy display_name alias.}
+        display_name: {type: string, maxLength: 50}
+        password: {type: string, format: password, writeOnly: true}
+        disabled: {type: integer, enum: [0, 1]}
+        quota_mb: {type: integer, minimum: 0}
+    EditMeRequest:
+      type: object
+      properties:
+        display_name: {type: string, minLength: 1, maxLength: 50}
+    ResetPasswordRequest:
+      type: object
+      required: [id, password]
+      properties:
+        id: {type: integer, minimum: 1}
+        password: {type: string, format: password, writeOnly: true}
+    SetQuotaRequest:
+      type: object
+      required: [id, quota_mb]
+      properties:
+        id: {type: integer, minimum: 1}
+        quota_mb: {type: integer, minimum: 0}
+    Token:
+      type: object
+      required: [id, user_id, name, prefix, last_used_at, expires_at, created]
+      properties:
+        id: {type: integer}
+        user_id: {type: integer}
+        name: {type: string}
+        prefix: {type: string}
+        last_used_at:
+          type: [string, 'null']
+          format: date-time
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+        created: {type: string, format: date-time}
+    CreateTokenRequest:
+      type: object
+      properties:
+        name: {type: string, default: API token}
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+    TokenCreated:
+      type: object
+      required: [token, item]
+      properties:
+        token: {type: string, description: 'Plaintext, returned only on creation.'}
+        item: {$ref: '#/components/schemas/Token'}
+    SetupRequest:
+      oneOf:
+      - type: object
+        required: [step, action]
+        properties:
+          step: {const: database}
+          action: {const: get}
+      - type: object
+        required: [step, action, db_type, db_dsn]
+        properties:
+          step: {const: database}
+          action: {const: set}
+          db_type:
+            enum: [postgres, mysql, sqlite]
+          db_dsn: {type: string, writeOnly: true}
+      - type: object
+        required: [step, action]
+        properties:
+          step: {const: password}
+          action: {const: get}
+      - type: object
+        required: [step, action, account, password]
+        properties:
+          step: {const: password}
+          action: {const: set}
+          account: {type: string}
+          password: {type: string, format: password, writeOnly: true}
+      - type: object
+        required: [step, action]
+        properties:
+          step: {const: domain}
+          action: {const: get}
+      - type: object
+        required: [step, action, smtp_domain, web_domain]
+        properties:
+          step: {const: domain}
+          action: {const: set}
+          smtp_domain: {type: string}
+          web_domain: {type: string}
+          multi_domain: {type: string, description: Comma-separated additional domains.}
+      - type: object
+        required: [step, action]
+        properties:
+          step: {const: dns}
+          action: {const: get}
+      - type: object
+        required: [step, action]
+        properties:
+          step: {const: ssl}
+          action: {const: get}
+      - type: object
+        required: [step, action]
+        properties:
+          step: {const: ssl}
+          action: {const: getParams}
+      - type: object
+        required: [step, action, ssl_type]
+        properties:
+          step: {const: ssl}
+          action: {const: set}
+          ssl_type:
+            enum: ['0', '1', '2', '3']
+            description: 0 automatic HTTP-01; 1 provided certificate; 2 automatic DNS-01; 3 disabled.
+          key_path: {type: string}
+          crt_path: {type: string}
+    SetupDnsItem:
+      type: object
+      required: [type, host, value, ttl, tips]
+      properties:
+        type: {type: string}
+        host: {type: string}
+        value: {type: string}
+        ttl: {type: integer}
+        tips: {type: string}
+    SetupResult:
+      anyOf:
+      - type: string
+        description: Succ for a successful set; password/get returns the configured account name or an empty string.
+      - type: object
+        required: [db_type, db_dsn]
+        properties:
+          db_type: {type: string}
+          db_dsn: {type: string}
+      - type: object
+        required: [smtp_domain, web_domain, domains]
+        properties:
+          smtp_domain: {type: string}
+          web_domain: {type: string}
+          domains:
+            type: [array, 'null']
+            items: {type: string}
+      - type: object
+        additionalProperties:
+          type: array
+          items: {$ref: '#/components/schemas/SetupDnsItem'}
+        description: 'dns/get: records keyed by domain.'
+      - type: object
+        required: [type, port]
+        properties:
+          type:
+            enum: ['0', '1', '2', '3']
+          port: {type: integer}
+      - type: array
+        items: {$ref: '#/components/schemas/SetupDnsItem'}
+        description: 'ssl/getParams: DNS-01 TXT record instructions.'
+    PongLiteralSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {const: pong}
+    Error500:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {enum: [500]}
+          errorMsg: {type: string}
+          data: {}
+    LoginUserSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/LoginUser'}
+    Error100402500:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {enum: [100, 402, 500]}
+          errorMsg: {type: string}
+          data: {}
+    StringValueSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {type: string}
+    Error402403500:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {enum: [402, 403, 500]}
+          errorMsg: {type: string}
+          data: {}
+    SetupResultSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/SetupResult'}
+    Error402500:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {enum: [402, 500]}
+          errorMsg: {type: string}
+          data: {}
+    CurrentUserSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/CurrentUser'}
+    GroupNodeListSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/GroupNode'}
+    GroupListSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/Group'}
+    IntegerValueSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {type: integer}
+    BooleanValueSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {type: boolean}
+    MailPageSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/MailPage'}
+    EmailDetailSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/EmailDetail'}
+    Error100402403500:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {enum: [100, 402, 403, 500]}
+          errorMsg: {type: string}
+          data: {}
+    SuccessLiteralSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {const: success}
+    DeliveryResultSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/DeliveryResult'}
+    Error100402403500DeliveryData:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {enum: [100, 402, 403, 500]}
+          errorMsg: {type: string}
+          data:
+            anyOf:
+            - {$ref: '#/components/schemas/DeliveryResult'}
+            - {type: string}
+    ForwardSettingsViewSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/ForwardSettingsView'}
+    ForwardSettingSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/ForwardSetting'}
+    RuleNullableListSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data:
+            type: [array, 'null']
+            items: {$ref: '#/components/schemas/Rule'}
+    SuccLiteralSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {const: succ}
+    QueueItemNullableListSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data:
+            type: [array, 'null']
+            items: {$ref: '#/components/schemas/QueueItem'}
+    NullValueSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {type: 'null'}
+    ExternalAccountNullableListSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data:
+            type: [array, 'null']
+            items: {$ref: '#/components/schemas/ExternalAccount'}
+    ExternalAccountSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/ExternalAccount'}
+    ExternalTestResultSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/ExternalTestResult'}
+    ExternalSyncResultSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/ExternalSyncResult'}
+    ExternalPresetListSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/ExternalPreset'}
+    UserInfoSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/UserInfo'}
+    UserPageSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/UserPage'}
+    UserSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/User'}
+    AddressListSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/Address'}
+    AddressSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/Address'}
+    DomainListSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/Domain'}
+    DomainSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/Domain'}
+    LegacyDomainDnsRecordListSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/LegacyDomainDnsRecord'}
+    DomainDnsSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/DomainDns'}
+    TokenNullableListSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data:
+            type: [array, 'null']
+            items: {$ref: '#/components/schemas/Token'}
+    TokenCreatedSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/TokenCreated'}
+    AttachmentPreviewSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data: {$ref: '#/components/schemas/AttachmentPreview'}

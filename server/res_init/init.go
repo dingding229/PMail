@@ -9,7 +9,6 @@ import (
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
-	"github.com/Jinnrry/pmail/hooks"
 	"github.com/Jinnrry/pmail/listen/cron_server"
 	"github.com/Jinnrry/pmail/listen/http_server"
 	"github.com/Jinnrry/pmail/listen/imap_server"
@@ -114,7 +113,6 @@ func Init(serverVersion string) {
 			_, _ = send.Send(deliveryCtx, bounce)
 		})
 		session.Init()
-		hooks.Init(serverVersion)
 		cfg := config.Instance
 		var cert *tls.Certificate
 		if cfg.SSLType != config.SSLTypeDisabled {
@@ -149,7 +147,6 @@ func Init(serverVersion string) {
 		http_server.HttpStop()
 		pop3_server.Stop()
 		imap_server.Stop()
-		hooks.Stop()
 		session.Stop()
 		if !restart {
 			db.Instance.Close()

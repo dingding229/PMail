@@ -12,15 +12,15 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 )
 
 func AcmeChallenge(w http.ResponseWriter, r *http.Request) {
 	log.Infof("AcmeChallenge: %s", r.URL.Path)
 	instance := ssl.GetHttpChallengeInstance()
-	token := strings.TrimPrefix(r.URL.Path, "/.well-known/acme-challenge/")
+	token := r.PathValue("token")
 	auth, exist := instance.Lookup(token)
 	if exist {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Write([]byte(auth))
 	} else {
 		http.NotFound(w, r)

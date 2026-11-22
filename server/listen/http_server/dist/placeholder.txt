@@ -1,1 +1,0 @@
-Placeholder for Go embed/test copies. Frontend build output replaces this directory during Docker builds.

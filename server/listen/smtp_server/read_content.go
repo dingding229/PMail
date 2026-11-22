@@ -14,8 +14,6 @@ import (
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
-	"github.com/Jinnrry/pmail/hooks"
-	"github.com/Jinnrry/pmail/hooks/framework"
 	"github.com/Jinnrry/pmail/listen/imap_server"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
@@ -23,7 +21,6 @@ import (
 	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/services/rule"
-	"github.com/Jinnrry/pmail/utils/async"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/send"
 	smtp "github.com/emersion/go-smtp"
@@ -102,7 +99,7 @@ func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*p
 	// SMTP DATA cannot report a separate result for each RCPT. Return a
 	// recipient error only when every local recipient was rejected; partial
 	// local delivery remains accepted and is reported through the per-address
-	// error map/hooks instead of making accepted recipients retry.
+	// error map instead of making accepted recipients retry.
 	if accepted > 0 {
 		return nil, errs
 	}
@@ -125,23 +122,6 @@ func processIncomingDelivery(ctx *context.Context, email *parsemail.Email, dbEma
 		forward.Apply(ctx, user.ID, email, emailData)
 	}
 
-	log.WithContext(ctx).Debugf("开始执行插件ReceiveSaveAfter！")
-	var ue []*models.UserEmail
-	if err := db.Instance.Table(&models.UserEmail{}).Where("email_id=?", dbEmail.Id).Find(&ue); err != nil {
-		log.WithContext(ctx).Errorf("sql Error :%+v", err)
-	}
-	as := async.New(ctx)
-	for _, hook := range hooks.AllHooks() {
-		if hook == nil {
-			continue
-		}
-		as.WaitProcess(func(hk any) {
-			hk.(framework.EmailHook).ReceiveSaveAfter(ctx, email, ue)
-		}, hook)
-	}
-	as.Wait()
-	log.WithContext(ctx).Debugf("开始执行插件ReceiveSaveAfter！End")
-
 	for _, user := range users {
 		_ = imap_server.IdleNotice(ctx, user.ID, dbEmail)
 	}
@@ -160,15 +140,6 @@ func (s *Session) Data(r io.Reader) error {
 	}
 
 	log.WithContext(ctx).Debugf("%s", string(emailData))
-
-	log.WithContext(ctx).Debugf("开始执行插件ReceiveParseBefore！")
-	for _, hook := range hooks.AllHooks() {
-		if hook == nil {
-			continue
-		}
-		hook.ReceiveParseBefore(ctx, &emailData)
-	}
-	log.WithContext(ctx).Debugf("开始执行插件ReceiveParseBefore End！")
 
 	email := parsemail.NewEmailFromReader(s.To, bytes.NewReader(emailData), len(emailData))
 	email.EnvelopeFrom = s.From
@@ -195,19 +166,6 @@ func (s *Session) Data(r io.Reader) error {
 			}
 		}
 
-		log.WithContext(ctx).Debugf("开始执行插件SendBefore！")
-		for _, hook := range hooks.AllHooks() {
-			if hook == nil {
-				continue
-			}
-			hook.SendBefore(ctx, email)
-		}
-		log.WithContext(ctx).Debugf("开始执行插件SendBefore！End")
-
-		if email == nil {
-			return nil
-		}
-
 		return s.deliverOutgoingEmail(email, send.Send)
 
 	} else {
@@ -226,17 +184,6 @@ func (s *Session) Data(r io.Reader) error {
 		}
 		email.Authentication = parsemail.NewEmailAuthentication(SPFStatus, dkimStatus)
 
-		log.WithContext(ctx).Debugf("开始执行插件ReceiveParseAfter！")
-		for _, hook := range hooks.AllHooks() {
-			if hook == nil {
-				continue
-			}
-			email.Authentication = parsemail.NewEmailAuthentication(SPFStatus, dkimStatus)
-			hook.ReceiveParseAfter(ctx, email)
-		}
-		log.WithContext(ctx).Debugf("开始执行插件ReceiveParseAfter！End")
-		email.Authentication = parsemail.NewEmailAuthentication(SPFStatus, dkimStatus)
-		// 伪造邮件状态必须覆盖插件分类结果，保持原有处理优先级。
 		if spoofed {
 			email.Status = 3
 		}

@@ -32,7 +32,3 @@ export const externalApi = {
   sync: (id) => post('/api/external/sync_now', { id }),
   presets: () => get('/api/external/presets')
 }
-export const pluginApi = {
-  list: () => post('/api/plugin/list'),
-  settings: (name, data) => post(`/api/plugin/settings/${name}`, data)
-}

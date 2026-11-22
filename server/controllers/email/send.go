@@ -9,14 +9,11 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/dto/response"
-	"github.com/Jinnrry/pmail/hooks"
-	"github.com/Jinnrry/pmail/hooks/framework"
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/queue"
-	"github.com/Jinnrry/pmail/utils/async"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/send"
 	log "github.com/sirupsen/logrus"
@@ -172,18 +169,6 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 
 	}
 
-	// Build the exact message once so outbound and local-receive records use the actual byte size.
-	e.Size = len(e.BuildBytes(ctx, false))
-
-	log.WithContext(ctx).Debugf("插件执行--SendBefore")
-	for _, hook := range hooks.AllHooks() {
-		if hook == nil {
-			continue
-		}
-		hook.SendBefore(ctx, e)
-	}
-	log.WithContext(ctx).Debugf("插件执行--SendBefore End")
-
 	// Assign the message ID before measuring the final signed bytes so the
 	// initial sent record and local deliveries use the same actual size.
 	if e.MsgID == "" {
@@ -226,19 +211,6 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	e.MsgID = modelEmail.MsgID
 
 	deliveryErr, deliveryResults := send.Send(ctx, e)
-	log.WithContext(ctx).Debugf("插件执行--SendAfter")
-	as2 := async.New(ctx)
-	for _, hook := range hooks.AllHooks() {
-		if hook == nil {
-			continue
-		}
-		as2.WaitProcess(func(hk any) {
-			hk.(framework.EmailHook).SendAfter(ctx, e, deliveryResults)
-		}, hook)
-	}
-	as2.Wait()
-	log.WithContext(ctx).Debugf("插件执行--SendAfter")
-
 	allRecipients := append(append(append([]*parsemail.User{}, e.To...), e.Cc...), e.Bcc...)
 	recipientsResult := make([]map[string]any, 0, len(allRecipients))
 	delivered, queued, failed := 0, 0, 0

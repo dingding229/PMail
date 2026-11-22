@@ -10,7 +10,6 @@ import ExternalSettings from '@/components/settings/ExternalSettings.vue'
 import TokenSettings from '@/components/settings/TokenSettings.vue'
 import QueueSettings from '@/components/settings/QueueSettings.vue'
 import GroupSettings from '@/components/settings/GroupSettings.vue'
-import PluginSettings from '@/components/settings/PluginSettings.vue'
 import AppearanceSettings from '@/components/settings/AppearanceSettings.vue'
 const active = ref('profile')
 const menu = [
@@ -22,7 +21,6 @@ const menu = [
   { label: 'API Token', key: 'tokens' },
   { label: i18n.global.t('legacy_f3ef3addc6'), key: 'queue' },
   { label: i18n.global.t('legacy_e900b55ce7'), key: 'groups' },
-  { label: i18n.global.t('legacy_70a6a18cbf'), key: 'plugins' },
   { label: i18n.global.t('legacy_5c1a574bc2'), key: 'appearance' }
 ]
 </script>
@@ -48,7 +46,6 @@ const menu = [
         <TokenSettings v-else-if="active === 'tokens'" />
         <QueueSettings v-else-if="active === 'queue'" />
         <GroupSettings v-else-if="active === 'groups'" />
-        <PluginSettings v-else-if="active === 'plugins'" />
         <AppearanceSettings v-else />
       </n-layout-content>
     </n-layout>

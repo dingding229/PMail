@@ -22,20 +22,21 @@ import (
 var IsInit bool
 
 type Config struct {
-	LogLevel             string            `json:"logLevel"`
-	Domain               string            `json:"domain"`
-	Domains              []string          `json:"domains"`
-	WebDomain            string            `json:"webDomain"`
-	DkimPrivateKeyPath   string            `json:"dkimPrivateKeyPath"`
-	SSLType              string            `json:"sslType"`
-	SSLPrivateKeyPath    string            `json:"SSLPrivateKeyPath"`
-	SSLPublicKeyPath     string            `json:"SSLPublicKeyPath"`
-	DbDSN                string            `json:"dbDSN"`
-	DbType               string            `json:"dbType"`
-	HttpsEnabled         int               `json:"httpsEnabled"`
-	SpamFilterLevel      int               `json:"spamFilterLevel"`
-	HttpPort             int               `json:"httpPort"`
-	HttpsPort            int               `json:"httpsPort"`
+	LogLevel           string   `json:"logLevel"`
+	Domain             string   `json:"domain"`
+	Domains            []string `json:"domains"`
+	WebDomain          string   `json:"webDomain"`
+	DkimPrivateKeyPath string   `json:"dkimPrivateKeyPath"`
+	SSLType            string   `json:"sslType"`
+	SSLPrivateKeyPath  string   `json:"SSLPrivateKeyPath"`
+	SSLPublicKeyPath   string   `json:"SSLPublicKeyPath"`
+	DbDSN              string   `json:"dbDSN"`
+	DbType             string   `json:"dbType"`
+	HttpsEnabled       int      `json:"httpsEnabled"`
+	SpamFilterLevel    int      `json:"spamFilterLevel"`
+	HttpPort           int      `json:"httpPort"`
+	HttpsPort          int      `json:"httpsPort"`
+	// Obsolete notification settings are retained for compatibility when rewriting legacy configuration.
 	WeChatPushAppId      string            `json:"weChatPushAppId"`
 	WeChatPushSecret     string            `json:"weChatPushSecret"`
 	WeChatPushTemplateId string            `json:"weChatPushTemplateId"`
