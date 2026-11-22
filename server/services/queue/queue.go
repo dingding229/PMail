@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
@@ -157,13 +158,23 @@ func Enqueue(kind string, userID, emailID int, mailFrom, rcptTo string, raw []by
 	now := time.Now()
 	row := models.OutboundQueue{
 		Kind: kind, UserID: userID, MailFrom: mailFrom, RcptTo: rcptTo,
-		RawData: append([]byte(nil), raw...), Attempts: 0, MaxAttempts: len(retryDelays),
+		RawData: []byte{0}, Attempts: 0, MaxAttempts: len(retryDelays),
 		NextRetryAt: now, Status: StatusPending, Created: now, Updated: now,
 	}
 	if emailID > 0 {
 		row.EmailID = &emailID
 	}
-	_, err := db.Instance.Insert(&row)
+	err := db.Transaction(db.Instance, func(tx *xorm.Session) error {
+		row.ID = 0
+		var err error
+		row.PayloadID, err = ensurePayload(tx, raw)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Insert(&row)
+		return err
+	})
+	row.RawData = nil
 	return row, err
 }
 
@@ -173,10 +184,7 @@ func List(userID int, admin bool) ([]models.OutboundQueue, error) {
 	if !admin {
 		q = q.Where("user_id=?", userID)
 	}
-	err := q.Limit(200).Find(&rows)
-	for i := range rows {
-		rows[i].RawData = nil
-	}
+	err := q.Omit("raw_data").Limit(200).Find(&rows)
 	return rows, err
 }
 
@@ -195,15 +203,45 @@ func Retry(id, userID int, admin bool) error {
 }
 
 func Delete(id, userID int, admin bool) error {
-	q := db.Instance.ID(id).Where("status<>?", StatusSending)
-	if !admin {
-		q = q.Where("user_id=?", userID)
-	}
-	deleted, err := q.Delete(&models.OutboundQueue{})
-	if err == nil && deleted == 0 {
-		return ErrNotFound
-	}
-	return err
+	return db.Transaction(db.Instance, func(tx *xorm.Session) error {
+		filter := func(q *xorm.Session) *xorm.Session {
+			q.ID(id).Where("status<>?", StatusSending)
+			if !admin {
+				q.And("user_id=?", userID)
+			}
+			return q
+		}
+		var row models.OutboundQueue
+		ok, err := filter(tx).Cols("payload_id").Get(&row)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrNotFound
+		}
+		if row.PayloadID > 0 {
+			// Same order as enqueue: take the payload lock before unlinking.
+			q := tx.ID(row.PayloadID).Cols("id")
+			if db.Instance.DriverName() != config.DBTypeSQLite {
+				q.ForUpdate()
+			}
+			if _, err = q.Get(&models.OutboundPayload{}); err != nil {
+				return err
+			}
+		}
+		n, err := filter(tx).Where("payload_id=?", row.PayloadID).Delete(&models.OutboundQueue{})
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrNotFound
+		}
+		if row.PayloadID == 0 {
+			return nil
+		}
+		_, err = tx.Exec("DELETE FROM outbound_payload WHERE id=? AND NOT EXISTS (SELECT 1 FROM outbound_queue WHERE payload_id=?)", row.PayloadID, row.PayloadID)
+		return err
+	})
 }
 
 func DeliverLocal(ctx *pcontext.Context, email *parsemail.Email, recipient string) error {
@@ -225,6 +263,7 @@ func Start(ctx context.Context) <-chan struct{} {
 	}
 	wg.Go(func() { leaseRecovery(ctx) })
 	wg.Go(func() { parentReconcileLoop(ctx) })
+	wg.Go(func() { migrateLegacyPayloads(ctx) })
 	go func() { wg.Wait(); close(done) }()
 	return done
 }
@@ -304,6 +343,7 @@ func claimOneContext(ctx context.Context) (models.OutboundQueue, bool, error) {
 	var claimErr error
 	claimErr = db.Transaction(db.Instance, func(session *xorm.Session) error {
 		session.Context(ctx)
+		row = models.OutboundQueue{}
 		var found bool
 		if db.Instance.DriverName() == "sqlite" {
 			found, claimErr = session.Where("status=? AND next_retry_at<=?", StatusPending, now).Asc("id").Limit(1).Get(&row)
@@ -316,6 +356,17 @@ func claimOneContext(ctx context.Context) (models.OutboundQueue, bool, error) {
 			}
 			row = models.OutboundQueue{}
 			return nil
+		}
+		if row.PayloadID > 0 {
+			var payload models.OutboundPayload
+			ok, err := session.ID(row.PayloadID).Cols("wire_data").Get(&payload)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return errors.New("outbound payload missing")
+			}
+			row.RawData = payload.Data
 		}
 		// Reuse the lease clock for updated; disable Xorm automatic timestamps
 		// so PostgreSQL sees only one assignment to that column.

@@ -1,6 +1,8 @@
 package queue
 
 import (
+	"bytes"
+
 	"errors"
 	"testing"
 	"time"
@@ -126,5 +128,54 @@ func TestReconcileParentHandlesEitherCompletionOrder(t *testing.T) {
 	var relation models.UserEmail
 	if ok, err := engine.Where("email_id=? AND user_id=?", email.Id, user.ID).Get(&relation); err != nil || !ok || relation.Status != 1 {
 		t.Fatalf("completed parent = %+v, ok=%v, err=%v", relation, ok, err)
+	}
+}
+
+func TestQueuePayloadDeduplicatesLegacyAndNewRecipients(t *testing.T) {
+	e := newQueueTestEngine(t)
+	raw := []byte("Header: fixture\r\n\r\nSame raw bytes")
+	first, err := Enqueue(KindSend, 1, 0, "sender@example.com", "a@example.net", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Enqueue(KindSend, 1, 0, "sender@example.com", "b@example.net", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy = models.OutboundQueue{Kind: KindSend, UserID: 1, MailFrom: "sender@example.com", RcptTo: "c@example.net", RawData: raw, Status: StatusPending, NextRetryAt: time.Now().Add(-time.Minute)}
+	if _, err = e.Insert(&legacy); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := e.Count(&models.OutboundPayload{}); err != nil || n != 1 || first.PayloadID == 0 || first.PayloadID != second.PayloadID {
+		t.Fatalf("payload count=%d ids=%d/%d err=%v", n, first.PayloadID, second.PayloadID, err)
+	}
+	if err = migratePayloadPass(contextForQueueTest{}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := e.Where("payload_id=?", first.PayloadID).Count(&models.OutboundQueue{}); err != nil || n != 3 {
+		t.Fatalf("shared refs=%d %v", n, err)
+	}
+	listed, err := List(1, false)
+	if err != nil || len(listed) != 3 {
+		t.Fatalf("list len=%d %v", len(listed), err)
+	}
+	for _, r := range listed {
+		if r.RawData != nil {
+			t.Fatal("queue list loaded wire data")
+		}
+	}
+	claim, ok, err := claimOne()
+	if err != nil || !ok || !bytes.Equal(claim.RawData, raw) {
+		t.Fatalf("claim=%v %v", ok, err)
+	}
+	handleSuccess(claim)
+	for i, id := range []int{first.ID, second.ID, legacy.ID} {
+		if err = Delete(id, 1, false); err != nil {
+			t.Fatal(err)
+		}
+		count, err := e.Count(&models.OutboundPayload{})
+		if err != nil || (count == 0) != (i == 2) {
+			t.Fatalf("cleanup count=%d at %d %v", count, i, err)
+		}
 	}
 }

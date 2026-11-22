@@ -16,7 +16,7 @@ import (
 	"github.com/lib/pq"
 )
 
-var tables = []string{"user", "email", "group", "rule", "user_email", "version", "domain", "mailbox_address", "api_token", "forward_setting", "outbound_queue", "external_account", "external_seen", "bounce_notice"}
+var tables = []string{"user", "email", "group", "rule", "user_email", "version", "domain", "mailbox_address", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "external_account", "external_seen", "bounce_notice"}
 
 const batchSize = 200
 
@@ -109,7 +109,7 @@ func Run(args []string) error {
 	for _, table := range tables {
 		if err := copyTable(sourceTx, tx, *fromType, table, qualified(table)); err != nil {
 			message := strings.ToLower(err.Error())
-			if slices.Contains([]string{"domain", "mailbox_address", "api_token", "forward_setting", "outbound_queue", "external_account", "external_seen", "bounce_notice"}, table) && (strings.Contains(message, "no such table") || strings.Contains(message, "doesn't exist") || strings.Contains(message, "undefined table")) {
+			if slices.Contains([]string{"domain", "mailbox_address", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "external_account", "external_seen", "bounce_notice"}, table) && (strings.Contains(message, "no such table") || strings.Contains(message, "doesn't exist") || strings.Contains(message, "undefined table")) {
 				fmt.Printf("%s: source table absent; normal startup will backfill it\n", table)
 				continue
 			}
