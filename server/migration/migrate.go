@@ -16,7 +16,7 @@ import (
 	"github.com/lib/pq"
 )
 
-var tables = []string{"user", "email", "group", "rule", "user_email", "version", "domain", "mailbox_address", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "external_account", "external_seen", "bounce_notice", "inbound_settings", "spam_preference", "spam_rule", "spam_training", "spam_totals", "spam_token"}
+var tables = []string{"user", "email", "group", "rule", "user_email", "version", "domain", "mailbox_address", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "external_account", "external_seen", "bounce_notice", "inbound_settings", "spam_preference", "spam_rule", "spam_training", "spam_totals", "spam_token", "telegram_config", "telegram_binding", "telegram_code", "telegram_preference", "telegram_push", "compose_image", "draft_inline_image", "signature"}
 
 const batchSize = 200
 
@@ -109,7 +109,7 @@ func Run(args []string) error {
 	for _, table := range tables {
 		if err := copyTable(sourceTx, tx, *fromType, table, qualified(table)); err != nil {
 			message := strings.ToLower(err.Error())
-			if slices.Contains([]string{"domain", "mailbox_address", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "external_account", "external_seen", "bounce_notice", "inbound_settings", "spam_preference", "spam_rule", "spam_training", "spam_totals", "spam_token"}, table) && (strings.Contains(message, "no such table") || strings.Contains(message, "doesn't exist") || strings.Contains(message, "undefined table")) {
+			if slices.Contains([]string{"domain", "mailbox_address", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "external_account", "external_seen", "bounce_notice", "inbound_settings", "spam_preference", "spam_rule", "spam_training", "spam_totals", "spam_token", "telegram_config", "telegram_binding", "telegram_code", "telegram_preference", "telegram_push", "compose_image", "draft_inline_image", "signature"}, table) && (strings.Contains(message, "no such table") || strings.Contains(message, "doesn't exist") || strings.Contains(message, "undefined table")) {
 				fmt.Printf("%s: source table absent; normal startup will backfill it\n", table)
 				continue
 			}
@@ -206,7 +206,7 @@ func copyTable(source, target *sql.Tx, driver, name, dest string) error {
 		if !slices.Contains(targetCols, col) {
 			return fmt.Errorf("source column %q is missing from PostgreSQL; refusing to drop data", col)
 		}
-		if col == "wire_data" || col == "raw_data" {
+		if col == "wire_data" || col == "raw_data" || (name == "compose_image" && col == "content") {
 			binary[i] = true
 		}
 		if col == idColumn {
@@ -311,16 +311,16 @@ func copyRows(rows *sql.Rows, insert *sql.Stmt, width, idIndex int, lastID *int6
 
 func migrationKeyColumn(table string) string {
 	switch table {
-	case "forward_setting", "spam_preference", "spam_totals":
+	case "forward_setting", "spam_preference", "spam_totals", "telegram_binding", "telegram_code", "telegram_preference":
 		return "user_id"
-	case "spam_training", "spam_token":
+	case "spam_training", "spam_token", "compose_image", "draft_inline_image":
 		return ""
 	}
 	return "id"
 }
 
 func resetSequence(tx *sql.Tx, table string) error {
-	if strings.Contains(table, "forward_setting") || strings.HasSuffix(table, `."inbound_settings"`) || strings.HasSuffix(table, `."spam_preference"`) || strings.HasSuffix(table, `."spam_totals"`) || strings.HasSuffix(table, `."spam_training"`) || strings.HasSuffix(table, `."spam_token"`) {
+	if strings.Contains(table, "forward_setting") || strings.HasSuffix(table, `."inbound_settings"`) || strings.HasSuffix(table, `."spam_preference"`) || strings.HasSuffix(table, `."spam_totals"`) || strings.HasSuffix(table, `."spam_training"`) || strings.HasSuffix(table, `."spam_token"`) || strings.HasSuffix(table, `."telegram_config"`) || strings.HasSuffix(table, `."telegram_binding"`) || strings.HasSuffix(table, `."telegram_code"`) || strings.HasSuffix(table, `."telegram_preference"`) || strings.HasSuffix(table, `."compose_image"`) || strings.HasSuffix(table, `."draft_inline_image"`) {
 		return nil
 	}
 	var value int64
