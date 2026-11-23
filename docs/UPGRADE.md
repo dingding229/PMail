@@ -4,6 +4,7 @@
 
 ## 从 v0.0.2 / v0.0.3 升级
 
+- 升级前检查 `.env`：若 `PMAIL_IMAGE` 固定为旧标签，请删掉该行（默认使用 `latest`）或改为新版本标签，否则 `docker compose pull` 仍会拉取旧镜像。
 - 备份后手动拉取支持程序自更新的镜像。若安装过旧更新容器，替换 Compose 前先用旧文件停止并删除该容器；已替换文件时，确认不会影响同项目其他服务后可用 `docker compose up -d --remove-orphans` 清理。旧更新器令牌不再需要，主程序不挂 Docker socket。
 - 保持实际运行的 Compose 项目名，必要时在 `.env` 设置 `COMPOSE_PROJECT_NAME`；`PMAIL_PROJECT_NAME` 同样受支持。用 `docker compose config` 的 `volumes.*.name` 和 `docker volume ls` 核对卷；勿执行 `down -v`。镜像标签仍可使用 `PMAIL_IMAGE`。
 - 原绑定地址和发布端口的变量不再用于 Compose 映射，请直接修改 Compose 的端口。默认库名和账号均为 `pmail`；此前用了自定义 PostgreSQL 用户/数据库的部署，要保留旧数据库容器实际使用的用户/库及 PMail 的 `PMAIL_DB_USER`、`PMAIL_DB_NAME` 或 `PMAIL_DB_DSN`。保留 `secrets` 卷；旧 `POSTGRES_PASSWORD` 仍仅用于生成缺失的密码文件。
