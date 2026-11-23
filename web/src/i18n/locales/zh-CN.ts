@@ -82,6 +82,9 @@ const zhCN = {
     loginSuccess: '欢迎回来，{{name}}',
     logout: '退出登录',
     logoutSuccess: '已安全退出登录',
+    loggingOut: '正在退出…',
+    logoutFailed: '退出失败，请重试',
+    logoutOriginForbidden: '退出失败：请求未通过同源校验，请检查反向代理是否设置了 PMAIL_TRUSTED_PROXIES',
 
     registerTitle: '初始化管理员账号',
     registerSubtitle: '首次部署需要验证一次性注册密钥以创建首位管理员',

@@ -8,8 +8,8 @@ import type {
 
 export const authApi = {
   /** GET /api/bootstrap returns raw JSON (unwrapped) per docs/openapi.yaml */
-  bootstrap: () =>
-    apiGet<BootstrapResponse>('/api/bootstrap', { skipAuthRedirect: true, rawJson: true }),
+  bootstrap: (signal?: AbortSignal) =>
+    apiGet<BootstrapResponse>('/api/bootstrap', { skipAuthRedirect: true, rawJson: true, cache: 'no-store', signal }),
 
   register: (payload: RegisterRequest) =>
     apiPost<AuthSessionUser>('/api/register', payload, { skipAuthRedirect: true }),
@@ -17,5 +17,5 @@ export const authApi = {
   login: (payload: LoginRequest) =>
     apiPost<AuthSessionUser>('/api/login', payload, { skipAuthRedirect: true }),
 
-  logout: () => apiPost<string>('/api/logout', {}),
+  logout: () => apiPost<string>('/api/logout', {}, { skipAuthRedirect: true }),
 }

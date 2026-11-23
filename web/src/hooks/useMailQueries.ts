@@ -57,7 +57,7 @@ export const queryKeys = {
 export function useBootstrapQuery() {
   return useQuery({
     queryKey: queryKeys.bootstrap,
-    queryFn: () => authApi.bootstrap(),
+    queryFn: ({ signal }) => authApi.bootstrap(signal),
     staleTime: 60_000,
     retry: 1,
   })

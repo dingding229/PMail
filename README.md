@@ -87,6 +87,8 @@ Compose 已用命名卷 `pmail_config` 挂载 `/work/config`（配置、DKIM/TLS
 
 ## 反向代理
 
+**在 NPM 或 Nginx 终止 HTTPS 并向 PMail 转发 HTTP 时，必须设置 `PMAIL_TRUSTED_PROXIES` 为实际反代的 IP/CIDR，并保留原始 `Host`、覆盖 `X-Forwarded-Proto`；否则退出登录、发信等写操作会因同源校验返回 HTTP 403。**
+
 ### 推荐：Nginx Proxy Manager
 
 NPM 由你另外部署，PMail 不启动或管理它。以下示例使用安装步骤的默认上游 `172.17.0.1:8080`；若修改了绑定地址或宿主机 HTTP 端口，所有代理主机都使用相同的新值。

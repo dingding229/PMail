@@ -13,7 +13,6 @@ import {
   X,
 } from 'lucide-react'
 import {
-  authApi,
   SYSTEM_GROUP_IDS,
   userApi,
   type EmailDetail,
@@ -43,6 +42,7 @@ import {
 } from '@/hooks/useMailQueries'
 import { useLocalDrafts } from '@/hooks/useDrafts'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
+import { createLogoutHandler } from '@/features/auth/logout'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -103,6 +103,7 @@ export function MailWorkspace() {
   )
 
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
   const [activeEmailId, setActiveEmailId] = useState<number | null>(linkedMailId)
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
   const [searchInput, setSearchInput] = useState('')
@@ -455,16 +456,15 @@ export function MailWorkspace() {
     [removeDraft, t],
   )
 
-  const handleLogout = useCallback(async () => {
-    try {
-      await authApi.logout()
-    } catch {
-      // Proceed to clear client state regardless
-    }
-    queryClient.clear()
-    toast.success(t('auth.logoutSuccess'))
-    navigate('/login', { replace: true })
-  }, [navigate, queryClient, t])
+  const logout = useMemo(() => createLogoutHandler(queryClient), [queryClient])
+  const handleLogout = useCallback(() => {
+    void logout({
+      setPending: setLoggingOut,
+      onError: (key) => toast.error(t(key)),
+      onSuccess: () => toast.success(t('auth.logoutSuccess')),
+      navigateToLogin: () => navigate('/login', { replace: true }),
+    })
+  }, [logout, navigate, t])
 
   const handleLanguageChange = useCallback((lang: SupportedLanguage) => {
     void userApi.me({ lang }).catch(() => {
@@ -656,7 +656,8 @@ export function MailWorkspace() {
         setDrawerOpen(false)
         setShortcutsOpen(true)
       }}
-      onLogout={() => void handleLogout()}
+      loggingOut={loggingOut}
+      onLogout={handleLogout}
       onLanguageChange={handleLanguageChange}
     />
   )

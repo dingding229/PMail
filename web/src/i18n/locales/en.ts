@@ -82,6 +82,9 @@ const en = {
     loginSuccess: 'Welcome back, {{name}}',
     logout: 'Sign out',
     logoutSuccess: 'Signed out safely',
+    loggingOut: 'Signing out…',
+    logoutFailed: 'Could not sign out. Please try again.',
+    logoutOriginForbidden: 'Could not sign out: the request failed the same-origin check. Make sure your reverse proxy is configured in PMAIL_TRUSTED_PROXIES.',
 
     registerTitle: 'Initialize Administrator',
     registerSubtitle: 'Enter the one-time registration key from the config directory to create the first admin',

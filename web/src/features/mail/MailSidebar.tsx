@@ -11,6 +11,7 @@ import {
   Inbox,
   Keyboard,
   Languages,
+  Loader2,
   LogOut,
   Monitor,
   Moon,
@@ -73,6 +74,7 @@ interface MailSidebarProps {
   onCreateGroup: (name: string) => Promise<void>
   onDeleteGroup: (id: number, name: string) => Promise<void>
   onOpenShortcuts: () => void
+  loggingOut: boolean
   onLogout: () => void
   onLanguageChange?: (lang: SupportedLanguage) => void
 }
@@ -92,6 +94,7 @@ export function MailSidebar({
   onCreateGroup,
   onDeleteGroup,
   onOpenShortcuts,
+  loggingOut,
   onLogout,
   onLanguageChange,
 }: MailSidebarProps) {
@@ -498,9 +501,13 @@ export function MailSidebar({
               <Keyboard className="h-3.5 w-3.5 text-[var(--ink-muted)]" />
               {t('nav.shortcuts')}
             </DropdownMenuItem>
-            <DropdownMenuItem destructive onClick={onLogout}>
-              <LogOut className="h-3.5 w-3.5" />
-              {t('auth.logout')}
+            <DropdownMenuItem destructive disabled={loggingOut} onSelect={onLogout}>
+              {loggingOut ? (
+                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />
+              ) : (
+                <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              {loggingOut ? t('auth.loggingOut') : t('auth.logout')}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

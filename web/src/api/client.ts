@@ -16,13 +16,24 @@ export class ApiError extends Error {
   readonly status: number
   readonly errorNo: number
   readonly data: unknown
+  readonly serverMessage?: string
+  /** A real 401 or an explicit NeedLogin envelope, not a bare HTTP 403. */
+  readonly isUnauthenticated: boolean
 
-  constructor(message: string, options: { status: number; errorNo?: number; data?: unknown }) {
+  constructor(message: string, options: {
+    status: number
+    errorNo?: number
+    data?: unknown
+    serverMessage?: string
+    isUnauthenticated?: boolean
+  }) {
     super(message)
     this.name = 'ApiError'
     this.status = options.status
     this.errorNo = options.errorNo ?? options.status
     this.data = options.data
+    this.serverMessage = options.serverMessage
+    this.isUnauthenticated = options.isUnauthenticated ?? (options.status === 401)
   }
 }
 
@@ -54,6 +65,7 @@ interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: unknown
   signal?: AbortSignal
+  cache?: RequestCache
   skipAuthRedirect?: boolean
   /** Set true for endpoints like GET /api/bootstrap that return raw JSON without { errorNo, errorMsg, data } */
   rawJson?: boolean
@@ -139,6 +151,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     method = 'POST',
     body,
     signal,
+    cache,
     skipAuthRedirect = false,
     rawJson = false,
   } = options
@@ -153,6 +166,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       headers: buildHeaders(hasBody && !isFormData),
       body: hasBody ? (isFormData ? (body as FormData) : JSON.stringify(body)) : undefined,
       signal,
+      cache,
     })
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
@@ -217,6 +231,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   const envelope = isApiEnvelope(parsed) ? parsed : null
+  const serverMessage = typeof envelope?.errorMsg === 'string' ? envelope.errorMsg.trim() : undefined
 
   // 1. errorNo 402 (NeedSetup / NeedRegister) -> re-check /api/bootstrap and route to /register
   if (envelope?.errorNo === API_ERROR_NO.NEED_SETUP) {
@@ -224,7 +239,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       needBootstrapHandler()
     }
     const msg = resolveApiErrorMessage(envelope.errorMsg, response.status)
-    throw new ApiError(msg, { status: response.status, errorNo: API_ERROR_NO.NEED_SETUP, data: envelope.data })
+    throw new ApiError(msg, { status: response.status, errorNo: API_ERROR_NO.NEED_SETUP, data: envelope.data, serverMessage })
   }
 
   // 2. errorNo 405 (NoAccessPrivileges / origin_forbidden / token_scope_forbidden) -> display error only, NEVER redirect to login!
@@ -234,6 +249,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       status: response.status,
       errorNo: API_ERROR_NO.NO_ACCESS,
       data: envelope.data,
+      serverMessage,
     })
   }
 
@@ -249,6 +265,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       status: response.status || 401,
       errorNo: envelope?.errorNo ?? 401,
       data: envelope?.data,
+      serverMessage,
+      isUnauthenticated: true,
     })
   }
 
@@ -262,13 +280,14 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       status: 403,
       errorNo: envelope?.errorNo ?? 403,
       data: envelope?.data,
+      serverMessage,
     })
   }
 
   // 5. Rate limited
   if (response.status === 429 || envelope?.errorNo === API_ERROR_NO.RATE_LIMITED) {
     const msg = resolveApiErrorMessage(envelope?.errorMsg, 429)
-    throw new ApiError(msg, { status: 429, errorNo: 429, data: envelope?.data })
+    throw new ApiError(msg, { status: 429, errorNo: 429, data: envelope?.data, serverMessage })
   }
 
   if (!response.ok) {
@@ -277,6 +296,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       status: response.status,
       errorNo: envelope?.errorNo ?? response.status,
       data: envelope?.data,
+      serverMessage,
     })
   }
 
@@ -287,6 +307,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
         status: response.status,
         errorNo: envelope.errorNo,
         data: envelope.data,
+        serverMessage,
       })
     }
     return envelope.data as T
