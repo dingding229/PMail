@@ -173,7 +173,9 @@ export function SystemUpdateSection() {
     mutationFn: () => adminUpdateApi.check(),
     onSuccess: (updated) => {
       queryClient.setQueryData(queryKeys.adminUpdate, updated)
-      if (updated.has_update && updated.latest) {
+      if (updated.check_error || !updated.latest) {
+        toast.warning(updated.check_error || t('admin.update.checkFailedTitle'))
+      } else if (updated.has_update) {
         toast.info(t('admin.update.newVersionTitle', { version: updated.latest }))
       } else {
         toast.success(t('admin.update.upToDateTitle'))
@@ -279,9 +281,9 @@ export function SystemUpdateSection() {
                 </p>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="font-mono text-[16px] font-semibold text-[var(--ink-primary)]">
-                    {info.latest || info.current}
+                    {info.latest || t('admin.update.latestUnknown')}
                   </span>
-                  {info.has_update && (
+                  {info.has_update && info.latest && !info.check_error && (
                     <Badge variant="accent">{t('admin.update.availableBadge')}</Badge>
                   )}
                 </div>
@@ -297,13 +299,6 @@ export function SystemUpdateSection() {
                 </p>
               </div>
             </div>
-
-            {info.check_error && (
-              <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--warning)]/35 bg-[var(--warning-soft)] px-3 py-2 text-[12.5px] text-[var(--warning)]">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{info.check_error}</span>
-              </div>
-            )}
 
             {/* Update Progress Banner */}
             {jobState && (
@@ -333,8 +328,32 @@ export function SystemUpdateSection() {
               </div>
             )}
 
-            {/* Update Status Banner */}
-            {info.has_update && info.latest ? (
+            {/* Update Status Banner: never claim "up to date" when check_error is set or latest is empty */}
+            {info.check_error || !info.latest ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--warning)]/35 bg-[var(--warning-soft)] px-4 py-3 text-[13px] text-[var(--warning)]">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <AlertTriangle className="mt-0.5 h-4.5 w-4.5 shrink-0" />
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="font-semibold">{t('admin.update.checkFailedTitle')}</p>
+                    <p className="text-[12.5px] opacity-90">
+                      {info.check_error || t('admin.update.checkFailedDesc')}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={checkMutation.isPending || isUpdating}
+                  onClick={() => checkMutation.mutate()}
+                >
+                  <RefreshCw
+                    className={`h-3.5 w-3.5 ${checkMutation.isPending ? 'animate-spin' : ''}`}
+                  />
+                  {t('app.retry')}
+                </Button>
+              </div>
+            ) : info.has_update ? (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--accent)]/35 bg-[var(--accent-soft)]/70 px-4 py-3.5">
                 <div className="min-w-0 space-y-0.5">
                   <p className="text-[14px] font-semibold text-[var(--ink-primary)]">

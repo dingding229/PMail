@@ -121,6 +121,21 @@ const mockUpdateJobStep = new Map<string, number>()
 function buildMockUpdateInfo(): AdminUpdateInfo {
   const mode =
     typeof window !== 'undefined' ? localStorage.getItem('pmail_mock_update') : null
+  if (mode === 'error') {
+    return {
+      current: 'v0.1.0',
+      latest: null,
+      has_update: false,
+      checked_at: dayjs().subtract(1, 'minute').toISOString(),
+      check_error: '无法连接 GitHub Releases（连接超时），请稍后重试',
+      updater: {
+        enabled: false,
+        kind: null,
+      },
+      manual_commands: ['docker compose pull pmail', 'docker compose up -d pmail'],
+      releases: [],
+    }
+  }
   const isLatest = mode === 'latest'
   const isManual = mode === 'manual'
   return {

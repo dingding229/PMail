@@ -187,6 +187,16 @@ export function createSeedEmails(): MockEmailRecord[] {
           previewContent: 'sha256: 8a1f3d... security-patch-v2.exe\n',
         },
       ],
+      spam: {
+        score: 9.75,
+        verdict: 'spam',
+        reasons: [
+          { code: 'executable_attachment', weight: 4 },
+          { code: 'auth_spf_softfail', weight: 1.5 },
+          { code: 'reply_to_domain_mismatch', weight: 1.25 },
+          { code: 'local_display_name_spoof', weight: 3 },
+        ],
+      },
       risk: {
         level: 'high',
         findings: [

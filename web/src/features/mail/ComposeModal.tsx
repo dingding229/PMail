@@ -530,12 +530,15 @@ export function ComposeModal({
   const insertInlineImageFile = useCallback(
     async (file: File) => {
       if (!editor) return
+      const mobileToastOpts = isMobile
+        ? { position: 'top-center' as const, duration: 1800 }
+        : undefined
       if (file.type && !ALLOWED_INLINE_IMAGE_TYPES.has(file.type.toLowerCase())) {
-        toast.error(t('compose.inlineImage.errorType'))
+        toast.error(t('compose.inlineImage.errorType'), mobileToastOpts)
         return
       }
       if (file.size > MAX_INLINE_IMAGE_BYTES) {
-        toast.error(t('compose.inlineImage.tooLarge', { name: file.name }))
+        toast.error(t('compose.inlineImage.tooLarge', { name: file.name }), mobileToastOpts)
         return
       }
 
@@ -591,7 +594,10 @@ export function ComposeModal({
             url: res.url,
           },
         ])
-        toast.success(t('compose.inlineImage.uploaded', { name: res.filename || filename }))
+        toast.success(
+          t('compose.inlineImage.uploaded', { name: res.filename || filename }),
+          mobileToastOpts,
+        )
       } catch (err) {
         // Remove failed placeholder node from editor
         const { state, view } = editor
@@ -613,6 +619,7 @@ export function ComposeModal({
           err instanceof Error
             ? err.message
             : t('compose.inlineImage.uploadFailed', { name: filename }),
+          mobileToastOpts,
         )
       } finally {
         URL.revokeObjectURL(tempObjectUrl)
@@ -625,7 +632,7 @@ export function ComposeModal({
         })
       }
     },
-    [editor, t],
+    [editor, isMobile, t],
   )
 
   useEffect(() => {
