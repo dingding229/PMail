@@ -1,8 +1,8 @@
-VERSION ?= 0.0.2
+VERSION ?= 0.0.3
 GITHASH ?= unknown
 export VERSION
 
-build: package
+build: build_web build_server
 
 clean:
 	rm -rf output
@@ -21,16 +21,6 @@ build_server: check-version
 	cd server && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X 'main.version=$(VERSION)' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(GITHASH)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail_mac_amd64  main.go
 	cd server && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X 'main.version=$(VERSION)' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(GITHASH)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail_mac_arm64  main.go
 
-package: build_web build_server clean
-	mkdir output
-	mv server/pmail* output/
-	mkdir output/config
-	cp -r server/config/dkim output/config/
-	cp -r server/config/ssl output/config/
-	cp -r server/config/config.json output/config/
-	cp -R web/dist output/web
-	cp README.md output/
-
 test:
 	cd server && go test -v -p 1 ./...
 
@@ -40,31 +30,6 @@ test_mysql:
 test_postgres:
 	export PMAIL_TEST_PG_DSN="$${PMAIL_TEST_PG_DSN:-postgres://postgres:githubTest@postgres:5432/pmail?sslmode=disable}" && cd server && go test -tags integration -v -p 1 ./... -args postgres
 
-.PHONY: build clean check-version build_web build_server package docker compose-init compose-up compose-upgrade compose-backup compose-logs compose-status compose-down
+.PHONY: build clean check-version build_web build_server docker test test_mysql test_postgres
 docker: check-version
 	docker build --build-arg VERSION="$$VERSION" -t pmail:local .
-
-compose-init:
-	./deploy/deploy.sh init
-
-compose-up:
-	./deploy/deploy.sh up
-
-compose-upgrade:
-	./deploy/deploy.sh upgrade
-
-compose-backup:
-	./deploy/deploy.sh backup
-
-compose-logs:
-	./deploy/deploy.sh logs
-
-compose-status:
-	./deploy/deploy.sh status
-
-compose-down:
-	./deploy/deploy.sh down
-
-.PHONY: compose-restore
-compose-restore:
-	./deploy/deploy.sh restore "$(FILE)"

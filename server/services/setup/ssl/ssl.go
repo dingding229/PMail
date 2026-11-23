@@ -176,8 +176,10 @@ func coversDomains(cfg *config.Config, cert *tls.Certificate) bool {
 	return true
 }
 
-func NeedsRenewal(cfg *config.Config, cert *tls.Certificate) bool {
-	return time.Until(cert.Leaf.NotAfter) < 30*24*time.Hour || !coversDomains(cfg, cert)
+// NeedsRenewal reports expiry within 30 days, or a name that can now be
+// requested (its DNS points here) but is missing from the certificate.
+func NeedsRenewal(ctx context.Context, cfg *config.Config, cert *tls.Certificate) bool {
+	return time.Until(cert.Leaf.NotAfter) < 30*24*time.Hour || !coversRequested(ctx, cfg, cert.Leaf)
 }
 
 // ObtainCertificate acquires or renews automatic TLS material. It never starts or restarts listeners.
@@ -224,7 +226,11 @@ func ObtainCertificate(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 
-	domains := certificateDomains(cfg)
+	domains, skipped := requestDomains(ctx, cfg)
+	logSkipped(skipped)
+	if len(domains) == 0 {
+		return errors.New("no certificate name points to this server yet; point smtp/imap/pop hosts at this server (DNS only, no CDN proxy)")
+	}
 	log.Infof("Requesting ACME certificate for %s", strings.Join(domains, ", "))
 	certs, err := client.Certificate.Obtain(certificate.ObtainRequest{Domains: domains, Bundle: true})
 	if err != nil {

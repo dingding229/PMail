@@ -13,6 +13,7 @@ const result = await build({
       import { RegisterPage } from './src/features/auth/RegisterPage'
       import { queryKeys } from './src/hooks/useMailQueries'
       import { ThemeProvider } from './src/lib/ThemeProvider'
+      export { guessMailDomain, DOMAIN_PATTERN } from './src/features/auth/mailDomain'
 
       export function renderRegistration(bootstrap) {
         const client = new QueryClient()
@@ -39,7 +40,7 @@ const result = await build({
   banner: { js: `import { createRequire } from 'node:module'; const require = createRequire(${JSON.stringify(import.meta.url)});` },
   write: false,
 })
-const { renderRegistration } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`)
+const { renderRegistration, guessMailDomain, DOMAIN_PATTERN } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`)
 const anonymous = {
   version: 'dev',
   need_register: true,
@@ -59,4 +60,22 @@ test('registration renders the configured mail domain, not the web hostname', ()
 test('registration does not guess a suffix from an older bootstrap response', () => {
   const html = renderRegistration(anonymous)
   assert.doesNotMatch(html, /@mail\.xshi\.cc/)
+})
+
+test('first-run page asks for the mail domain when none is configured', () => {
+  const html = renderRegistration({ ...anonymous, need_domain: true, web_domain: '', primary_domain: '' })
+  assert.match(html, /id="mail_domain"/)
+  assert.doesNotMatch(renderRegistration({ ...anonymous, primary_domain: 'xshi.cc' }), /id="mail_domain"/)
+})
+
+test('mail domain is guessed from the address bar', () => {
+  assert.equal(guessMailDomain('mail.xshi.cc'), 'xshi.cc')
+  assert.equal(guessMailDomain('webmail.example.co.uk'), 'example.co.uk')
+  assert.equal(guessMailDomain('xshi.cc'), 'xshi.cc')
+  assert.equal(guessMailDomain('185.99.135.205'), '')
+  assert.equal(guessMailDomain('localhost'), '')
+  assert.ok(DOMAIN_PATTERN.test('7-89.cn'))
+  assert.ok(DOMAIN_PATTERN.test('xn--fiqs8s.xn--fiqs8s'))
+  assert.ok(!DOMAIN_PATTERN.test('mail'))
+  assert.ok(!DOMAIN_PATTERN.test('http://x.cc'))
 })

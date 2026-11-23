@@ -368,7 +368,7 @@ export function DnsRecordCard({ record, checking = false }: DnsRecordCardProps) 
       )}
 
       {/* Fix Hint Callout */}
-      {record.fix_hint && record.status !== 'ok' && (
+      {record.fix_hint && (
         <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--warning)]/25 bg-[var(--warning-soft)]/70 px-3 py-2 text-[12px] leading-relaxed text-[var(--ink-primary)]">
           <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--warning)]" />
           <span>{record.fix_hint}</span>

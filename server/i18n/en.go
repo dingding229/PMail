@@ -173,6 +173,8 @@ var en = map[string]string{
 	"dns_guide_dmarc_none":                "The current policy p=none only monitors. Consider p=quarantine after legitimate mail passes SPF/DKIM alignment.",
 	"dns_guide_ptr_fix":                   "The PTR is absent or does not match the mail host. Update it with your public IP provider.",
 	"dns_guide_check_panel":               "Check the DNS panel and refresh after the change has propagated.",
+	"dns_guide_mx_foreign":                "Some MX hosts do not point to this server (for example Cloudflare Email Routing route*.mx.cloudflare.net). When this server is briefly unreachable, mail is delivered there instead of PMail; remove them or turn off that forwarding service if PMail should receive all mail.",
+	"dns_guide_mail_proxied":              "The mail host resolves to another address, usually because a CDN proxies it (e.g. Cloudflare orange cloud). SMTP/IMAP/POP3 and certificate validation need a direct connection: switch it to DNS only (grey cloud) pointing to this server.",
 	"dns_guide_unknown_value":             "Enter the actual public IP",
 	"dns_guide_ptr":                       "Set the public IP PTR (reverse DNS) to %s at your VPS or IP provider, not in the forward DNS zone.",
 	"dns_guide_proxy":                     "In the DNS panel for %s, choose type A, enter host %s, and use the reverse proxy's public IPv4. Only the existence of an A record is checked.",

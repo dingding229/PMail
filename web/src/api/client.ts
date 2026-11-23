@@ -98,6 +98,8 @@ function isApiEnvelope(value: unknown): value is ApiEnvelope<unknown> {
 
 const MACHINE_ERROR_KEY_MAP: Record<string, string> = {
   origin_forbidden: 'common.errors.originForbidden',
+  registration_key_invalid: 'auth.errors.registrationKeyInvalid',
+  domain_invalid: 'auth.errors.domainInvalid',
   json_media_type_required: 'common.errors.jsonMediaTypeRequired',
   token_scope_forbidden: 'common.errors.tokenScopeForbidden',
   method_not_allowed: 'common.errors.methodNotAllowed',

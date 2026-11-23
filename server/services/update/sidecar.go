@@ -25,7 +25,8 @@ type Job struct {
 func token() string { return os.Getenv("PMAIL_UPDATER_TOKEN") }
 func sidecarStatus() UpdaterStatus {
 	t := token()
-	if os.Getenv("PMAIL_UPDATER_ENABLED") != "1" || len(t) < 32 || len(t) > 256 {
+	// A valid token enables the sidecar; PMAIL_UPDATER_ENABLED=0 still turns it off.
+	if os.Getenv("PMAIL_UPDATER_ENABLED") == "0" || len(t) < 32 || len(t) > 256 {
 		return UpdaterStatus{}
 	}
 	kind := "compose-sidecar"

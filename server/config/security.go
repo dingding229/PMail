@@ -74,7 +74,7 @@ func ValidateWebRoot(cfg *Config) error {
 		return fmt.Errorf("validate PMAIL_WEB_ROOT: %w", err)
 	}
 	sensitive := []string{filepath.Join(ROOT_PATH, "config"), filepath.Join(ROOT_PATH, "data")}
-	for _, file := range []string{cfg.SSLPrivateKeyPath, cfg.DkimPrivateKeyPath, os.Getenv("PMAIL_DB_PASSWORD_FILE")} {
+	for _, file := range []string{cfg.SSLPrivateKeyPath, cfg.DkimPrivateKeyPath, dbPasswordFile()} {
 		if file != "" {
 			sensitive = append(sensitive, file, filepath.Dir(file))
 		}

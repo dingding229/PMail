@@ -10,6 +10,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Jinnrry/pmail/config"
@@ -212,7 +213,7 @@ func (p Outbound) deliver(ctx stdctx.Context, recipientDomain, from, fromDomain 
 				defer cancel()
 				conn, err := p.Dial(path, "tcp", net.JoinHostPort(ip.String(), port))
 				if err != nil {
-					return err
+					return explainDialFailure(err, port)
 				}
 				return smtp.SendPinned(path, conn, host, from, fromDomain, to, raw, mode)
 			}
@@ -258,4 +259,26 @@ func (p Outbound) deliver(ctx stdctx.Context, recipientDomain, from, fromDomain 
 		last = errBlockedTarget
 	}
 	return last
+}
+
+var port25Hint struct {
+	sync.Mutex
+	last time.Time
+}
+
+// explainDialFailure annotates connection timeouts to remote port 25, which
+// almost always means the hosting provider blocks outbound SMTP. The note
+// reaches the queue's last_error and, at most hourly, the log.
+func explainDialFailure(err error, port string) error {
+	var netErr net.Error
+	if port != "25" || !errors.As(err, &netErr) || !netErr.Timeout() {
+		return err
+	}
+	port25Hint.Lock()
+	if time.Since(port25Hint.last) >= time.Hour {
+		port25Hint.last = time.Now()
+		log.Warnf("Outbound SMTP connections to port 25 are timing out. Many hosting providers block outbound port 25; ask yours to unblock it (test with: nc -vz gmail-smtp-in.l.google.com 25).")
+	}
+	port25Hint.Unlock()
+	return fmt.Errorf("%w (outbound port 25 timed out; the hosting provider may block outbound SMTP)", err)
 }

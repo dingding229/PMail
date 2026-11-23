@@ -1,11 +1,11 @@
-# 旧版 PMail 迁移至 PMail Pro 0.0.1
+# 旧版 PMail 迁移至 PMail Pro
 
-已有 PostgreSQL 版 PMail Pro 的日常镜像升级和回滚，请按 [README 的备份和升级步骤](../README.md#升级备份与恢复) 操作。本页针对旧 SQLite/MySQL 安装。
+已有 PMail Pro 的日常升级见 [README](../README.md#升级)，备份与回滚见 [进阶说明](ADVANCED.md)。本页针对旧 SQLite/MySQL 安装。
 
 ## 不兼容变更
 
 1. **默认数据库改为 PostgreSQL 17。** SQLite/MySQL 单文件部署需要导入数据库，不能把旧文件直接挂载成 PostgreSQL 数据卷。
-2. **配置改为环境变量优先。** 根据 [安装说明](../README.md#安装docker-compose) 准备 `.env`。旧 `config.json` 可作配置参考，不要把密码或 `PMAIL_SECRET_KEY` 提交到仓库。迁移已有 Compose 实例时，保留显式 `POSTGRES_PASSWORD` 和 `PMAIL_SECRET_KEY`；保留并备份 `secrets`、`pmail_config` 卷。回到不支持密码文件的镜像时也需恢复对应的 Compose 文件。
+2. **不再需要配置文件。** 按 [安装说明](../README.md#安装) 下载 `docker-compose.yml` 即可；导入旧数据库后会自动沿用其中的域名。需要固定域名时，可在可选的 `.env` 中写 `PMAIL_DOMAIN`。不要把密码或 `PMAIL_SECRET_KEY` 提交到仓库。迁移已有 Compose 实例时，保留显式 `POSTGRES_PASSWORD` 和 `PMAIL_SECRET_KEY`；保留并备份 `secrets`、`pmail_config` 卷。回到不支持密码文件的镜像时也需恢复对应的 Compose 文件。
 3. **旧 Token 格式废弃。** 使用 `/api/token/create` 创建 API Token，通过 `Authorization: Bearer <token>` 使用。兼容的 `Token` 请求头仅接受新生成的 Token，不再支持旧的 MD5 派生凭据。
 4. **密码哈希改为 bcrypt。** 旧 MD5 密码在首次成功认证后自动升级；明文密码不写入日志或前端存储。
 5. **外发改用持久化队列。** 网页、587/465 提交的对外邮件先入队，由队列负责重试；本地收件人仍同步入库。可通过 `/api/queue/list` 核对状态。
@@ -14,7 +14,7 @@
 
 ## 导入旧数据库
 
-停止旧服务并离机备份数据库及 `config/`。按 README 下载文件和填写 `.env`，**先不要启动 PMail**：迁移要求目标 PostgreSQL 为空。保留旧配置中的邮件域名、附加域名和网页域名；如果旧默认域名仍使用已经发布的 DKIM 公钥，请在首次启动前保留其私钥。使用下方命令，输入旧私钥 `config/dkim/dkim.priv` 的绝对路径（没有旧私钥则跳过，并在启动后更新 DNS）：
+停止旧服务并离机备份数据库及 `config/`。按 README 下载 `docker-compose.yml`，**先不要启动 PMail**：迁移要求目标 PostgreSQL 为空。保留旧配置中的邮件域名、附加域名和网页域名；如果旧默认域名仍使用已经发布的 DKIM 公钥，请在首次启动前保留其私钥。使用下方命令，输入旧私钥 `config/dkim/dkim.priv` 的绝对路径（没有旧私钥则跳过，并在启动后更新 DNS）：
 
 ```bash
 (
@@ -60,7 +60,7 @@ docker compose pull && docker compose up -d --wait postgres
 
 ## 回滚
 
-保留原先的 SQLite/MySQL 数据和配置备份，直到迁移验收完成。回退时，应使用升级前的旧库备份和与其匹配的旧版本，不要把新版的 PostgreSQL 转储直接用于旧版；密码哈希、API Token、队列和前端均有兼容性变更。已使用 PostgreSQL 的 PMail Pro 版本间回滚，参照 [README 的恢复步骤](../README.md#恢复数据库)。
+保留原先的 SQLite/MySQL 数据和配置备份，直到迁移验收完成。回退时，应使用升级前的旧库备份和与其匹配的旧版本，不要把新版的 PostgreSQL 转储直接用于旧版；密码哈希、API Token、队列和前端均有兼容性变更。已使用 PostgreSQL 的 PMail Pro 版本间回滚，参照 [进阶说明的恢复步骤](ADVANCED.md#恢复数据库)。
 
 ## catch-all 与入站过滤
 
@@ -109,9 +109,9 @@ docker compose pull && docker compose up -d --wait postgres
 ## C9：Telegram、在线更新与富文本
 
 - Telegram 预设关闭。已启用的安装请备份数据库和原 `PMAIL_SECRET_KEY`：更换密钥后旧 Bot 凭据无法解密，需重新填写。更换/清除 Bot 会使旧私聊绑定过期。免打扰期间消息直接丢弃；队列遇断网会重试，在网络中断或进程退出时可能重复发送。
-- 更新检查可用 `PMAIL_UPDATE_CHECK=0` 关闭。在线更新器默认不启用，并使用发布镜像 `dingding229/pmail-pro-updater:latest`，不再要求源码或本地构建。刷新部署用的 Compose 文件后，在 `.env` 设置 `PMAIL_UPDATER_ENABLED=1` 与至少 32 字符的随机 `PMAIL_UPDATER_TOKEN`，执行 `docker compose --profile updater up -d`。可用 `PMAIL_UPDATER_IMAGE` 固定与主镜像一致的版本标签。
+- 更新检查可用 `PMAIL_UPDATE_CHECK=0` 关闭。在线更新器默认不启用，并使用发布镜像 `dingding229/pmail-pro-updater:latest`，不再要求源码或本地构建。刷新部署用的 Compose 文件后，在 `.env` 设置至少 32 字符的随机 `PMAIL_UPDATER_TOKEN`，执行 `docker compose --profile updater up -d`。
 - 只下载文件的公网部署需要同一目录的 `docker-compose.yml`、`.env` 和公网覆盖文件；可另存为 `docker-compose.override.yml` 自动加载，也可保留 `docker-compose.public.yml` 并按 README 显式指定两份文件。不要仅使用公网覆盖文件或同时保留内容不一致的覆盖。Sidecar 只读挂载此目录，执行时会保留公网配置；自定义 `-f`、外部环境文件或特殊路径映射仍建议手动更新。
-- 启用前核对 [README 的更新器说明](../README.md#可选在线更新器) 中的 Docker socket 权限风险。保留状态卷追踪任务；更新器中途重启或任务 ID 丢失时返回失败/结果未知，请核对运行版本后再试，不自动回滚数据库。
+- 启用前核对 [进阶说明的更新器部分](ADVANCED.md#可选在线更新器) 中的 Docker socket 权限风险。保留状态卷追踪任务；更新器中途重启或任务 ID 丢失时返回失败/结果未知，请核对运行版本后再试，不自动回滚数据库。
 - 写信内嵌图片只接受 PNG/JPEG/GIF/WebP 文件头，单个 10 MiB，每账户最多 50 MiB 临时图片。未被草稿引用、且 24 小时未使用的临时图片会清理；引用不能跨账号。旧邮件和旧草稿无须重写。签名保留允许的格式，将远程图片替换成文本占位，服务器不会自动重复追加已由编辑器插入的签名。
 
 ## C10 / C10R1：出站 TLS 默认值与数据库密码文件

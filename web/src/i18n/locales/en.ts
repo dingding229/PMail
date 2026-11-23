@@ -102,6 +102,14 @@ const en = {
     registerSubmit: 'Complete Setup & Open Mail',
     registering: 'Initializing…',
     registerSuccess: 'Administrator created. Welcome to PMail Pro',
+    mailDomainLabel: 'Mail domain',
+    mailDomainHint: 'The part after @ in email addresses, e.g. example.com. The web address defaults to mail.example.com.',
+    applyingDomain: 'Applying the domain and starting services…',
+    errors: {
+      registrationKeyInvalid: 'Incorrect registration key. Please check it and try again',
+      domainInvalid: 'Invalid mail domain',
+      domainSetupTimeout: 'Services took too long to start. Refresh the page and try again',
+    },
 
     passwordStrength: {
       weak: 'Weak',
@@ -121,6 +129,8 @@ const en = {
       passwordMin: 'Password must be at least 8 characters',
       confirmPasswordRequired: 'Please confirm your password',
       passwordMismatch: 'Passwords do not match',
+      domainRequired: 'Please enter the mail domain',
+      domainFormat: 'Enter a valid domain, e.g. example.com',
     },
   },
   nav: {

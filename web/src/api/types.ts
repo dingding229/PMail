@@ -12,6 +12,8 @@ export interface BootstrapResponse {
   default_lang: string
   web_domain: string
   primary_domain: string
+  /** True while PMail waits for the primary mail domain on the first-run page. */
+  need_domain?: boolean
   domains: string[]
   features: {
     register_key?: boolean

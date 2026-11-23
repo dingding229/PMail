@@ -32,3 +32,6 @@ backups/
 /web/**/*.log
 /web/**/*.tsbuildinfo
 *.local
+server/config/*.json
+server/config/dkim/
+server/config/ssl/

@@ -50,7 +50,7 @@ func EffectiveConfig(candidate *Config) (*Config, error) {
 	}
 	if dsn := os.Getenv("PMAIL_DB_DSN"); dsn != "" {
 		cfg.DbDSN = dsn
-	} else if path := os.Getenv("PMAIL_DB_PASSWORD_FILE"); path != "" && cfg.DbType == DBTypePostgres {
+	} else if path := dbPasswordFile(); path != "" && cfg.DbType == DBTypePostgres {
 		cfg.DbDSN, err = postgresDSN(path)
 		if err != nil {
 			return nil, err
@@ -131,7 +131,8 @@ func BootstrapCredentials() (account, password string, ok bool) {
 		account = "admin"
 	}
 	password = os.Getenv("PMAIL_ADMIN_PASSWORD")
-	ok = Instance.DbDSN != "" && Instance.Domain != ""
+	// The mail domain may be chosen later on the first-run web page.
+	ok = Instance.DbDSN != ""
 	return
 }
 
@@ -165,3 +166,17 @@ func DefaultLang() string {
 }
 
 func CORSOrigins() []string { return strings.Split(os.Getenv("PMAIL_CORS_ORIGINS"), ",") }
+
+// DefaultDBPasswordFile is where the bundled Compose file shares the
+// generated PostgreSQL password; used when PMAIL_DB_PASSWORD_FILE is unset.
+const DefaultDBPasswordFile = "/run/pmail-secrets/db_password"
+
+func dbPasswordFile() string {
+	if path := os.Getenv("PMAIL_DB_PASSWORD_FILE"); path != "" {
+		return path
+	}
+	if _, err := os.Stat(DefaultDBPasswordFile); err == nil {
+		return DefaultDBPasswordFile
+	}
+	return ""
+}

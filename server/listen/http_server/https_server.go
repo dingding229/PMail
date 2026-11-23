@@ -117,6 +117,7 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 		}
 		if !isSafeMethod(r.Method) && (publicRegister || r.URL.Path == "/api/login") &&
 			(r.Header.Get("Origin") != "" || r.Header.Get("Referer") != "") && !sameOrigin(r) {
+			noteOriginRejection(r)
 			refuse(http.StatusForbidden, response.NoAccessPrivileges, "origin_forbidden")
 			return
 		}
@@ -137,6 +138,7 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 				return
 			}
 			if userInfo != nil && !isSafeMethod(r.Method) && !sameOrigin(r) {
+				noteOriginRejection(r)
 				refuse(http.StatusForbidden, response.NoAccessPrivileges, "origin_forbidden")
 				return
 			}

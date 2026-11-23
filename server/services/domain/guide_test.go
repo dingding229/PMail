@@ -13,12 +13,16 @@ import (
 type guideDNS struct {
 	txt       map[string][]string
 	addresses map[string][]netip.Addr
+	mx        []*net.MX
 }
 
 func (g guideDNS) LookupTXT(_ context.Context, name string) ([]string, error) {
 	return g.txt[name], nil
 }
 func (g guideDNS) LookupMX(context.Context, string) ([]*net.MX, error) {
+	if g.mx != nil {
+		return g.mx, nil
+	}
 	return []*net.MX{{Host: "SMTP.EXAMPLE.COM", Pref: 10}}, nil
 }
 func (g guideDNS) LookupNetIP(_ context.Context, _, name string) ([]netip.Addr, error) {
@@ -138,5 +142,36 @@ func TestSuggestedSPFPreservesMechanismsAndPrimaryPolicy(t *testing.T) {
 		if r.SuggestedValue != tc.want {
 			t.Errorf("SPF %q suggestion: %q != %q", tc.record, r.SuggestedValue, tc.want)
 		}
+	}
+}
+
+func TestMXAliasAndForeignHostsAndProxiedMailHost(t *testing.T) {
+	const domain = "example.com"
+	ip := netip.MustParseAddr("203.0.113.10")
+	cdn := netip.MustParseAddr("104.21.91.140")
+	fake := guideDNS{addresses: map[string][]netip.Addr{
+		"_dc-mx.abc.example.com.":   {ip},
+		"route1.mx.cloudflare.net.": {netip.MustParseAddr("162.159.205.11")},
+		"smtp.example.com.":         {cdn},
+	}, mx: []*net.MX{{Host: "_dc-mx.abc.example.com.", Pref: 1}, {Host: "route1.mx.cloudflare.net.", Pref: 13}}}
+	guide := buildGuide(models.Domain{Name: domain, DkimSelector: "default"}, guideKey{web: "mail.example.com", proxy: true}, ip, netip.Addr{})
+
+	mx := getRecord(t, guide, "mx")
+	checkGuideRecord(context.Background(), fake, &mx, domain, guide.MailHost, ip, netip.Addr{}, true)
+	if mx.Status != "ok" || mx.hint != "dns_guide_mx_foreign" {
+		t.Fatalf("MX alias pointing here must be ok and foreign MX flagged: %+v", mx)
+	}
+
+	fake.mx = []*net.MX{{Host: "_dc-mx.abc.example.com.", Pref: 1}}
+	mx = getRecord(t, guide, "mx")
+	checkGuideRecord(context.Background(), fake, &mx, domain, guide.MailHost, ip, netip.Addr{}, true)
+	if mx.Status != "ok" || mx.hint != "" {
+		t.Fatalf("single MX alias pointing here: %+v", mx)
+	}
+
+	a := getRecord(t, guide, "mail_a")
+	checkGuideRecord(context.Background(), fake, &a, domain, guide.MailHost, ip, netip.Addr{}, true)
+	if a.Status != "mismatch" || a.hint != "dns_guide_mail_proxied" {
+		t.Fatalf("proxied mail host: %+v", a)
 	}
 }

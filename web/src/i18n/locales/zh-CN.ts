@@ -102,6 +102,14 @@ const zhCN = {
     registerSubmit: '完成注册并进入邮箱',
     registering: '正在初始化…',
     registerSuccess: '管理员账号创建成功，欢迎使用 PMail Pro',
+    mailDomainLabel: '邮件域名',
+    mailDomainHint: '邮箱地址 @ 后面的部分，例如 example.com。网页地址默认为 mail.example.com。',
+    applyingDomain: '正在应用域名并启动服务…',
+    errors: {
+      registrationKeyInvalid: '注册密钥不正确，请检查后重试',
+      domainInvalid: '邮件域名格式不正确',
+      domainSetupTimeout: '服务启动超时，请稍后刷新页面重试',
+    },
 
     passwordStrength: {
       weak: '较弱',
@@ -121,6 +129,8 @@ const zhCN = {
       passwordMin: '密码长度至少为 8 位',
       confirmPasswordRequired: '请再次输入密码',
       passwordMismatch: '两次输入的密码不一致',
+      domainRequired: '请输入邮件域名',
+      domainFormat: '请输入有效的域名，例如 example.com',
     },
   },
   nav: {

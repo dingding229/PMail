@@ -173,6 +173,8 @@ var cn = map[string]string{
 	"dns_guide_dmarc_none":                "当前策略是 p=none（仅监控）；确认正常邮件通过 SPF/DKIM 对齐后，再考虑切换为 p=quarantine。",
 	"dns_guide_ptr_fix":                   "现有反解与邮件主机不一致或未设置；请在公网 IP 服务商处修正。",
 	"dns_guide_check_panel":               "核对 DNS 面板中的记录，并等待变更生效后刷新检测。",
+	"dns_guide_mx_foreign":                "存在不指向本服务器的 MX（例如 Cloudflare Email Routing 的 route*.mx.cloudflare.net）。本机暂时不可达时，邮件会投到那里而不进入 PMail；只用 PMail 收信时请删除这些 MX 或关闭对应的邮件转发服务。",
+	"dns_guide_mail_proxied":              "邮件主机解析到了其他地址，常见原因是 CDN 代理（如 Cloudflare 橙色云朵）。SMTP/IMAP/POP3 和证书申请都需要直连本机：请改为“仅 DNS”（灰色云朵）并指向本机 IP。",
 	"dns_guide_unknown_value":             "填写实际公网 IP",
 	"dns_guide_ptr":                       "请在 VPS 或公网 IP 服务商面板中，将公网 IP 的 PTR（反向 DNS）设为 %s；不要在正向域名区域添加。",
 	"dns_guide_proxy":                     "在 %s 的 DNS 服务商面板中：类型选 A，主机记录填 %s，记录值填反代服务器的公网 IPv4；仅检查是否存在 A 记录。",

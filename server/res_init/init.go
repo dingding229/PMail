@@ -4,6 +4,7 @@ import (
 	stdcontext "context"
 	"crypto/tls"
 	"net/textproto"
+	"slices"
 	"time"
 
 	"github.com/Jinnrry/pmail/config"
@@ -54,6 +55,9 @@ func Init(serverVersion string) {
 			log.Fatal("Database DSN must be configured; check config.json and PMAIL_* settings")
 		}
 		if err := db.InitStartup(serverVersion, true); err != nil {
+			panic(err)
+		}
+		if err := ensureMailDomain(serverVersion); err != nil {
 			panic(err)
 		}
 		if !config.IsInit {
@@ -233,4 +237,43 @@ func startTLSListeners(cert tls.Certificate) {
 	pop3_server.StartWithTls(cert)
 	imap_server.StarTLS(cert)
 	imap_server.StartSTARTTLS(cert)
+}
+
+// ensureMailDomain lets PMail start without PMAIL_DOMAIN. An existing
+// database keeps its default domain; a fresh install waits on the first-run
+// page until an administrator with the registration key enters the domain.
+func ensureMailDomain(serverVersion string) error {
+	if config.Instance.Domain != "" {
+		return nil
+	}
+	var row models.Domain
+	found, err := db.Instance.Desc("is_default").Asc("id").Get(&row)
+	if err != nil {
+		return err
+	}
+	if !found {
+		if err := http_server.DomainSetup(serverVersion, saveMailDomain); err != nil {
+			return err
+		}
+		return config.Init()
+	}
+	cfg := config.Instance
+	cfg.Domain = row.Name
+	if !slices.Contains(cfg.Domains, row.Name) {
+		cfg.Domains = append([]string{row.Name}, cfg.Domains...)
+	}
+	if cfg.WebDomain == "" {
+		cfg.WebDomain = "mail." + row.Name
+	}
+	return nil
+}
+
+func saveMailDomain(mailDomain, webDomain string) error {
+	stored, err := config.ReadConfig()
+	if err != nil {
+		return err
+	}
+	stored.Domain = mailDomain
+	stored.WebDomain = webDomain
+	return config.WriteConfig(stored)
 }

@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Check, Copy, Eye, EyeOff, KeyRound, Loader2, Terminal } from 'lucide-react'
+import { Check, Copy, Eye, EyeOff, Globe, KeyRound, Loader2, Terminal } from 'lucide-react'
 import { authApi } from '@/api'
 import { queryKeys, useBootstrapQuery } from '@/hooks/useMailQueries'
 import { formatRegistrationKey } from '@/lib/format'
@@ -14,6 +14,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { AuthLayout } from './AuthLayout'
+import { DOMAIN_PATTERN, guessMailDomain } from './mailDomain'
+
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
 
 function scorePassword(pwd: string): 0 | 1 | 2 | 3 | 4 {
   if (!pwd) return 0
@@ -30,6 +33,8 @@ export function RegisterPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data: bootstrap } = useBootstrapQuery()
+  const needDomain = bootstrap?.need_domain === true
+  const [applyingDomain, setApplyingDomain] = useState(false)
 
   const [showPwd, setShowPwd] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
@@ -40,6 +45,7 @@ export function RegisterPage() {
     () =>
       z
         .object({
+          mail_domain: z.string().trim().toLowerCase(),
           registration_key: z
             .string()
             .trim()
@@ -64,8 +70,16 @@ export function RegisterPage() {
         .refine((vals) => vals.password === vals.confirm_password, {
           path: ['confirm_password'],
           message: t('auth.validation.passwordMismatch'),
+        })
+        .refine((vals) => !needDomain || vals.mail_domain.length > 0, {
+          path: ['mail_domain'],
+          message: t('auth.validation.domainRequired'),
+        })
+        .refine((vals) => !needDomain || vals.mail_domain.length === 0 || DOMAIN_PATTERN.test(vals.mail_domain), {
+          path: ['mail_domain'],
+          message: t('auth.validation.domainFormat'),
         }),
-    [t],
+    [t, needDomain],
   )
 
   type RegisterFormValues = z.infer<typeof schema>
@@ -79,6 +93,7 @@ export function RegisterPage() {
   } = useForm<RegisterFormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
+      mail_domain: guessMailDomain(typeof window === 'undefined' ? '' : window.location.hostname),
       registration_key: '',
       account: 'admin',
       display_name: '',
@@ -89,7 +104,8 @@ export function RegisterPage() {
 
   const pwdValue = watch('password')
   const pwdScore = scorePassword(pwdValue)
-  const primaryDomain = bootstrap?.primary_domain
+  const typedDomain = watch('mail_domain')
+  const primaryDomain = needDomain ? typedDomain?.trim().toLowerCase() : bootstrap?.primary_domain
 
   const commandText = t('auth.registerKeyCommand')
 
@@ -107,6 +123,27 @@ export function RegisterPage() {
   const onSubmit = async (values: RegisterFormValues) => {
     setServerError(null)
     try {
+      if (needDomain) {
+        await authApi.setupDomain({
+          registration_key: values.registration_key,
+          domain: values.mail_domain,
+        })
+        // PMail now finishes starting with the new domain; wait until it is back.
+        setApplyingDomain(true)
+        let ready = false
+        for (let i = 0; i < 60 && !ready; i++) {
+          await sleep(1000)
+          try {
+            const next = await authApi.bootstrap()
+            ready = next.need_domain !== true
+            if (ready) queryClient.setQueryData(queryKeys.bootstrap, next)
+          } catch {
+            // The server is restarting its listeners.
+          }
+        }
+        setApplyingDomain(false)
+        if (!ready) throw new Error(t('auth.errors.domainSetupTimeout'))
+      }
       await authApi.register({
         registration_key: values.registration_key,
         account: values.account.toLowerCase(),
@@ -118,6 +155,7 @@ export function RegisterPage() {
       await queryClient.invalidateQueries({ queryKey: queryKeys.userMe })
       navigate('/mail/inbox', { replace: true })
     } catch (err) {
+      setApplyingDomain(false)
       const msg = err instanceof Error ? err.message : t('common.unknownError')
       setServerError(msg)
       toast.error(msg)
@@ -185,6 +223,28 @@ export function RegisterPage() {
       )}
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+        {needDomain && (
+          <div className="space-y-1.5">
+            <Label htmlFor="mail_domain">{t('auth.mailDomainLabel')}</Label>
+            <div className="relative">
+              <Globe className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ink-muted)]" />
+              <Input
+                id="mail_domain"
+                {...register('mail_domain')}
+                placeholder="example.com"
+                autoComplete="off"
+                spellCheck={false}
+                className="pl-9"
+              />
+            </div>
+            {errors.mail_domain ? (
+              <p className="text-[12px] text-[var(--danger)]">{errors.mail_domain.message}</p>
+            ) : (
+              <p className="text-[11.5px] leading-relaxed text-[var(--ink-muted)]">{t('auth.mailDomainHint')}</p>
+            )}
+          </div>
+        )}
+
         {/* Registration Key */}
         <div className="space-y-1.5">
           <Label htmlFor="registration_key">{t('auth.registerKeyLabel')}</Label>
@@ -320,7 +380,11 @@ export function RegisterPage() {
 
         <Button type="submit" size="lg" className="mt-2 w-full" disabled={isSubmitting}>
           {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-          {isSubmitting ? t('auth.registering') : t('auth.registerSubmit')}
+          {applyingDomain
+            ? t('auth.applyingDomain')
+            : isSubmitting
+              ? t('auth.registering')
+              : t('auth.registerSubmit')}
         </Button>
       </form>
     </AuthLayout>

@@ -627,7 +627,7 @@ export function DnsWizardModal({
                             {rec.host || '@'}
                           </span>
                         </div>
-                        {rec.status !== 'ok' && rec.fix_hint && (
+                        {rec.fix_hint && (
                           <p className="text-[12px] text-[var(--ink-secondary)]">{rec.fix_hint}</p>
                         )}
                       </div>

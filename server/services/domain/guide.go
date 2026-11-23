@@ -305,9 +305,22 @@ func checkGuideRecord(ctx context.Context, r guideResolver, rec *GuideRecord, do
 	case "MX":
 		var found []*net.MX
 		found, err = r.LookupMX(ctx, name)
+		foreign := false
 		for _, mx := range found {
 			rec.Actual = append(rec.Actual, fmt.Sprintf("%d %s", mx.Pref, mx.Host))
-			match = match || (*rec.Priority == mx.Pref && fqdn(mx.Host) == rec.Value)
+			if *rec.Priority == mx.Pref && fqdn(mx.Host) == rec.Value {
+				match = true
+				continue
+			}
+			// Any host name is fine as long as it resolves to this server
+			// (e.g. a provider-generated alias); hosts elsewhere can receive
+			// mail instead of PMail when this server is briefly unreachable.
+			here, known := mxPointsHere(ctx, r, mx.Host, v4, v6)
+			match = match || here
+			foreign = foreign || (known && !here)
+		}
+		if foreign {
+			rec.hint = "dns_guide_mx_foreign"
 		}
 	case "CNAME":
 		var found string
@@ -408,6 +421,9 @@ func checkGuideRecord(ctx context.Context, r guideResolver, rec *GuideRecord, do
 	default:
 		rec.Status = "mismatch"
 	}
+	if rec.hint == "" && rec.Status == "mismatch" && len(rec.Actual) > 0 && mailHostRecord(rec.Key) {
+		rec.hint = "dns_guide_mail_proxied"
+	}
 	if rec.hint == "" && (rec.Status == "missing" || rec.Status == "mismatch") {
 		rec.hint = "dns_guide_check_panel"
 	}
@@ -503,4 +519,39 @@ func renderZone(guide DNSGuide, lang string) string {
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+// Resolver returns the resolver PMail uses for its own DNS checks
+// (PMAIL_DNS_RESOLVER when set, otherwise the system resolver).
+func Resolver() (*net.Resolver, error) {
+	return resolverFor(strings.TrimSpace(os.Getenv("PMAIL_DNS_RESOLVER")))
+}
+
+// mxPointsHere resolves an MX host. known is false when the server address or
+// the host's addresses are unknown, so nothing can be concluded.
+func mxPointsHere(ctx context.Context, r guideResolver, host string, v4, v6 netip.Addr) (here, known bool) {
+	if !v4.IsValid() && !v6.IsValid() {
+		return false, false
+	}
+	found, err := r.LookupNetIP(ctx, "ip", fqdn(host))
+	if err != nil || len(found) == 0 {
+		return false, false
+	}
+	for _, addr := range found {
+		addr = addr.Unmap()
+		if addr == v4 || addr == v6 {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+// mailHostRecord marks records that SMTP/IMAP/POP3 clients and ACME HTTP-01
+// connect to directly; a CDN proxy in front of them breaks mail and TLS.
+func mailHostRecord(key string) bool {
+	switch key {
+	case "mail_a", "mail_aaaa", "imap_alias", "pop_alias":
+		return true
+	}
+	return false
 }

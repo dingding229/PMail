@@ -1,5 +1,27 @@
 # 更新日志
 
+## 0.0.3
+
+### 更简单的安装
+
+1. **不用填写任何配置。** 下载 `docker-compose.yml` 后直接 `docker compose up -d`。首次打开网页时填写邮件域名、注册密钥和管理员账号即可。`PMAIL_DOMAIN` 等变量改为可选，需要时写入 `.env`。
+2. **精简 `docker-compose.yml`。** 去掉了大量变量透传，端口直接写明；可选设置通过同目录 `.env` 自动读取。
+3. **README 重写**，只保留安装、DNS、客户端、升级和常见问题；备份恢复、可选配置等移到 `docs/ADVANCED.md`。
+4. **反向代理免配置。** 容器内默认信任 Docker 私有网段，用 NPM 或宿主机 Nginx 时不再需要设置 `PMAIL_TRUSTED_PROXIES`。直连公网模式仍默认不信任。
+5. **一键更新简化。** 设置 `PMAIL_UPDATER_TOKEN` 即启用，不再需要 `PMAIL_UPDATER_ENABLED=1`。
+
+### 修复与改进
+
+1. **证书申请不再被一个域名拖垮。** 以前只要 smtp、imap、pop 中有一个名称没指向本机（例如开了 Cloudflare 代理），整张证书都申请失败，所有邮件端口都没有 TLS。现在只为 DNS 已指向本机的名称申请，跳过的名称写入日志，DNS 改好后自动补上。
+2. **DNS 向导更准确。** MX 指向本机的任意主机名都视为正确；额外的、不指向本机的 MX（如 Cloudflare Email Routing）会给出提示；邮件主机被 CDN 代理时提示改为“仅 DNS”。提示在记录状态正常时也会显示。
+3. **出站 25 端口被封时给出提示。** 投递超时会在发件队列和日志中说明“服务商可能封锁了出站 25 端口”。
+4. **反代配置错误时给出提示。** 写请求因来源校验被拒时，日志会说明反代地址和需要设置的 `PMAIL_TRUSTED_PROXIES`。
+
+### 升级说明
+
+- 旧 `.env` 中的 `PMAIL_DOMAIN` 等设置继续有效。新 `docker-compose.yml` 不再读取 `PMAIL_IMAGE`、`PMAIL_WEB_BIND`、`PMAIL_HOST_*_PORT`、`PMAIL_PROJECT_NAME`；如果改过这些，请直接修改 `docker-compose.yml`。项目名仍为 `pmail`，数据卷不变。
+- 删除了 `deploy/deploy.sh` 及仓库中仅供开发的示例密钥和配置文件。
+
 ## 0.0.2
 
 ### 修复

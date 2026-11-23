@@ -262,3 +262,17 @@ func writeNotice(w io.Writer, key, target string, printKey bool) {
 		fmt.Fprintf(w, "注册密钥 / Registration key: %s\n", key)
 	}
 }
+
+// VerifyKey checks a supplied first-run registration key in constant time
+// without consuming it (used before the mail domain is configured).
+func VerifyKey(supplied string) error {
+	key, err := config.ReadRegistrationKey()
+	if err != nil {
+		return err
+	}
+	want, got := sha256.Sum256([]byte(key)), sha256.Sum256([]byte(strings.TrimSpace(supplied)))
+	if subtle.ConstantTimeCompare(want[:], got[:]) != 1 {
+		return ErrInvalidKey
+	}
+	return nil
+}

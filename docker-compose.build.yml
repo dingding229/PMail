@@ -1,14 +1,13 @@
-# 仅供有源码的部署或开发环境显式加载。init-secrets 共用 pmail 镜像，updater 单独构建。
-x-pmail-image: &pmail-image ${PMAIL_IMAGE:-pmail-${PMAIL_PROJECT_NAME:-pmail}:local}
+# 开发用：从源码构建镜像。docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 services:
   pmail:
-    image: *pmail-image
+    image: pmail-pro:local
     build:
       context: .
   init-secrets:
-    image: *pmail-image
+    image: pmail-pro:local
   updater:
-    image: ${PMAIL_UPDATER_IMAGE:-pmail-updater:local}
+    image: pmail-pro-updater:local
     build:
       context: .
       dockerfile: Dockerfile.updater

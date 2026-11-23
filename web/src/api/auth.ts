@@ -14,6 +14,10 @@ export const authApi = {
   register: (payload: RegisterRequest) =>
     apiPost<AuthSessionUser>('/api/register', payload, { skipAuthRedirect: true }),
 
+  /** First-run only: set the primary mail domain with the registration key. */
+  setupDomain: (payload: { registration_key: string; domain: string }) =>
+    apiPost<string>('/api/setup/domain', payload, { skipAuthRedirect: true }),
+
   login: (payload: LoginRequest) =>
     apiPost<AuthSessionUser>('/api/login', payload, { skipAuthRedirect: true }),
 
