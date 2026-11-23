@@ -1,5 +1,7 @@
 /* PMail Pro Design System Tokens */
 :root {
+  color-scheme: light;
+
   /* Typography */
   --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
     "Microsoft YaHei", "Noto Sans SC", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;

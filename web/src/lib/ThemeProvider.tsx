@@ -29,6 +29,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement
     const nextDark = resolved === 'dark'
     const prevDark = root.classList.contains('dark')
+    root.style.colorScheme = resolved
+    let colorSchemeMeta = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]')
+    if (!colorSchemeMeta) {
+      colorSchemeMeta = document.createElement('meta')
+      colorSchemeMeta.name = 'color-scheme'
+      document.head.appendChild(colorSchemeMeta)
+    }
+    colorSchemeMeta.content = resolved
+
     if (prevDark !== nextDark) {
       root.classList.add('theme-switching')
       root.classList.toggle('dark', nextDark)

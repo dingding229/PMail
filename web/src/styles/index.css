@@ -38,6 +38,36 @@
     background-color: var(--accent-soft);
     color: var(--ink-primary);
   }
+
+  /* Ensure native controls (time/date pickers, select popups, range sliders, scrollbars) follow theme */
+  select,
+  option,
+  optgroup {
+    background-color: var(--surface-canvas);
+    color: var(--ink-primary);
+  }
+
+  input[type='time'],
+  input[type='date'],
+  input[type='datetime-local'],
+  input[type='range'],
+  select {
+    color-scheme: inherit;
+  }
+
+  input[type='time']::-webkit-calendar-picker-indicator,
+  input[type='date']::-webkit-calendar-picker-indicator,
+  input[type='datetime-local']::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.8;
+    transition: opacity var(--duration-fast) var(--ease-standard);
+  }
+
+  input[type='time']::-webkit-calendar-picker-indicator:hover,
+  input[type='date']::-webkit-calendar-picker-indicator:hover,
+  input[type='datetime-local']::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+  }
 }
 
 /* Subtle custom scrollbars for mail panes */
