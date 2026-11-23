@@ -116,7 +116,7 @@ docker compose up -d
 `smtp`、`imap`、`pop` 的 DNS 要直接指向服务器。执行 `docker compose logs pmail | grep -i certificate`，日志会说明哪个名字没有指向本机。
 
 **点退出登录没反应，或者操作时提示“请求来源被拒绝”**
-反代需保留 `Host` 并覆盖 `X-Forwarded-Proto`。容器反代模式默认仅信任 `172.16.0.0/12`；其他地址可按日志提示显式设置 `PMAIL_TRUSTED_PROXIES`。默认网页上游只绑定 Docker 网桥，同一 Docker 主机上能访问上游的不可信容器仍可伪造转发头；共享宿主机时请仅信任实际代理地址（`/32` 或 `/128`），且不要公开该上游端口。
+反代需保留 `Host` 并覆盖 `X-Forwarded-Proto`。Cloudflare 的“灵活（Flexible）”和“完全（严格）”均支持，推荐“完全（严格）”；使用“灵活”时，请关闭源站反代的强制 HTTPS 跳转。容器反代模式默认仅信任 `172.16.0.0/12`；其他地址可按日志提示显式设置 `PMAIL_TRUSTED_PROXIES`。默认网页上游只绑定 Docker 网桥，同一 Docker 主机上能访问上游的不可信容器仍可伪造转发头；共享宿主机时请仅信任实际代理地址（`/32` 或 `/128`），且不要公开该上游端口。
 
 **发出的信进了垃圾箱**
 用 DNS 向导检查 SPF、DKIM、DMARC 是否都已生效，并设置 PTR。

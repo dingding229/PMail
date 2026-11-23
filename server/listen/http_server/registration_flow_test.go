@@ -1,5 +1,3 @@
-//go:build integration
-
 package http_server
 
 import (
@@ -22,13 +20,20 @@ import (
 	"github.com/Jinnrry/pmail/session"
 )
 
-// Exercise the HTTP router, persistent session store and a separate empty DB.
-// TestMaster's explicitly bootstrapped integration DB is not reused here.
 func TestRegistrationKeyHTTPFlow(t *testing.T) {
+	t.Run("direct", func(t *testing.T) { checkRegistrationKeyHTTPFlow(t, false) })
+	t.Run("trusted flexible proxy", func(t *testing.T) { checkRegistrationKeyHTTPFlow(t, true) })
+}
+
+// Exercise the HTTP router and persistent session store in an empty local SQLite DB.
+func checkRegistrationKeyHTTPFlow(t *testing.T, flexible bool) {
+	t.Helper()
 	root := t.TempDir()
 	t.Setenv("PMAIL_ADMIN_PASSWORD", "")
 	t.Setenv("PMAIL_WEB_ROOT", filepath.Join(root, "web"))
 	t.Setenv("PMAIL_DEFAULT_LANG", "zh-CN")
+	t.Setenv("PMAIL_TRUSTED_PROXIES", "172.24.0.2/32")
+	clientIP := setupTestIP()
 	cfg := &config.Config{DbType: config.DBTypeSQLite, DbDSN: filepath.Join(root, "registration.db"), Domain: "registration.test", WebDomain: "mail.registration.test"}
 	engine, err := db.Open(cfg, false)
 	if err != nil {
@@ -79,12 +84,20 @@ func TestRegistrationKeyHTTPFlow(t *testing.T) {
 		if body != nil {
 			payload, _ = json.Marshal(body)
 		}
-		r := httptest.NewRequest(method, path, bytes.NewReader(payload))
+		r := httptest.NewRequest(method, "http://"+cfg.WebDomain+path, bytes.NewReader(payload))
+		r.RemoteAddr = clientIP + ":50000"
+		scheme := "http"
+		if flexible {
+			r.RemoteAddr = "172.24.0.2:50000"
+			r.Header.Set("X-Forwarded-For", clientIP)
+			r.Header.Set("X-Forwarded-Proto", "http")
+			scheme = "https"
+		}
 		if body != nil {
 			r.Header.Set("Content-Type", "application/json")
 		}
 		if method == http.MethodPost {
-			r.Header.Set("Origin", "http://"+r.Host)
+			r.Header.Set("Origin", scheme+"://"+r.Host)
 		}
 		for _, c := range cookies {
 			r.AddCookie(c)
@@ -141,6 +154,20 @@ func TestRegistrationKeyHTTPFlow(t *testing.T) {
 	}
 	requireEnvelope(call(http.MethodPost, "/api/user/info", nil, cookies...), 200, 0)
 	requireBoot(false, true, cookies...)
+	if flexible {
+		if cookies[0].Secure {
+			t.Fatal("Flexible origin compatibility must not set Secure on an HTTP upstream")
+		}
+		requireEnvelope(call(http.MethodPost, "/api/logout", nil, cookies...), 200, 0)
+		requireBoot(false, false, cookies...)
+		login := call(http.MethodPost, "/api/login", map[string]string{"account": "owner", "password": "registration-password"})
+		requireEnvelope(login, 200, 0)
+		loginCookies := login.Result().Cookies()
+		if len(loginCookies) != 1 || loginCookies[0].Secure {
+			t.Fatalf("login cookie flags changed on Flexible: %v", loginCookies)
+		}
+		requireBoot(false, true, loginCookies...)
+	}
 	if _, err := config.ReadRegistrationKey(); !os.IsNotExist(err) {
 		t.Fatalf("registration key still accessible: %v", err)
 	}

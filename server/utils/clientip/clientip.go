@@ -77,6 +77,12 @@ func Source(r *http.Request) string {
 	return addr.String()
 }
 
+// ViaTrustedProxy reports whether the socket peer is trusted and supplied
+// X-Forwarded-Proto. It does not assert that the request used HTTPS.
+func ViaTrustedProxy(r *http.Request) bool {
+	return len(r.Header.Values("X-Forwarded-Proto")) != 0 && trusted(peer(r.RemoteAddr), proxies())
+}
+
 func HTTPS(r *http.Request) bool {
 	if r.TLS != nil {
 		return true

@@ -59,7 +59,17 @@ func sameOrigin(r *http.Request) bool {
 		}
 		return "80"
 	}
-	return u.Scheme == scheme && strings.EqualFold(u.Hostname(), host.Hostname()) && port(u) == port(host)
+	if !strings.EqualFold(u.Hostname(), host.Hostname()) {
+		return false
+	}
+	originPort, requestPort := port(u), port(host)
+	if u.Scheme == scheme && originPort == requestPort {
+		return true
+	}
+	// A trusted reverse proxy may see plaintext HTTP when the browser used
+	// HTTPS (for example, Cloudflare Flexible). Allow only the default-port
+	// pair in this direction; do not treat the request itself as HTTPS.
+	return u.Scheme == "https" && scheme == "http" && originPort == "443" && requestPort == "80" && clientip.ViaTrustedProxy(r)
 }
 
 var proxyHint struct {

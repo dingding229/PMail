@@ -114,6 +114,8 @@ HTTP-01 邮件证书要求公网 80 端口的 `/.well-known/acme-challenge/` 通
 
 若用的是宿主机上的普通 Nginx，上游填 `172.17.0.1:8080`。以下配置只转发邮件域名的挑战请求，网页证书及续期由你管理。替换证书文件路径；若你的网页证书也使用 HTTP-01，请单独为 `mail.example.com` 配置自己的验证处理。
 
+Cloudflare 的“灵活（Flexible）”和“完全（严格）”均支持，推荐“完全（严格）”。使用“灵活”时，受信代理应在 HTTP 上直接转发网页流量（保留原 `Host`，由代理覆盖 `X-Forwarded-Proto`），关闭 NPM 的 Force SSL，不要使用下方网页虚拟主机的 HTTP → HTTPS 重定向；PMail 应使用反代模式（需显式设置时用 `PMAIL_WEB_MODE=proxy`），不在源站强制跳转。灵活模式回源不加密，且当代理转发 `X-Forwarded-Proto: http` 时 PMail 不会标记 `Secure` Cookie。
+
 ```nginx
 server {
     listen 80;
