@@ -33,7 +33,9 @@ export async function waitForDomainSetup(
     } finally {
       clearTimeout(timer)
     }
-    const delay = Math.min(intervalMs, deadline - performance.now())
-    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+    // Do not start a final request if the normal poll interval would
+    // take us past the deadline (timers can wake slightly early).
+    if (intervalMs >= deadline - performance.now()) break
+    if (intervalMs > 0) await new Promise((resolve) => setTimeout(resolve, intervalMs))
   }
 }
