@@ -1,7 +1,10 @@
 FROM golang:1.27.4-alpine3.24@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS build
-WORKDIR /src
-COPY server/cmd/pmail-updater/ ./
-RUN CGO_ENABLED=0 GO111MODULE=off go build -trimpath -ldflags '-s -w' -o /pmail-updater .
+WORKDIR /src/server
+# The module's Go version enables the method/wildcard ServeMux routes.
+COPY server/go.mod server/go.sum ./
+COPY server/cmd/pmail-updater/ ./cmd/pmail-updater/
+# No third-party package is needed by this command.
+RUN GOPROXY=off CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o /pmail-updater ./cmd/pmail-updater
 
 # Docker's stable 29.10.0 CLI ships the Compose plugin (not the daemon).
 FROM docker:29.10.0-cli@sha256:34507eb5069d8be82c95dd3b6987d4250fd5fee49b82e2509b7d7a7030740d6d

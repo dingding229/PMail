@@ -17,21 +17,31 @@ func TestOnlyFixedPMailCommandsAndDurableJob(t *testing.T) {
 	calls := make(chan []string, 2)
 	s := &service{stateDir: t.TempDir(), project: "fixture", token: key(token), run: func(_ context.Context, args ...string) error { calls <- args; return nil }}
 	m := s.handler()
-	call := func(method, path string, auth bool) *httptest.ResponseRecorder {
+	call := func(method, path, bearer string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, nil)
-		if auth {
-			r.Header.Set("Authorization", "Bearer "+token)
+		if bearer != "" {
+			r.Header.Set("Authorization", "Bearer "+bearer)
 		}
 		w := httptest.NewRecorder()
 		m.ServeHTTP(w, r)
 		return w
 	}
-	if w := call(http.MethodPost, "/jobs", false); w.Code != 401 {
-		t.Fatal(w.Code)
+	for _, tc := range []struct {
+		method, path, bearer string
+		want                 int
+	}{
+		{http.MethodPost, "/jobs", "", http.StatusUnauthorized},
+		{http.MethodPost, "/jobs", "wrong-fixture-token", http.StatusUnauthorized},
+		{http.MethodGet, "/jobs", token, http.StatusMethodNotAllowed},
+		{http.MethodPost, "/jobs/11111111111111111111111111111111", token, http.StatusMethodNotAllowed},
+	} {
+		if w := call(tc.method, tc.path, tc.bearer); w.Code != tc.want {
+			t.Fatalf("%s %s: got %d, want %d: %s", tc.method, tc.path, w.Code, tc.want, w.Body)
+		}
 	}
-	w := call(http.MethodPost, "/jobs", true)
+	w := call(http.MethodPost, "/jobs", token)
 	var body map[string]string
-	if w.Code != 202 || json.Unmarshal(w.Body.Bytes(), &body) != nil || !idRE.MatchString(body["job_id"]) {
+	if w.Code != http.StatusAccepted || json.Unmarshal(w.Body.Bytes(), &body) != nil || !idRE.MatchString(body["job_id"]) {
 		t.Fatalf("create %d %s", w.Code, w.Body.String())
 	}
 	for _, expected := range [][]string{{"pull", "--policy", "always", "pmail"}, {"up", "-d", "--no-deps", "--no-build", "--wait", "--wait-timeout", "120", "pmail"}} {
@@ -45,15 +55,19 @@ func TestOnlyFixedPMailCommandsAndDurableJob(t *testing.T) {
 		}
 	}
 	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		j, _ := s.read(body["job_id"])
+	for {
+		w := call(http.MethodGet, "/jobs/"+body["job_id"], token)
+		var j job
+		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &j) != nil {
+			t.Fatalf("get job: %d %s", w.Code, w.Body)
+		}
 		if j.State == "done" {
 			break
 		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job did not finish: %s", w.Body)
+		}
 		time.Sleep(time.Millisecond)
-	}
-	if j, err := s.read(body["job_id"]); err != nil || j.State != "done" {
-		t.Fatalf("state %+v %v", j, err)
 	}
 	id := "11111111111111111111111111111111"
 	if err := s.save(id, "restarting", ""); err != nil {

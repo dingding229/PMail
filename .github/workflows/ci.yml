@@ -38,6 +38,16 @@ jobs:
         working-directory: server
         run: go test ./...
 
+  updater-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production updater image without publishing
+        run: docker build --platform linux/amd64 -f Dockerfile.updater -t pmail-c11-updater:ci .
+      - name: Verify authenticated job route in the image
+        run: bash deploy/smoke-updater.sh pmail-c11-updater:ci pmail-c11-updater-ci
+
   static-analysis:
     runs-on: ubuntu-latest
     defaults:
