@@ -137,3 +137,33 @@ func TestVerificationSourcesConfidenceAndQuotedHTML(t *testing.T) {
 		t.Fatalf("body cutoff: %+v", got)
 	}
 }
+
+func TestVerificationCandidateRanking(t *testing.T) {
+	for _, tc := range []struct{ name, subject, body, want, source string }{
+		{"TB18 subject prefix", "TB18 验证码样例", "登录验证码：\n123456", "123456", "body"},
+		{"ABC1 subject prefix", "ABC1 验证码", "登录验证码：\n123456", "123456", "body"},
+		{"numeric body with subject label only", "ABC1 验证码", "123456", "123456", "body"},
+		{"numeric subject code without body", "Your code is 482913", "", "482913", "subject"},
+		{"numeric subject code with instructions", "Your code is 482913", "Do not share this code.", "482913", "subject"},
+		{"mixed subject code with instructions", "验证码 A1B2C3", "请勿透露给他人。", "A1B2C3", "subject"},
+		{"year is not a code", "订单 2024 验证码", "", "", ""},
+		{"order identifier is not a code", "Order #A12345 verification code", "Your code: 778899", "778899", "body"},
+		{"body after keyword outranks numeric subject prefix", "876543 验证码", "登录验证码是本次账户登录时需要输入的动态凭证 123456", "123456", "body"},
+		{"mixed subject code gets less weight with numeric body code", "验证码：A1B2C3", "Your code: 778899", "778899", "body"},
+		{"mixed body code gets less weight with numeric body code", "", "验证码：A1B2C3。\n真正的验证码为 123456", "123456", "body"},
+		{"subject code before label remains eligible", "872301 is your passcode", "", "872301", "subject"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := recognizeCode(&parsemail.Email{Subject: tc.subject, Text: []byte(tc.body)})
+			if tc.want == "" {
+				if got != nil {
+					t.Fatalf("got %+v, want no code", got)
+				}
+				return
+			}
+			if got == nil || got.Code != tc.want || got.Source != tc.source {
+				t.Fatalf("got %+v, want %s from %s", got, tc.want, tc.source)
+			}
+		})
+	}
+}
