@@ -61,6 +61,9 @@ func registerAppRoutes(mux *http.ServeMux, version string) {
 	}
 	mux.HandleFunc("GET /api/admin/inbound", contextIterceptor(controllers.InboundSettings))
 	mux.HandleFunc("PUT /api/admin/inbound", contextIterceptor(controllers.InboundSettings))
+	mux.HandleFunc("GET /api/admin/inbound/clamav", contextIterceptor(controllers.ClamAVSettings))
+	mux.HandleFunc("PUT /api/admin/inbound/clamav", contextIterceptor(controllers.ClamAVSettings))
+	mux.HandleFunc("POST /api/admin/inbound/clamav/update", contextIterceptor(controllers.ClamAVUpdate))
 
 	mux.HandleFunc("POST /api/email/draft/save", contextIterceptor(email.SaveDraft))
 	mux.HandleFunc("POST /api/email/draft/delete", contextIterceptor(email.DeleteDraft))

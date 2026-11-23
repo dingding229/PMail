@@ -235,11 +235,22 @@ export interface InboundSettings {
   dnsbl_enabled: boolean
   dnsbl_zones: string[]
   default_spam_threshold: number
-  clamd_enabled: boolean
-  clamd_addr: string
   risk_block_dangerous_attachments: boolean
   catch_all: { enabled: boolean; env_controlled: boolean; recipient_id: number }
   catch_all_recipients: { id: number; account: string; name: string }[]
+}
+
+export interface ClamAVStatus {
+  enabled: boolean
+  env_controlled: boolean
+  state: 'disabled' | 'starting' | 'downloading' | 'running' | 'error' | 'stopping'
+  updating: boolean
+  database: { version: number; updated_at: string } | null
+  last_update: { status: 'success' | 'failed'; at: string } | null
+  scanned: number
+  blocked: number
+  available_memory_bytes?: number
+  memory_warning: boolean
 }
 
 export type InboundSettingsUpdate = Omit<InboundSettings, 'catch_all' | 'catch_all_recipients'> & {
@@ -414,6 +425,7 @@ export interface EmailDetail {
   auth_results?: MailAuthResults | null
   spam?: MailSpamAssessment | null
   risk?: MailRiskAssessment
+  antivirus?: { status: 'clean' | 'not_scanned'; reason?: string }
   verification_code?: MailVerificationCode | null
   status: number
   cron_send_time?: string

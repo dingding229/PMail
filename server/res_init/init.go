@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net/textproto"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/Jinnrry/pmail/listen/smtp_server"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/antivirus"
 	"github.com/Jinnrry/pmail/services/compose"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/inbound"
@@ -153,6 +155,12 @@ func Init(serverVersion string) {
 			}
 		}
 
+		ctx, stopScheduler := stdcontext.WithCancel(stdcontext.Background())
+		clamavEnabled, _, err := inbound.ClamAVPolicy(ctx)
+		if err != nil {
+			log.Warnf("ClamAV settings unavailable; scanner disabled: %v", err)
+		}
+		antivirusDone := antivirus.Start(ctx, filepath.Join(config.ROOT_PATH, "config", "clamav"), clamavEnabled)
 		httpsReady := cert != nil && http_server.HttpsStart(*cert, serverVersion)
 		// Bind HTTP before starting the scheduler so HTTP-01 can answer immediately.
 		http_server.HttpStart(httpsReady, serverVersion)
@@ -160,7 +168,6 @@ func Init(serverVersion string) {
 		if cert != nil {
 			startTLSListeners(*cert)
 		}
-		ctx, stopScheduler := stdcontext.WithCancel(stdcontext.Background())
 		registration.StartNotices(ctx, cfg.WebDomain)
 		inbound.SetNotifier(telegram.Notify)
 		c9Workers := []<-chan struct{}{telegram.Start(ctx), compose.Start(ctx), update.Start(ctx, serverVersion), update.StartHealth(ctx, cfg.HttpPort)}
@@ -186,6 +193,7 @@ func Init(serverVersion string) {
 			log.Info("Server stopping")
 		}
 		stopScheduler()
+		<-antivirusDone // both foreground processes have exited and been reaped
 		smtp_server.Stop()
 		http_server.HttpsStop()
 		http_server.HttpStop()

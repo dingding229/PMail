@@ -33,7 +33,7 @@ COPY --from=frontend /build/web/dist/ /web/
 
 FROM alpine:3.24.4
 WORKDIR /work
-RUN apk add --no-cache ca-certificates tzdata \
+RUN apk add --no-cache ca-certificates tzdata clamav clamav-daemon clamav-libunrar freshclam \
     && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && echo Asia/Shanghai > /etc/timezone \
     && mkdir -m 700 /work/config

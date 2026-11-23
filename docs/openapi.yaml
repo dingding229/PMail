@@ -3112,8 +3112,6 @@ paths:
                       dnsbl_enabled: false
                       dnsbl_zones: []
                       default_spam_threshold: 6
-                      clamd_enabled: false
-                      clamd_addr: ''
                       risk_block_dangerous_attachments: true
         '401':
           $ref: '#/components/responses/C8InboundLoginRequired'
@@ -3130,7 +3128,6 @@ paths:
       parameters:
       - $ref: '#/components/parameters/PMailLang'
       - $ref: '#/components/parameters/AcceptLanguage'
-      description: clamd_addr is an administrator-configured trusted scanner endpoint, not a per-user destination.
       requestBody:
         required: true
         content:
@@ -3143,8 +3140,6 @@ paths:
                   dnsbl_enabled: false
                   dnsbl_zones: []
                   default_spam_threshold: 6
-                  clamd_enabled: false
-                  clamd_addr: ''
                   risk_block_dangerous_attachments: true
       x-i18n-error-codes:
       - inbound_login_required
@@ -3182,8 +3177,6 @@ paths:
                       dnsbl_enabled: false
                       dnsbl_zones: []
                       default_spam_threshold: 6
-                      clamd_enabled: false
-                      clamd_addr: ''
                       risk_block_dangerous_attachments: true
         '400':
           $ref: '#/components/responses/C8InboundInvalidParameters'
@@ -3197,6 +3190,73 @@ paths:
           $ref: '#/components/responses/C8JsonMediaTypeRequired'
         '500':
           $ref: '#/components/responses/C8InboundInternalError'
+  /api/admin/inbound/clamav:
+    get:
+      operationId: getManagedClamAV
+      tags: [Inbound analysis]
+      summary: Get local ClamAV status, signature information and recent counts
+      x-permission: admin
+      responses:
+        '200':
+          description: Local ClamAV status.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClamAVStatusSuccess'}
+        '401': {$ref: '#/components/responses/C8InboundLoginRequired'}
+        '403': {$ref: '#/components/responses/C8InboundPermissionDenied'}
+        '500': {$ref: '#/components/responses/C8InboundInternalError'}
+    put:
+      operationId: setManagedClamAV
+      tags: [Inbound analysis]
+      summary: Enable or disable local ClamAV
+      description: The change is saved before workers start or stop asynchronously. PMAIL_CLAMAV may enforce a read-only switch.
+      x-permission: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: {type: boolean}
+      responses:
+        '200':
+          description: Scanner state after saving the desired setting.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClamAVStatusSuccess'}
+        '400': {$ref: '#/components/responses/C8InboundInvalidParameters'}
+        '401': {$ref: '#/components/responses/C8InboundLoginRequired'}
+        '403': {$ref: '#/components/responses/C8InboundPermissionDenied'}
+        '409': {description: The environment controls ClamAV.}
+        '415': {$ref: '#/components/responses/C8JsonMediaTypeRequired'}
+        '500': {$ref: '#/components/responses/C8InboundInternalError'}
+  /api/admin/inbound/clamav/update:
+    post:
+      operationId: requestManagedClamAVUpdate
+      tags: [Inbound analysis]
+      summary: Queue a signature update
+      x-permission: admin
+      responses:
+        '200':
+          description: The update was queued, not necessarily completed.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Envelope'}
+                  - type: object
+                    properties:
+                      errorNo: {const: 0}
+                      errorMsg: {const: ''}
+                      data:
+                        type: object
+                        properties:
+                          queued: {const: true}
+        '401': {$ref: '#/components/responses/C8InboundLoginRequired'}
+        '403': {$ref: '#/components/responses/C8InboundPermissionDenied'}
+        '409': {description: ClamAV is off or an update is already queued or running.}
   /api/admin/telegram:
     get:
       operationId: c9TelegramAdminGet
@@ -5480,14 +5540,41 @@ components:
           minLength: 1
           maxLength: 254
       additionalProperties: false
+    ClamAVStatusSuccess:
+      allOf:
+        - {$ref: '#/components/schemas/Envelope'}
+        - type: object
+          properties:
+            errorNo: {const: 0}
+            errorMsg: {const: ''}
+            data:
+              type: object
+              required: [enabled, env_controlled, state, updating, database, last_update, scanned, blocked, memory_warning]
+              properties:
+                enabled: {type: boolean}
+                env_controlled: {type: boolean}
+                state: {type: string, enum: [disabled, starting, downloading, running, stopping, error]}
+                updating: {type: boolean}
+                database:
+                  type: [object, 'null']
+                  properties:
+                    version: {type: integer}
+                    updated_at: {type: string, format: date-time}
+                last_update:
+                  type: [object, 'null']
+                  properties:
+                    status: {type: string, enum: [success, failed]}
+                    at: {type: string, format: date-time}
+                scanned: {type: integer, minimum: 0}
+                blocked: {type: integer, minimum: 0}
+                available_memory_bytes: {type: integer, minimum: 1}
+                memory_warning: {type: boolean}
     InboundSettings:
       type: object
       required:
       - dnsbl_enabled
       - dnsbl_zones
       - default_spam_threshold
-      - clamd_enabled
-      - clamd_addr
       - risk_block_dangerous_attachments
       properties:
         dnsbl_enabled:
@@ -5503,12 +5590,6 @@ components:
           minimum: 1
           maximum: 20
           default: 6
-        clamd_enabled:
-          type: boolean
-        clamd_addr:
-          type: string
-          maxLength: 255
-          description: Trusted scanner endpoint, as host:port or unix:/absolute/path. Required when enabled.
         risk_block_dangerous_attachments:
           type: boolean
           description: Additionally audit high-risk access attempts. Confirmation and preview rejection always apply.
@@ -5540,7 +5621,7 @@ components:
       type: object
       required: [code, message]
       properties:
-        code: {type: string, enum: [dnsbl_unavailable, dnsbl_resolver_refused, clamd_unavailable]}
+        code: {type: string, enum: [dnsbl_unavailable, dnsbl_resolver_refused]}
         zone: {type: string, description: DNSBL provider zone if applicable.}
         message: {type: string, description: Localized operational warning.}
       additionalProperties: false
@@ -6027,6 +6108,13 @@ components:
           oneOf:
           - $ref: '#/components/schemas/MailRiskAssessment'
           - type: 'null'
+        antivirus:
+          type: object
+          description: SMTP scan result when ClamAV was enabled. Rejected mail is not stored.
+          required: [status]
+          properties:
+            status: {type: string, enum: [clean, not_scanned]}
+            reason: {type: string}
         verification_code:
           oneOf:
           - $ref: '#/components/schemas/MailVerificationCode'

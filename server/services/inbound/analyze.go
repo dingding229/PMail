@@ -124,11 +124,6 @@ func analyzeShared(ctx context.Context, e *parsemail.Email, env Envelope, auth *
 			}()
 		}
 	}
-	malware := make(chan []malwareHit, 1)
-	scanPending := s.ClamdEnabled && acquireNetwork()
-	if scanPending {
-		go func() { defer releaseNetwork(); malware <- scanMailClamd(remote, s.ClamdAddr, e) }()
-	}
 	a := &Analysis{Version: 1, Risk: &Risk{Level: "none", Findings: []Finding{}}, Base: baseReasons(e, auth)}
 	scan := riskScan{a}
 	scan.text(ctx, clippedBytes(e.Text, maxScanBody), -1, 0)
@@ -146,27 +141,15 @@ func analyzeShared(ctx context.Context, e *parsemail.Email, env Envelope, auth *
 	}
 	a.VerificationCode = recognizeCode(e)
 	var zones []string
-	for pending > 0 || scanPending {
+	for pending > 0 {
 		select {
 		case reply := <-replies:
 			pending--
 			if reply.listed {
 				zones = append(zones, reply.zone)
 			}
-		case hits := <-malware:
-			scanPending = false
-			for _, h := range hits {
-				scan.add(h.code, "high", h.index, 0, "")
-			}
 		case <-remote.Done():
-			// Keep already completed findings even if the other optional check timed out.
-			select {
-			case hits := <-malware:
-				for _, h := range hits {
-					scan.add(h.code, "high", h.index, 0, "")
-				}
-			default:
-			}
+			// Keep DNS replies that were already queued at the deadline.
 			for {
 				select {
 				case reply := <-replies:
@@ -179,7 +162,6 @@ func analyzeShared(ctx context.Context, e *parsemail.Email, env Envelope, auth *
 			}
 		drained:
 			pending = 0
-			scanPending = false
 		}
 	}
 	if ctx.Err() != nil {

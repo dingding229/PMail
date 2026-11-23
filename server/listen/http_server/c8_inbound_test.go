@@ -69,9 +69,27 @@ func TestInboundHTTPSettingsRulesMailboxAndRiskGuards(t *testing.T) {
 	}
 	call(http.DefaultClient, "GET", "/api/settings/spam", "", 401, "inbound_login_required")
 	call(member, "GET", "/api/admin/inbound", "", 403, "inbound_permission_denied")
+	const clamavPath = "/api/admin/inbound/clamav"
+	t.Setenv("PMAIL_CLAMAV", "")
+	call(http.DefaultClient, "GET", clamavPath, "", 401, "inbound_login_required")
+	call(member, "GET", clamavPath, "", 403, "inbound_permission_denied")
+	call(member, "POST", clamavPath+"/update", `{}`, 403, "inbound_permission_denied")
+	if got := call(admin, "GET", clamavPath, "", 200, "")["data"].(map[string]any)["enabled"]; got != false {
+		t.Fatalf("ClamAV default enabled=%v", got)
+	}
+	call(admin, "POST", clamavPath+"/update", `{}`, 409, "clamav_disabled")
+	call(admin, "PUT", clamavPath, `{"enabled":true}`, 200, "")
+	t.Setenv("PMAIL_CLAMAV", "false")
+	got := call(admin, "GET", clamavPath, "", 200, "")["data"].(map[string]any)
+	if got["enabled"] != false || got["env_controlled"] != true {
+		t.Fatalf("ClamAV override: %+v", got)
+	}
+	call(admin, "PUT", clamavPath, `{"enabled":true}`, 409, "clamav_env_controlled")
+	t.Setenv("PMAIL_CLAMAV", "")
+	call(admin, "PUT", clamavPath, `{"enabled":false}`, 200, "")
 	call(member, "PUT", "/api/settings/spam", `{"enabled":true,"threshold":25,"bayes_enabled":true}`, 400, "inbound_invalid_parameters")
-	call(admin, "PUT", "/api/admin/inbound", `{"dnsbl_enabled":false,"dnsbl_zones":[],"default_spam_threshold":8,"clamd_enabled":false,"clamd_addr":"","risk_block_dangerous_attachments":true}`, 200, "")
-	call(admin, "PUT", "/api/admin/inbound", fmt.Sprintf(`{"dnsbl_enabled":false,"dnsbl_zones":[],"default_spam_threshold":8,"clamd_enabled":false,"clamd_addr":"","risk_block_dangerous_attachments":true,"catch_all":{"enabled":false,"recipient_id":%d}}`, f.member.ID), 200, "")
+	call(admin, "PUT", "/api/admin/inbound", `{"dnsbl_enabled":false,"dnsbl_zones":[],"default_spam_threshold":8,"risk_block_dangerous_attachments":true}`, 200, "")
+	call(admin, "PUT", "/api/admin/inbound", fmt.Sprintf(`{"dnsbl_enabled":false,"dnsbl_zones":[],"default_spam_threshold":8,"risk_block_dangerous_attachments":true,"catch_all":{"enabled":false,"recipient_id":%d}}`, f.member.ID), 200, "")
 	out := call(admin, "GET", "/api/admin/inbound", "", 200, "")
 	data, ok := out["data"].(map[string]any)
 	if !ok {

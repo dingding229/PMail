@@ -7,12 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"net"
 	"net/mail"
 	"net/netip"
-	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -37,8 +34,6 @@ type Settings struct {
 	DNSBLEnabled         bool           `json:"dnsbl_enabled"`
 	Zones                []string       `json:"dnsbl_zones"`
 	DefaultSpamThreshold float64        `json:"default_spam_threshold"`
-	ClamdEnabled         bool           `json:"clamd_enabled"`
-	ClamdAddr            string         `json:"clamd_addr"`
 	RiskAudit            bool           `json:"risk_block_dangerous_attachments"`
 	Warnings             []Warning      `json:"warnings,omitempty"`
 	CatchAll             CatchAllPolicy `json:"catch_all"`
@@ -85,30 +80,6 @@ func safeString(s string, maxLen int) bool {
 	}
 	return true
 }
-func safeClamd(addr string) bool {
-	if len(addr) > 255 || !safeString(addr, 255) {
-		return false
-	}
-	if path, ok := strings.CutPrefix(addr, "unix:"); ok {
-		return filepath.IsAbs(path) && filepath.Clean(path) == path && path != "/"
-	}
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return false
-	}
-	n, err := strconv.Atoi(port)
-	if err != nil || n <= 0 || n > 65535 {
-		return false
-	}
-	if ip, err := netip.ParseAddr(host); err == nil {
-		return allowedScannerIP(ip)
-	}
-	return hostName(normalizeDomain(host))
-}
-func allowedScannerIP(ip netip.Addr) bool {
-	ip = ip.Unmap()
-	return ip.Zone() == "" && (ip.IsLoopback() || ip.IsPrivate() || ip.IsGlobalUnicast()) && !ip.IsLinkLocalUnicast()
-}
 func normalizeSettings(s Settings) (Settings, error) {
 	if !validThreshold(s.DefaultSpamThreshold) || len(s.Zones) > 8 || (s.DNSBLEnabled && len(s.Zones) == 0) {
 		return s, ErrInvalid
@@ -129,11 +100,7 @@ func normalizeSettings(s Settings) (Settings, error) {
 		}
 	}
 	s.Zones = zones
-	s.ClamdAddr = strings.TrimSpace(s.ClamdAddr)
 	s.Warnings = nil
-	if (s.ClamdAddr != "" && !safeClamd(s.ClamdAddr)) || (s.ClamdEnabled && s.ClamdAddr == "") {
-		return s, ErrInvalid
-	}
 	return s, nil
 }
 func GetSettings(ctx context.Context) (Settings, error) { return getSettings(ctx, db.Instance) }
@@ -158,8 +125,6 @@ func getSettings(ctx context.Context, engine *xorm.Engine) (Settings, error) {
 		return s, err
 	}
 	s.DNSBLEnabled = row.DNSBLEnabled
-	s.ClamdEnabled = row.ClamdEnabled
-	s.ClamdAddr = row.ClamdAddr
 	s.DefaultSpamThreshold = row.DefaultSpamThreshold
 	s.RiskAudit = row.RiskAudit
 	return s, nil
@@ -187,7 +152,7 @@ func PutSettings(ctx context.Context, s Settings, change CatchAllUpdate) (Settin
 		if err != nil {
 			return err
 		}
-		vals := []any{1, s.DNSBLEnabled, string(zones), s.DefaultSpamThreshold, s.ClamdEnabled, s.ClamdAddr, s.RiskAudit,
+		vals := []any{1, s.DNSBLEnabled, string(zones), s.DefaultSpamThreshold, false, "", s.RiskAudit,
 			row.CatchAllEnabled, row.CatchAllRecipientID}
 		_, err = tx.Exec(append([]any{settingsUpsert(db.Instance.DriverName())}, vals...)...)
 		return err
@@ -196,7 +161,7 @@ func PutSettings(ctx context.Context, s Settings, change CatchAllUpdate) (Settin
 }
 func settingsUpsert(driver string) string {
 	const base = "INSERT INTO inbound_settings (id,dnsbl_enabled,dnsbl_zones,default_spam_threshold,clamd_enabled,clamd_addr,risk_block_dangerous_attachments,catch_all_enabled,catch_all_recipient_id) VALUES (?,?,?,?,?,?,?,?,?)"
-	names := []string{"dnsbl_enabled", "dnsbl_zones", "default_spam_threshold", "clamd_enabled", "clamd_addr", "risk_block_dangerous_attachments", "catch_all_enabled", "catch_all_recipient_id"}
+	names := []string{"dnsbl_enabled", "dnsbl_zones", "default_spam_threshold", "risk_block_dangerous_attachments", "catch_all_enabled", "catch_all_recipient_id"}
 	var updates []string
 	for _, c := range names {
 		if driver == config.DBTypeMySQL {

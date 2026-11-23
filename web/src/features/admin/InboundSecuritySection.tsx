@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { ClamAVSection } from './ClamAVSection'
 import { Skeleton } from '@/components/ui/skeleton'
 
 export function InboundSecuritySection() {
@@ -24,8 +25,6 @@ export function InboundSecuritySection() {
   const [dnsblZones, setDnsblZones] = useState<string[]>([])
   const [newZone, setNewZone] = useState('')
   const [defaultThreshold, setDefaultThreshold] = useState(6)
-  const [clamdEnabled, setClamdEnabled] = useState(false)
-  const [clamdAddr, setClamdAddr] = useState('')
   const [blockDangerous, setBlockDangerous] = useState(true)
 
   const [catchAllEnabled, setCatchAllEnabled] = useState(true)
@@ -39,20 +38,13 @@ export function InboundSecuritySection() {
     setDnsblEnabled(data.dnsbl_enabled)
     setDnsblZones(data.dnsbl_zones ?? [])
     setDefaultThreshold(data.default_spam_threshold)
-    setClamdEnabled(data.clamd_enabled)
-    setClamdAddr(data.clamd_addr ?? '')
     setBlockDangerous(data.risk_block_dangerous_attachments)
     setCatchAllEnabled(data.catch_all.enabled)
     setCatchAllRecipient(data.catch_all.recipient_id)
   }, [data])
 
   const saveMutation = useMutation({
-    mutationFn: (payload: InboundSettingsUpdate) => {
-      if (payload.clamd_enabled && !payload.clamd_addr.trim()) {
-        throw new Error(t('admin.inbound.clamdAddrRequired'))
-      }
-      return adminInboundApi.update(payload)
-    },
+    mutationFn: (payload: InboundSettingsUpdate) => adminInboundApi.update(payload),
     onSuccess: (updated) => {
       queryClient.setQueryData(queryKeys.adminInbound, updated)
       toast.success(t('admin.inbound.saved'))
@@ -241,34 +233,7 @@ export function InboundSecuritySection() {
             </p>
           </div>
 
-          {/* ClamAV */}
-          <div className="rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-4 space-y-3">
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="text-[13.5px] font-medium text-[var(--ink-primary)]">
-                  {t('admin.inbound.clamdLabel')}
-                </p>
-                <p className="mt-0.5 text-[12px] text-[var(--ink-muted)]">
-                  {t('admin.inbound.clamdDesc')}
-                </p>
-              </div>
-              <Switch checked={clamdEnabled} onCheckedChange={setClamdEnabled} />
-            </div>
-
-            <div className="space-y-1.5 border-t border-[var(--border-hairline)] pt-3">
-              <Label htmlFor="clamd_addr">{t('admin.inbound.clamdAddrLabel')}</Label>
-              <Input
-                id="clamd_addr"
-                value={clamdAddr}
-                onChange={(e) => setClamdAddr(e.target.value)}
-                placeholder={t('admin.inbound.clamdAddrPlaceholder')}
-                disabled={!clamdEnabled}
-              />
-              <p className="text-[11.5px] text-[var(--ink-muted)]">
-                {t('admin.inbound.clamdAddrHint')}
-              </p>
-            </div>
-          </div>
+          <ClamAVSection />
 
           {/* Dangerous Attachments Blocking */}
           <div className="flex items-center justify-between gap-4 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] px-4 py-3">
@@ -292,8 +257,6 @@ export function InboundSecuritySection() {
                   dnsbl_enabled: dnsblEnabled,
                   dnsbl_zones: dnsblZones,
                   default_spam_threshold: defaultThreshold,
-                  clamd_enabled: clamdEnabled,
-                  clamd_addr: clamdAddr.trim(),
                   risk_block_dangerous_attachments: blockDangerous,
                   catch_all: {
                     ...(catchAllEnvControlled ? {} : { enabled: catchAllEnabled }),

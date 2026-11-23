@@ -10,6 +10,7 @@ import {
   type BootstrapResponse,
   type DomainDnsResponse,
   type GroupOption,
+  type ClamAVStatus,
   type InboundSettings,
   type InboundSettingsUpdate,
   type MailboxAddress,
@@ -54,12 +55,15 @@ let mockSpamRules: SpamRule[] = [
   { id: 54, action: 'block', kind: 'keyword', value: '限时百倍返利' },
 ]
 
+let mockClamAV: ClamAVStatus = {
+  enabled: false, env_controlled: false, state: 'disabled', updating: false,
+  database: null, last_update: null, scanned: 0, blocked: 0, memory_warning: false,
+}
+
 let mockInboundSettings: InboundSettings = {
   dnsbl_enabled: true,
   dnsbl_zones: ['zen.spamhaus.org', 'bl.spamcop.net'],
   default_spam_threshold: 6,
-  clamd_enabled: false,
-  clamd_addr: 'tcp://clamav:3310',
   risk_block_dangerous_attachments: true,
   catch_all: { enabled: true, env_controlled: false, recipient_id: 0 },
   catch_all_recipients: [{ id: 1, account: 'admin', name: 'Administrator' }],
@@ -1802,6 +1806,18 @@ export const handlers = [
     return ok('')
   }),
 
+  http.get('/api/admin/inbound/clamav', () => ok(mockClamAV)),
+  http.put('/api/admin/inbound/clamav', async ({ request }) => {
+    const { enabled } = await request.json() as { enabled: boolean }
+    mockClamAV = { ...mockClamAV, enabled, state: enabled ? 'running' : 'disabled' }
+    return ok(mockClamAV)
+  }),
+  http.post('/api/admin/inbound/clamav/update', () => {
+    if (!mockClamAV.enabled) return fail('ClamAV is disabled', 100, 409)
+    const at = new Date().toISOString()
+    mockClamAV = { ...mockClamAV, database: { version: 42, updated_at: at }, last_update: { status: 'success', at } }
+    return ok({ queued: true })
+  }),
   http.get('/api/admin/inbound', async () => {
     await delay(40)
     return ok(mockInboundSettings)
@@ -1817,8 +1833,6 @@ export const handlers = [
         1,
         Math.min(20, Number(body.default_spam_threshold) || 6),
       ),
-      clamd_enabled: Boolean(body.clamd_enabled),
-      clamd_addr: String(body.clamd_addr || ''),
       risk_block_dangerous_attachments: Boolean(body.risk_block_dangerous_attachments),
       catch_all: { ...mockInboundSettings.catch_all, ...body.catch_all },
       catch_all_recipients: mockInboundSettings.catch_all_recipients,

@@ -543,6 +543,11 @@ export function ReadingPane({
           </h1>
 
           {/* Verification Code Bar */}
+          {email.antivirus?.status === 'not_scanned' && (
+            <p className="mb-3 rounded-[var(--radius-sm)] bg-[var(--warning-soft)] px-3 py-2 text-[12px] text-[var(--warning)]">
+              {t('mail.risk.antivirusNotScanned')}
+            </p>
+          )}
           {email.verification_code?.code && (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--accent)]/30 bg-[var(--accent-soft)]/70 px-4 py-3">
               <div className="flex flex-wrap items-center gap-3 min-w-0">

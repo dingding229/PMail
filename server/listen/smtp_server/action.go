@@ -7,6 +7,7 @@ import (
 	"net/netip"
 
 	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/antivirus"
 	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
@@ -44,6 +45,7 @@ type Session struct {
 	User                string
 	HELO                string
 	currentHELO         func() string
+	scanInbound         func(stdctx.Context, []byte) *antivirus.Result
 	AuthenticateInbound func(stdctx.Context, netip.Addr, string, string, []byte) models.MailAuthResults
 	From                string
 	To                  []string

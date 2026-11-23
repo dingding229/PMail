@@ -1,13 +1,10 @@
 package inbound
 
 import (
-	"bufio"
 	"context"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -18,7 +15,6 @@ import (
 
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/dto/parsemail"
-	"github.com/Jinnrry/pmail/utils/intbounds"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -79,9 +75,6 @@ func Warnings(s Settings) []Warning {
 		for _, z := range s.Zones {
 			add(z, z)
 		}
-	}
-	if s.ClamdEnabled {
-		add("clamd", "")
 	}
 	return out
 }
@@ -206,131 +199,4 @@ func (n *networkState) dns(ctx context.Context, ip netip.Addr, zone string, look
 	n.cached[key] = result
 	n.Unlock()
 	return result
-}
-
-// Scan only the explicitly configured clamd service. Dial the vetted address
-// directly after resolution so an unsafe resolver answer cannot be swapped in.
-func dialClamd(ctx context.Context, addr string) (net.Conn, error) {
-	if !safeClamd(addr) {
-		return nil, ErrInvalid
-	}
-	d := net.Dialer{}
-	if path, ok := strings.CutPrefix(addr, "unix:"); ok {
-		return d.DialContext(ctx, "unix", path)
-	}
-	host, port, _ := net.SplitHostPort(addr)
-	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
-	if err != nil {
-		return nil, err
-	}
-	for _, ip := range ips {
-		if !allowedScannerIP(ip) {
-			continue
-		}
-		if conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(ip.Unmap().String(), port)); err == nil {
-			return conn, nil
-		}
-	}
-	return nil, errors.New("clamd endpoint unavailable")
-}
-
-const maxClamdPart = 1 << 20
-const maxClamdTotal = 4 << 20
-const maxClamdTargets = 16
-
-var clamdName = regexp.MustCompile(`[^A-Za-z0-9_.-]+`)
-
-func scanClamd(ctx context.Context, addr string, data []byte) (string, error) {
-	if len(data) == 0 || len(data) > maxClamdPart {
-		return "", nil
-	}
-	conn, err := dialClamd(ctx, addr)
-	if err != nil {
-		return "", err
-	}
-	defer conn.Close()
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = conn.SetDeadline(deadline)
-	}
-	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
-	defer stop()
-	if _, err = io.WriteString(conn, "zINSTREAM\x00"); err != nil {
-		return "", err
-	}
-	var size [4]byte
-	for start := 0; start < len(data); start += 32768 {
-		part := data[start:min(start+32768, len(data))]
-		chunkSize, ok := intbounds.Uint32(int64(len(part)))
-		if !ok {
-			return "", errors.New("clamd chunk length invalid")
-		}
-		binary.BigEndian.PutUint32(size[:], chunkSize)
-		if _, err = conn.Write(size[:]); err != nil {
-			return "", err
-		}
-		if _, err = conn.Write(part); err != nil {
-			return "", err
-		}
-	}
-	clear(size[:])
-	if _, err = conn.Write(size[:]); err != nil {
-		return "", err
-	}
-	line, err := bufio.NewReaderSize(conn, 1024).ReadSlice(0)
-	if err != nil {
-		return "", err
-	}
-	text := strings.TrimSpace(strings.TrimSuffix(string(line), "\x00"))
-	if text == "stream: OK" {
-		return "", nil
-	}
-	if name, ok := strings.CutPrefix(text, "stream: "); ok && strings.HasSuffix(name, " FOUND") {
-		name = clamdName.ReplaceAllString(strings.TrimSuffix(name, " FOUND"), "_")
-		name = strings.Trim(name, "_.-")
-		if name != "" {
-			return "clamav_" + name[:min(80, len(name))], nil
-		}
-	}
-	return "", errors.New("unexpected clamd response")
-}
-
-type malwareHit struct {
-	index int
-	code  string
-}
-
-func scanMailClamd(ctx context.Context, addr string, e *parsemail.Email) []malwareHit {
-	var out []malwareHit
-	total, num := 0, 0
-	scan := func(b []byte, index int) bool {
-		if len(b) == 0 || len(b) > maxClamdPart || total+len(b) > maxClamdTotal || num >= maxClamdTargets {
-			return true
-		}
-		if ctx.Err() != nil {
-			return false
-		}
-		total += len(b)
-		num++
-		code, err := scanClamd(ctx, addr, b)
-		if err != nil {
-			health.warn("clamd", "clamd_unavailable")
-			return false
-		}
-		if code != "" {
-			out = append(out, malwareHit{index, code})
-		}
-		return true
-	}
-	if !scan(e.Text, -1) {
-		return out
-	}
-	if !e.TextFromHTML && !scan(e.HTML, -1) {
-		return out
-	}
-	for i, a := range e.Attachments {
-		if a != nil && !scan(a.Content, i) {
-			break
-		}
-	}
-	return out
 }

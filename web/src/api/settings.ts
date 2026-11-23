@@ -8,6 +8,7 @@ import type {
   DomainDnsResponse,
   ForwardSettingsRequest,
   ForwardSettingsView,
+  ClamAVStatus,
   InboundSettings,
   InboundSettingsUpdate,
   MailDomain,
@@ -79,6 +80,9 @@ export const spamRulesApi = {
 }
 
 export const adminInboundApi = {
+  clamav: () => apiGet<ClamAVStatus>('/api/admin/inbound/clamav', { cache: 'no-store' }),
+  setClamAV: (enabled: boolean) => apiPut<ClamAVStatus>('/api/admin/inbound/clamav', { enabled }),
+  updateClamAV: () => apiPost<{ queued: boolean }>('/api/admin/inbound/clamav/update', {}),
   get: () => apiGet<InboundSettings>('/api/admin/inbound'),
   update: (payload: InboundSettingsUpdate) => apiPut<InboundSettings>('/api/admin/inbound', payload),
 }

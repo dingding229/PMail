@@ -17,7 +17,7 @@ import (
 
 func InboundAPIPath(path string) bool {
 	switch path {
-	case "/api/email/spam", "/api/spam/rules", "/api/settings/spam", "/api/admin/inbound":
+	case "/api/email/spam", "/api/spam/rules", "/api/settings/spam", "/api/admin/inbound", "/api/admin/inbound/clamav", "/api/admin/inbound/clamav/update":
 		return true
 	}
 	return false
@@ -93,19 +93,17 @@ func InboundSettings(ctx *context.Context, w http.ResponseWriter, r *http.Reques
 			DNSBLEnabled         *bool                  `json:"dnsbl_enabled"`
 			Zones                *[]string              `json:"dnsbl_zones"`
 			DefaultSpamThreshold *float64               `json:"default_spam_threshold"`
-			ClamdEnabled         *bool                  `json:"clamd_enabled"`
-			ClamdAddr            *string                `json:"clamd_addr"`
 			RiskAudit            *bool                  `json:"risk_block_dangerous_attachments"`
 			CatchAll             inbound.CatchAllUpdate `json:"catch_all"`
 		}
 		if !inboundBody(ctx, w, r, &body) {
 			return
 		}
-		if body.DNSBLEnabled == nil || body.Zones == nil || body.DefaultSpamThreshold == nil || body.ClamdEnabled == nil || body.ClamdAddr == nil || body.RiskAudit == nil {
+		if body.DNSBLEnabled == nil || body.Zones == nil || body.DefaultSpamThreshold == nil || body.RiskAudit == nil {
 			inboundErr(ctx, w, inbound.ErrInvalid)
 			return
 		}
-		s, err = inbound.PutSettings(r.Context(), inbound.Settings{DNSBLEnabled: *body.DNSBLEnabled, Zones: *body.Zones, DefaultSpamThreshold: *body.DefaultSpamThreshold, ClamdEnabled: *body.ClamdEnabled, ClamdAddr: *body.ClamdAddr, RiskAudit: *body.RiskAudit}, body.CatchAll)
+		s, err = inbound.PutSettings(r.Context(), inbound.Settings{DNSBLEnabled: *body.DNSBLEnabled, Zones: *body.Zones, DefaultSpamThreshold: *body.DefaultSpamThreshold, RiskAudit: *body.RiskAudit}, body.CatchAll)
 		if err == nil {
 			log.WithContext(ctx).Infof("audit_event=inbound_settings_changed actor_id=%d", ctx.UserID)
 		}

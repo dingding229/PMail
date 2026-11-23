@@ -2,6 +2,9 @@ package i18n
 
 // #nosec G101 -- user-facing translations contain labels and errors about passwords/tokens, not credential values.
 var en = map[string]string{
+	"clamav_env_controlled":          "ClamAV is controlled by PMAIL_CLAMAV.",
+	"clamav_disabled":                "ClamAV is disabled.",
+	"clamav_update_busy":             "A ClamAV update is already in progress.",
 	"two_factor_state_changed":       "The two-step verification state changed or setup expired. Start again.",
 	"two_factor_invalid_code":        "Invalid or already used verification or recovery code.",
 	"two_factor_challenge_expired":   "The login challenge expired or was already used. Sign in again.",

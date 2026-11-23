@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/netip"
 	"sync"
+
+	"github.com/Jinnrry/pmail/services/antivirus"
 )
 
 type Envelope struct {
@@ -43,6 +45,7 @@ type VerificationCode struct {
 }
 
 type Analysis struct {
+	Antivirus        *antivirus.Result `json:"antivirus,omitempty"`
 	Version          int               `json:"version"`
 	Risk             *Risk             `json:"risk"`
 	VerificationCode *VerificationCode `json:"verification_code"`
@@ -52,6 +55,7 @@ type Analysis struct {
 }
 
 type DetailView struct {
+	Antivirus        *antivirus.Result `json:"antivirus,omitempty"`
 	Spam             *Spam             `json:"spam"`
 	Risk             *Risk             `json:"risk"`
 	VerificationCode *VerificationCode `json:"verification_code"`
@@ -93,6 +97,7 @@ func ReadDetail(shared, personal sql.NullString) DetailView {
 	var v DetailView
 	if a := FromStorage(shared); a != nil {
 		v.Risk = a.Risk
+		v.Antivirus = a.Antivirus
 		v.VerificationCode = a.VerificationCode
 	}
 	if personal.Valid {

@@ -41,18 +41,12 @@ func inboundFixture(t testing.TB) (*xorm.Engine, int, int) {
 func TestSettingsRulesAndPerRecipientScore(t *testing.T) {
 	e, a, b := inboundFixture(t)
 	ctx := context.Background()
-	if _, err := PutSettings(ctx, Settings{DefaultSpamThreshold: 9, DNSBLEnabled: true, Zones: []string{"bad.test", "BAD.TEST."}, ClamdAddr: "clamd:3310", RiskAudit: true}, CatchAllUpdate{}); err != nil {
+	if _, err := PutSettings(ctx, Settings{DefaultSpamThreshold: 9, DNSBLEnabled: true, Zones: []string{"bad.test", "BAD.TEST."}, RiskAudit: true}, CatchAllUpdate{}); err != nil {
 		t.Fatal(err)
 	}
 	s, err := GetSettings(ctx)
 	if err != nil || len(s.Zones) != 1 || s.DefaultSpamThreshold != 9 || !s.RiskAudit {
 		t.Fatalf("settings %+v %v", s, err)
-	}
-	if _, err = PutSettings(ctx, Settings{DefaultSpamThreshold: 6, ClamdEnabled: true, ClamdAddr: "http://server.test"}, CatchAllUpdate{}); !errors.Is(err, ErrInvalid) {
-		t.Fatal(err)
-	}
-	if _, err = PutSettings(ctx, Settings{DefaultSpamThreshold: 6, ClamdEnabled: true, ClamdAddr: "169.254.169.254:3310"}, CatchAllUpdate{}); !errors.Is(err, ErrInvalid) {
-		t.Fatal(err)
 	}
 	if _, err = PutSettings(ctx, Settings{DefaultSpamThreshold: 7, Zones: []string{}}, CatchAllUpdate{}); err != nil {
 		t.Fatal(err)

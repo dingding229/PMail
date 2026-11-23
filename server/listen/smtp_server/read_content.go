@@ -15,6 +15,7 @@ import (
 	"github.com/Jinnrry/pmail/listen/imap_server"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/antivirus"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/inbound"
@@ -35,10 +36,11 @@ import (
 const DropUnknownRecipientEmails = true
 
 type inboundDelivery struct {
-	prepared bool
-	envelope inbound.Envelope
-	analysis *inbound.Analysis
-	scores   map[int]*inbound.Spam
+	prepared  bool
+	antivirus *antivirus.Result
+	envelope  inbound.Envelope
+	analysis  *inbound.Analysis
+	scores    map[int]*inbound.Spam
 }
 
 func (d *inboundDelivery) analyze(ctx *context.Context, email *parsemail.Email, owners []int) {
@@ -47,6 +49,13 @@ func (d *inboundDelivery) analyze(ctx *context.Context, email *parsemail.Email, 
 	}
 	d.prepared = true
 	d.analysis, d.scores = inbound.AnalyzeDelivery(ctx.Context, email, d.envelope, email.AuthResults, owners)
+	if d.antivirus != nil {
+		// Persist the scan status even if advisory risk analysis is busy or times out.
+		if d.analysis == nil {
+			d.analysis = &inbound.Analysis{Version: 1}
+		}
+		d.analysis.Antivirus = d.antivirus
+	}
 }
 func (d *inboundDelivery) recipient(uid int) *inbound.Analysis {
 	if d == nil || d.analysis == nil {
@@ -186,6 +195,29 @@ func (s *Session) Data(r io.Reader) error {
 
 	log.WithContext(ctx).Debugf("smtp data received bytes=%d sha256=%x", len(emailData), sha256.Sum256(emailData))
 
+	var scanResult *antivirus.Result
+	if ctx.UserID <= 0 {
+		scan := s.scanInbound
+		if scan == nil {
+			if m := antivirus.Active(); m != nil {
+				scan = m.Scan
+			}
+		}
+		if scan != nil {
+			scanContext := ctx.Context
+			if scanContext == nil {
+				scanContext = stdctx.Background()
+			}
+			scanResult = scan(scanContext, emailData)
+			if scanResult != nil && scanResult.Status == "infected" {
+				// Rejected DATA has no mailbox row. Use the existing structured inbound audit log.
+				// The installed log formatter writes Message, not logrus fields.
+				log.WithContext(ctx).Warnf("audit_event=inbound_virus_rejected direction=inbound virus=%q mail_from=%q rcpt_to=%q", scanResult.Virus, s.From, s.To)
+				return &smtp.SMTPError{Code: 554, EnhancedCode: smtp.EnhancedCode{5, 7, 1}, Message: "Message rejected: malware detected"}
+			}
+		}
+	}
+
 	email, err := parsemail.ParseLimited(s.To, bytes.NewReader(emailData), len(emailData))
 	if oerrors.Is(err, mailbudget.ErrLimit) {
 		return sizeSMTPError()
@@ -251,7 +283,7 @@ func (s *Session) Data(r io.Reader) error {
 			email.Status = 3
 		}
 
-		delivery := inboundDelivery{envelope: inbound.Envelope{SourceIP: inbound.SourceIP(peer, emailData), MailFrom: s.From}}
+		delivery := inboundDelivery{antivirus: scanResult, envelope: inbound.Envelope{SourceIP: inbound.SourceIP(peer, emailData), MailFrom: s.From}}
 		users, dbEmail, saveErr := saveEmail(ctx, len(emailData), email, 0, 0, s.To, SPFStatus, dkimStatus, &delivery)
 		if saveErr != nil {
 			if oerrors.Is(saveErr, quota.ErrExceeded) {
