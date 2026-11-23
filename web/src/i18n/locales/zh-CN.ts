@@ -92,7 +92,7 @@ const zhCN = {
     registerKeyPlaceholder: 'XXXX-XXXX-XXXX-XXXX',
     registerKeyHintTitle: '如何获取注册密钥？',
     registerKeyHintDesc: '注册密钥保存在配置目录的 registration_key 文件中，请在宿主机执行以下命令查看：',
-    registerKeyCommand: 'docker compose exec pmail cat /work/config/registration_key',
+    registerKeyCommand: 'docker compose -p pmail exec pmail cat /work/config/registration_key',
     adminAccountLabel: '管理员账号',
     adminAccountPlaceholder: '例如 admin',
     displayNameLabel: '显示名称',

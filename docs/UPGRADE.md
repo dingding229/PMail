@@ -77,7 +77,7 @@ docker compose pull && docker compose up -d --wait postgres
 
 ## 账户、插件与附件兼容
 
-已有数据库用户不受引导机制变化影响。空库不再自动生成 `initial_admin_password`；在 HTTPS 网页输入 `docker compose exec pmail cat /work/config/registration_key` 查到的一次性密钥，或显式设置 `PMAIL_ADMIN_PASSWORD`。升级不会删除旧密码文件。
+已有数据库用户不受引导机制变化影响。空库不再自动生成 `initial_admin_password`；在 HTTPS 网页输入 `docker compose -p pmail exec pmail cat /work/config/registration_key` 查到的一次性密钥，或显式设置 `PMAIL_ADMIN_PASSWORD`。升级不会删除旧密码文件。
 
 插件界面、加载框架、微信通知、外部垃圾邮件分类插件均不再可用，已有插件数据不会被迁移或删除。新附件路径为 `/api/attachments/{id}` 和 `/api/attachments/download/{id}`；旧 `/attachments/*` 仍兼容。各项配置与新前端开发入口见 [README](../README.md)，发布变化见 [CHANGELOG](../CHANGELOG.md)。
 

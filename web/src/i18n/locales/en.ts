@@ -92,7 +92,7 @@ const en = {
     registerKeyPlaceholder: 'XXXX-XXXX-XXXX-XXXX',
     registerKeyHintTitle: 'Where to find the registration key?',
     registerKeyHintDesc: 'The registration key is stored in the registration_key file in the config directory. Run on your host:',
-    registerKeyCommand: 'docker compose exec pmail cat /work/config/registration_key',
+    registerKeyCommand: 'docker compose -p pmail exec pmail cat /work/config/registration_key',
     adminAccountLabel: 'Admin Account',
     adminAccountPlaceholder: 'e.g. admin',
     displayNameLabel: 'Display Name',

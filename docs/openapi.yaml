@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PMail Pro HTTP API
-  version: 0.0.5
+  version: 0.0.6
   description: |-
     PMail Pro runtime contract. For timestamps use the additive *_iso fields (RFC3339 with an explicit offset); legacy fields are unchanged. Cookie, scoped Bearer token, and the legacy Token header are alternative credentials. Cookie-authenticated writes require same-origin Origin/Referer; JSON requests with a body require application/json; body limits may produce HTTP 413 before validation; authorization is recorded in x-permission (public, user, admin or owner). Owner routes are scoped to the caller's resource. Administrator access to other users' non-draft mail requires PMAIL_ADMIN_MAIL_ACCESS=1 and is audited.
 

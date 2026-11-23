@@ -14,6 +14,8 @@ const result = await build({
       import { queryKeys } from './src/hooks/useMailQueries'
       import { ThemeProvider } from './src/lib/ThemeProvider'
       export { guessMailDomain, DOMAIN_PATTERN, waitForDomainSetup } from './src/features/auth/mailDomain'
+      export { default as en } from './src/i18n/locales/en'
+      export { default as zhCN } from './src/i18n/locales/zh-CN'
 
       export function renderRegistration(bootstrap) {
         const client = new QueryClient()
@@ -40,7 +42,7 @@ const result = await build({
   banner: { js: `import { createRequire } from 'node:module'; const require = createRequire(${JSON.stringify(import.meta.url)});` },
   write: false,
 })
-const { renderRegistration, guessMailDomain, DOMAIN_PATTERN, waitForDomainSetup } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`)
+const { renderRegistration, guessMailDomain, DOMAIN_PATTERN, waitForDomainSetup, en, zhCN } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`)
 const anonymous = {
   version: 'dev',
   need_register: true,
@@ -50,6 +52,13 @@ const anonymous = {
   domains: [],
   features: { register_key: true },
 }
+
+test('registration shows a Compose command with the explicit project in both languages', () => {
+  const command = 'docker compose -p pmail exec pmail cat /work/config/registration_key'
+  assert.equal(zhCN.auth.registerKeyCommand, command)
+  assert.equal(en.auth.registerKeyCommand, command)
+  assert.ok(renderRegistration(anonymous).includes(command))
+})
 
 test('registration renders the configured mail domain, not the web hostname', () => {
   const html = renderRegistration({ ...anonymous, primary_domain: 'xshi.cc' })

@@ -1,6 +1,6 @@
 # PMail Pro
 
-![版本 0.0.5](https://img.shields.io/badge/PMail%20Pro-0.0.5-2563eb)
+![版本 0.0.6](https://img.shields.io/badge/PMail%20Pro-0.0.6-2563eb)
 
 PMail Pro 是一套可以自己部署的邮件服务，基于 [Jinnrry/PMail](https://github.com/Jinnrry/PMail)。一个 Docker Compose 文件就能启动，邮件域名可在首次打开网页时设置。
 
@@ -26,6 +26,8 @@ PMail Pro 是一套可以自己部署的邮件服务，基于 [Jinnrry/PMail](ht
 
 ### 2. 下载并启动
 
+在 `docker-compose.yml` 所在目录执行 `docker compose up -d`。
+
 ```bash
 mkdir pmail && cd pmail
 curl -fsSLO https://raw.githubusercontent.com/dingding229/PMail/master/docker-compose.yml
@@ -41,8 +43,10 @@ docker compose up -d
 2. **读取注册密钥：**
 
    ```bash
-   docker compose exec pmail cat /work/config/registration_key
+   docker compose -p pmail exec pmail cat /work/config/registration_key
    ```
+
+   如果在 `.env` 中修改过 `PMAIL_PROJECT_NAME`，请把 `-p` 后的 `pmail` 换成对应项目名。
 
 3. 打开 `https://mail.example.com`，填写**邮件域名**（`example.com`）、注册密钥、管理员账号和密码。提交后就进入邮箱了。
 
@@ -82,7 +86,7 @@ DNS 生效后，PMail 会自动为 `smtp`、`imap`、`pop` 申请证书，不用
 
 在 **系统管理 → 系统更新** 查看版本和更新日志。支持程序自更新的官方 Linux 镜像可选 **立即更新**：PMail 验签后暂存并重启，不需要额外容器。首次从旧版本升级、没有签名发布包或需要更新基础镜像时，请手动升级。
 
-升级前检查 `.env`：若 `PMAIL_IMAGE` 固定为旧标签，请删掉该行（默认使用 `latest`）或改为新版本标签，否则 `docker compose pull` 仍会拉取旧镜像。然后在宿主机执行：
+升级前检查 `.env`：若 `PMAIL_IMAGE` 固定为旧标签，请删掉该行（默认使用 `latest`）或改为新版本标签，否则 `docker compose pull` 仍会拉取旧镜像。然后在宿主机的 `docker-compose.yml` 所在目录执行：
 
 ```bash
 docker compose pull
