@@ -1,11 +1,16 @@
 package inbound
 
 import (
+	"mime"
 	"strings"
 	"testing"
 
 	"github.com/Jinnrry/pmail/dto/parsemail"
 )
+
+var verificationLineEndings = [...]struct{ name, separator string }{
+	{"LF", "\n"}, {"CRLF", "\r\n"}, {"CR", "\r"},
+}
 
 func TestVerificationCorpus(t *testing.T) {
 	positive := []struct{ subject, body, want string }{
@@ -57,7 +62,7 @@ func TestVerificationCorpus(t *testing.T) {
 		{"", "动态密码：583920", "583920"},
 		{"", "验证码 0 0 1 2 3 4 无效。\n真正的验证码：521603", "521603"},
 		{"包裹通知", "取件码：\n\t85X31", "85X31"},
-		{"", "短信验证码为：\r\n\r\n238683", "238683"},
+		{"", "短信验证码为：\n\n238683", "238683"},
 		{"账号", "登录码：\n 398112", "398112"},
 		{"", "授权码 391422", "391422"},
 		{"", "Security code:\n 481728", "481728"},
@@ -93,25 +98,104 @@ func TestVerificationCorpus(t *testing.T) {
 		{"会议邀请", "会议时间 14:35，房间号 5199"},
 		{"Invoice", "发票号 448812\nReference code: INV-2026"},
 	}
-	pass := 0
-	for _, tc := range positive {
-		got := recognizeCode(&parsemail.Email{Subject: tc.subject, Text: []byte(tc.body)})
-		if got == nil || got.Code != tc.want {
-			t.Errorf("%q / %q: got %+v, want %s", tc.subject, tc.body, got, tc.want)
-		} else {
-			pass++
+	for _, ending := range verificationLineEndings {
+		t.Run(ending.name, func(t *testing.T) {
+			withLineEnding := func(body string) []byte { return []byte(strings.ReplaceAll(body, "\n", ending.separator)) }
+			pass, rejected := 0, 0
+			for _, tc := range positive {
+				got := recognizeCode(&parsemail.Email{Subject: tc.subject, Text: withLineEnding(tc.body)})
+				if got == nil || got.Code != tc.want {
+					t.Errorf("%q / %q: got %+v, want %s", tc.subject, tc.body, got, tc.want)
+					continue
+				}
+				if ending.separator != "\n" {
+					lf := recognizeCode(&parsemail.Email{Subject: tc.subject, Text: []byte(tc.body)})
+					if lf == nil || *got != *lf {
+						t.Errorf("%q / %q: got %+v, differs from LF result %+v", tc.subject, tc.body, got, lf)
+						continue
+					}
+				}
+				pass++
+			}
+			for _, tc := range negative {
+				got := recognizeCode(&parsemail.Email{Subject: tc.subject, Text: withLineEnding(tc.body)})
+				if got != nil {
+					t.Errorf("negative %q / %q: got %+v", tc.subject, tc.body, got)
+				} else {
+					rejected++
+				}
+			}
+			t.Logf("corpus: positives %d/%d, negatives %d/%d", pass, len(positive), rejected, len(negative))
+		})
+	}
+}
+
+func TestVerificationSubjectFallbackLineEndings(t *testing.T) {
+	for _, tc := range []struct{ name, subject, body, want string }{
+		{"bare code", "仅主题关键词验证码", "123987\n", "123987"},
+		{"possessive Chinese prefix", "登录验证码", "您的代码是 234567\n", "234567"},
+		{"Chinese prefix with colon", "登录验证码", "代码：234567\n", "234567"},
+		{"English prefix", "登录验证码", "Your code is 234567\n", "234567"},
+		{"Chinese prefix needs strong subject", "账号通知", "代码：234567\n", ""},
+		{"reject generic error code", "验证码", "错误代码 500123，请联系客服\n", ""},
+		{"reject generic product code", "验证码", "产品代码：A12345\n", ""},
+		{"reject multiple fallback candidates", "验证码", "您的代码是 234567\n代码：345678\n", ""},
+		{"ignore quoted old code", "验证码", "代码：234567\nOn Monday, Example wrote:\n代码：345678\n", "234567"},
+	} {
+		for _, ending := range verificationLineEndings {
+			t.Run(tc.name+"/"+ending.name, func(t *testing.T) {
+				body := strings.ReplaceAll(tc.body, "\n", ending.separator)
+				got := recognizeCode(&parsemail.Email{Subject: tc.subject, Text: []byte(body)})
+				if tc.want == "" {
+					if got != nil {
+						t.Fatalf("got %+v, want no code", got)
+					}
+					return
+				}
+				if got == nil || got.Code != tc.want || got.Source != "body" {
+					t.Fatalf("got %+v, want %s from body", got, tc.want)
+				}
+			})
 		}
 	}
-	rejected := 0
-	for _, tc := range negative {
-		got := recognizeCode(&parsemail.Email{Subject: tc.subject, Text: []byte(tc.body)})
-		if got != nil {
-			t.Errorf("negative %q / %q: got %+v", tc.subject, tc.body, got)
-		} else {
-			rejected++
-		}
+	// The English form also matches the general detector; exercise the fallback directly.
+	if hit, ok := subjectOnlyCode("登录验证码", "Your code is 234567\n"); !ok || hit.value != "234567" {
+		t.Fatalf("English fallback got %+v, %t", hit, ok)
 	}
-	t.Logf("corpus: positives %d/%d, negatives %d/%d", pass, len(positive), rejected, len(negative))
+}
+
+func TestVerificationSubjectFallbackFromSMTPMessage(t *testing.T) {
+	const senderAndRecipient = "From: sender@example.test\r\nTo: user@example.test\r\n"
+	const plainText = "\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n"
+	for _, tc := range []struct{ subject, body, want string }{
+		{"仅主题关键词验证码", "123987", "123987"},
+		{"登录验证码", "您的代码是 234567", "234567"},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			wire := senderAndRecipient + "Subject: " + mime.QEncoding.Encode("utf-8", tc.subject) + plainText + tc.body + "\r\n"
+			email, err := parsemail.ParseLimited([]string{"user@example.test"}, strings.NewReader(wire), len(wire))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := recognizeCode(email); got == nil || got.Code != tc.want || got.Source != "body" {
+				t.Fatalf("got %+v, want %s from parsed body", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestVerificationSubjectFallbackNormalizesHTMLText(t *testing.T) {
+	for _, tc := range []struct{ name, body string }{
+		{"HTML with CRLF", "<pre>您的代码是 234567\r\n请勿分享此码。</pre>"},
+		{"HTML with encoded CR", "<pre>您的代码是 234567&#13;请勿分享此码。</pre>"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := recognizeCode(&parsemail.Email{Subject: "登录验证码", HTML: []byte(tc.body), TextFromHTML: true})
+			if got == nil || got.Code != "234567" || got.Source != "body" {
+				t.Fatalf("got %+v, want 234567 from HTML body", got)
+			}
+		})
+	}
 }
 
 func TestPickupKind(t *testing.T) {

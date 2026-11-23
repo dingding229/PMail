@@ -19,9 +19,15 @@ const (
 var codeKeyword = regexp.MustCompile(`(?i)短信验证码|验证码|校验码|动态密码|动态码|确认码|安全码|登录码|授权码|取件码|\b(?:verification(?:\s+code)?|one[- ]time(?:\s+(?:code|password))?|security[ \t]+code|login[ \t]+code|confirmation[ \t]+code|passcode|OTP|2FA|PIN|code)\b`)
 var invalidSuffix = regexp.MustCompile(`(?i)^[ \t]*(?:[：:，,.-][ \t]*)?(?:无效|作废|已失效|已过期|invalid\b|expired\b|do not use\b)`)
 var contextualNumber = regexp.MustCompile(`(?i)(?:房间(?:号)?|会议(?:室|号)?|room|invoice(?:[ \t]+(?:no|number|id))?|reference(?:[ \t]+code)?)\s*[:：#-]?\s*[A-Za-z0-9-]{4,}|\b[A-Za-z]{2,10}-(?:19|20)[0-9]{2}\b`)
-var separateLine = regexp.MustCompile(`^[ \t\r:：=【】]*(?:是|为|is)?[ \t\r:：=【】]*(?:\n[ \t\r]*){1,3}$`)
+var separateLine = regexp.MustCompile(`^[ \t:：=【】]*(?:是|为|is)?[ \t:：=【】]*(?:\n[ \t]*){1,3}$`)
 var strongSubject = regexp.MustCompile(`(?i)(?:验证码|校验码|动态密码|动态码|确认码|安全码|登录码|授权码|取件码|\b(?:sign[- ]in[ \t]+code|log[- ]?in[ \t]+code|verification[ \t]+code|security[ \t]+code|confirmation[ \t]+code|one[- ]time[ \t]+(?:code|password)|passcode|OTP|2FA|PIN)\b)`)
-var subjectFallbackLine = regexp.MustCompile(`(?i)^\s*(?:(?:use|enter|type|输入|使用|请使用|请填写)[ \t]*)?([A-Za-z0-9]{4,8})(?:[.。!！ \t]*|[ \t]+(?:to sign in|to log in|to continue|完成登录|完成验证)[.。!！ \t]*)$`)
+
+// Generic “代码” is only a whole-line fallback when the subject has a strong verification label.
+var subjectFallbackLine = regexp.MustCompile(`(?i)^[ \t]*` +
+	`(?:(?:use|enter|type|输入|使用|请使用|请填写)[ \t]*|` +
+	`(?:您的[ \t]*)?代码[ \t]*(?:[：:=]|(?:是|为)[ \t]*[：:=]?)[ \t]*|` +
+	`(?:your[ \t]+)?code\b[ \t]*(?:is\b[ \t]*[：:=]?|[：:=])[ \t]*)?` +
+	`([A-Za-z0-9]{4,8})(?:[.。!！ \t]*|[ \t]+(?:to sign in|to log in|to continue|完成登录|完成验证)[.。!！ \t]*)$`)
 var candidates = regexp.MustCompile(`[A-Za-z0-9]{4,}`)
 var yearToken = regexp.MustCompile(`^(?:19|20)[0-9]{2}$`)
 var droppedCodes = []*regexp.Regexp{
@@ -201,6 +207,9 @@ func recognizeCode(email *parsemail.Email) *VerificationCode {
 	if email.TextFromHTML {
 		plain = codeHTML(email.HTML)
 	}
+	// Normalize the bounded text before stripping quotes or matching line endings.
+	plain = strings.ReplaceAll(plain, "\r\n", "\n")
+	plain = strings.ReplaceAll(plain, "\r", "\n")
 	subject := string(clippedBytes([]byte(email.Subject), 1024))
 	body := unquoted(plain)
 	subjectHits, bodyHits := findCodes(subject, "subject"), findCodes(body, "body")
