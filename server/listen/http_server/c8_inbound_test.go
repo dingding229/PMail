@@ -3,7 +3,6 @@ package http_server
 import (
 	"context"
 	"encoding/json"
-
 	"fmt"
 	"io"
 	"net/http"
@@ -19,6 +18,7 @@ import (
 )
 
 func TestInboundHTTPSettingsRulesMailboxAndRiskGuards(t *testing.T) {
+	t.Setenv("PMAIL_CATCH_ALL", "")
 	f := newAuthFixture(t)
 	if err := db.SyncSchema(f.db); err != nil {
 		t.Fatal(err)
@@ -71,6 +71,22 @@ func TestInboundHTTPSettingsRulesMailboxAndRiskGuards(t *testing.T) {
 	call(member, "GET", "/api/admin/inbound", "", 403, "inbound_permission_denied")
 	call(member, "PUT", "/api/settings/spam", `{"enabled":true,"threshold":25,"bayes_enabled":true}`, 400, "inbound_invalid_parameters")
 	call(admin, "PUT", "/api/admin/inbound", `{"dnsbl_enabled":false,"dnsbl_zones":[],"default_spam_threshold":8,"clamd_enabled":false,"clamd_addr":"","risk_block_dangerous_attachments":true}`, 200, "")
+	call(admin, "PUT", "/api/admin/inbound", fmt.Sprintf(`{"dnsbl_enabled":false,"dnsbl_zones":[],"default_spam_threshold":8,"clamd_enabled":false,"clamd_addr":"","risk_block_dangerous_attachments":true,"catch_all":{"enabled":false,"recipient_id":%d}}`, f.member.ID), 200, "")
+	out := call(admin, "GET", "/api/admin/inbound", "", 200, "")
+	data, ok := out["data"].(map[string]any)
+	if !ok {
+		t.Fatal(raw)
+	}
+	policy, ok := data["catch_all"].(map[string]any)
+	if !ok || policy["enabled"] != false || policy["recipient_id"] != float64(f.member.ID) || policy["env_controlled"] != false || !strings.Contains(raw, `"catch_all_recipients":`) {
+		t.Fatal(raw)
+	}
+	t.Setenv("PMAIL_CATCH_ALL", "true")
+	call(admin, "GET", "/api/admin/inbound", "", 200, "")
+	if !strings.Contains(raw, `"catch_all":{"enabled":true,"env_controlled":true,`) {
+		t.Fatal(raw)
+	}
+	t.Setenv("PMAIL_CATCH_ALL", "")
 	if p := call(member, "GET", "/api/settings/spam", "", 200, ""); !strings.Contains(raw, `"threshold":8`) || p["errorNo"] != float64(0) {
 		t.Fatal(raw)
 	}

@@ -41,20 +41,20 @@ func inboundFixture(t testing.TB) (*xorm.Engine, int, int) {
 func TestSettingsRulesAndPerRecipientScore(t *testing.T) {
 	e, a, b := inboundFixture(t)
 	ctx := context.Background()
-	if _, err := PutSettings(ctx, Settings{DefaultSpamThreshold: 9, DNSBLEnabled: true, Zones: []string{"bad.test", "BAD.TEST."}, ClamdAddr: "clamd:3310", RiskAudit: true}); err != nil {
+	if _, err := PutSettings(ctx, Settings{DefaultSpamThreshold: 9, DNSBLEnabled: true, Zones: []string{"bad.test", "BAD.TEST."}, ClamdAddr: "clamd:3310", RiskAudit: true}, CatchAllUpdate{}); err != nil {
 		t.Fatal(err)
 	}
 	s, err := GetSettings(ctx)
 	if err != nil || len(s.Zones) != 1 || s.DefaultSpamThreshold != 9 || !s.RiskAudit {
 		t.Fatalf("settings %+v %v", s, err)
 	}
-	if _, err = PutSettings(ctx, Settings{DefaultSpamThreshold: 6, ClamdEnabled: true, ClamdAddr: "http://server.test"}); !errors.Is(err, ErrInvalid) {
+	if _, err = PutSettings(ctx, Settings{DefaultSpamThreshold: 6, ClamdEnabled: true, ClamdAddr: "http://server.test"}, CatchAllUpdate{}); !errors.Is(err, ErrInvalid) {
 		t.Fatal(err)
 	}
-	if _, err = PutSettings(ctx, Settings{DefaultSpamThreshold: 6, ClamdEnabled: true, ClamdAddr: "169.254.169.254:3310"}); !errors.Is(err, ErrInvalid) {
+	if _, err = PutSettings(ctx, Settings{DefaultSpamThreshold: 6, ClamdEnabled: true, ClamdAddr: "169.254.169.254:3310"}, CatchAllUpdate{}); !errors.Is(err, ErrInvalid) {
 		t.Fatal(err)
 	}
-	if _, err = PutSettings(ctx, Settings{DefaultSpamThreshold: 7, Zones: []string{}}); err != nil {
+	if _, err = PutSettings(ctx, Settings{DefaultSpamThreshold: 7, Zones: []string{}}, CatchAllUpdate{}); err != nil {
 		t.Fatal(err)
 	}
 	aRule, err := AddRule(ctx, a, models.SpamRule{Action: "block", Kind: "domain", Value: "Sender.Example."})
@@ -228,3 +228,29 @@ func TestAnalysisDoesNotWaitPastDeadlineForStorage(t *testing.T) {
 }
 
 const deadlineTestCeiling = 500 * time.Millisecond
+
+func TestCatchAllOverridePreservesStoredChoice(t *testing.T) {
+	t.Setenv("PMAIL_CATCH_ALL", "")
+	_, owner, _ := inboundFixture(t)
+	ctx := t.Context()
+	s := Settings{DefaultSpamThreshold: 6, Zones: []string{}}
+	off := false
+	if _, err := PutSettings(ctx, s, CatchAllUpdate{Enabled: &off, RecipientID: &owner}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PMAIL_CATCH_ALL", "true")
+	on := true
+	got, err := PutSettings(ctx, s, CatchAllUpdate{Enabled: &on})
+	if err != nil || !got.CatchAll.EnvControlled || !got.CatchAll.Enabled || got.CatchAll.RecipientID != owner {
+		t.Fatalf("effective settings %+v, %v", got.CatchAll, err)
+	}
+	t.Setenv("PMAIL_CATCH_ALL", "")
+	got, err = GetSettings(ctx)
+	if err != nil || got.CatchAll.EnvControlled || got.CatchAll.Enabled || got.CatchAll.RecipientID != owner {
+		t.Fatalf("stored settings %+v, %v", got.CatchAll, err)
+	}
+	missing := owner + 1000
+	if _, err := PutSettings(ctx, s, CatchAllUpdate{RecipientID: &missing}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("accepted missing recipient: %v", err)
+	}
+}

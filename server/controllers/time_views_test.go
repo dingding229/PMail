@@ -22,7 +22,6 @@ func TestAPITimeViewsKeepLegacyTimesAndAddISO(t *testing.T) {
 		{"user", apiUser(models.User{Created: instant}), []string{"created"}, []string{"last_login_at"}},
 		{"domain", apiDomain(models.Domain{Created: instant, Updated: instant}), []string{"created", "updated"}, nil},
 		{"DNS", apiDNSGuide(domain.DNSGuide{CheckedAt: instant}), []string{"checked_at"}, nil},
-		{"external", apiExternal(models.ExternalAccount{Created: instant, Updated: instant, LastSyncAt: &instant}), []string{"created", "updated", "last_sync_at"}, []string{"last_success_at"}},
 		{"queue", apiQueueItem(models.OutboundQueue{Created: instant, Updated: instant, NextRetryAt: instant}), []string{"created", "updated", "next_retry_at"}, nil},
 		{"token", apiToken(models.APIToken{Created: instant, ExpiresAt: &instant}), []string{"created", "expires_at"}, []string{"last_used_at"}},
 		{"forward", apiForward(models.ForwardSetting{Updated: instant}), []string{"updated"}, nil},

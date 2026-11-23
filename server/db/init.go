@@ -95,6 +95,9 @@ func initializeSchemaAndData(engine *xorm.Engine, version string, preserveUsers 
 	if err := SyncSchema(engine); err != nil {
 		return err
 	}
+	if err := dropExternalMailboxTables(engine); err != nil {
+		return err
+	}
 	if err := fixHistoryData(engine, preserveUsers); err != nil {
 		return err
 	}
@@ -121,7 +124,7 @@ func initializeSchemaAndData(engine *xorm.Engine, version string, preserveUsers 
 func SyncSchema(engine *xorm.Engine) error {
 	for _, model := range []any{
 		&models.User{}, &models.Email{}, &models.MailAttachmentInfo{}, &models.MailAttachmentChunk{}, &models.Group{}, &models.Rule{},
-		&models.Sessions{}, &models.UserEmail{}, &models.IMAPMailbox{}, &models.IMAPMailboxUID{}, &models.Version{}, &models.Domain{}, &models.MailboxAddress{}, &models.APIToken{}, &models.OutboundPayload{}, &models.OutboundQueue{}, &models.ForwardSetting{}, &models.ExternalAccount{}, &models.ExternalSeen{}, &models.ExternalCursor{}, &models.BounceNotice{}, &models.RegistrationGuard{},
+		&models.Sessions{}, &models.UserEmail{}, &models.IMAPMailbox{}, &models.IMAPMailboxUID{}, &models.Version{}, &models.Domain{}, &models.MailboxAddress{}, &models.APIToken{}, &models.OutboundPayload{}, &models.OutboundQueue{}, &models.ForwardSetting{}, &models.BounceNotice{}, &models.RegistrationGuard{},
 		&models.InboundSettings{}, &models.SpamPreference{}, &models.SpamRule{}, &models.SpamTraining{}, &models.SpamTotals{}, &models.SpamToken{},
 		&models.TelegramConfig{}, &models.TelegramBinding{}, &models.TelegramCode{}, &models.TelegramPreference{}, &models.TelegramPush{}, &models.ComposeImage{}, &models.DraftInlineImage{}, &models.Signature{},
 	} {

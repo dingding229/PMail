@@ -219,6 +219,12 @@ export interface InboundSettings {
   clamd_enabled: boolean
   clamd_addr: string
   risk_block_dangerous_attachments: boolean
+  catch_all: { enabled: boolean; env_controlled: boolean; recipient_id: number }
+  catch_all_recipients: { id: number; account: string; name: string }[]
+}
+
+export type InboundSettingsUpdate = Omit<InboundSettings, 'catch_all' | 'catch_all_recipients'> & {
+  catch_all?: { enabled?: boolean; recipient_id?: number }
 }
 
 /* ==================== C9 Contract: Telegram, System Update, Signatures ==================== */
@@ -558,71 +564,6 @@ export interface RuleRequest {
   action: RuleActionCode
   params?: string
   sort?: number
-}
-
-export type ExternalProtocol = 'imap' | 'pop3'
-export type ExternalTlsMode = 'tls' | 'starttls' | 'none'
-
-export interface ExternalAccount {
-  id: number
-  user_id: number
-  name: string
-  protocol: ExternalProtocol
-  host: string
-  port: number
-  tls_mode: ExternalTlsMode
-  username: string
-  folder: string
-  interval_minutes: number
-  initial_days: number
-  delete_remote: boolean
-  target_group_id: number
-  enabled: boolean
-  insecure_skip_verify: boolean
-  last_sync_at: string | null
-  last_sync_at_iso?: string | null
-  last_success_at: string | null
-  last_success_at_iso?: string | null
-  last_error: string
-  created: string
-  created_iso?: string
-  updated: string
-  updated_iso?: string
-}
-
-export interface ExternalAccountPayload {
-  id?: number
-  name?: string
-  protocol: ExternalProtocol
-  host: string
-  port?: number
-  tls_mode: ExternalTlsMode
-  username: string
-  password?: string
-  folder?: string
-  interval_minutes?: number
-  initial_days?: number
-  delete_remote?: boolean
-  target_group_id?: number
-  enabled?: boolean
-  insecure_skip_verify?: boolean
-}
-
-export interface ExternalPreset {
-  name: string
-  protocol: ExternalProtocol
-  host: string
-  port: number
-  tls_mode: ExternalTlsMode
-}
-
-export interface ExternalTestResult {
-  folders: string[] | null
-}
-
-export interface ExternalSyncResult {
-  status: string
-  message: string
 }
 
 export type ApiTokenScope = 'read' | 'send' | 'admin' | 'legacy'

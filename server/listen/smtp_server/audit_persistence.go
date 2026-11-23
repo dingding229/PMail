@@ -1,6 +1,7 @@
 package smtp_server
 
 import (
+	"database/sql"
 	"encoding/json"
 	stderrors "errors"
 	"slices"
@@ -87,7 +88,7 @@ func localPersistenceSMTPError() error {
 	}
 }
 
-func persistInitialAuditWithQuota(ctx *context.Context, modelEmail models.Email, userIDs []int, scores map[int]*inbound.Spam) (*models.Email, []int, error) {
+func persistInitialAuditWithQuota(ctx *context.Context, modelEmail models.Email, userIDs []int, scores map[int]*inbound.Spam, catchAll map[int][]string) (*models.Email, []int, error) {
 	var saved models.Email
 	userIDs = sortedOwners(userIDs)
 	accepted := make([]int, 0, len(userIDs))
@@ -121,6 +122,9 @@ func persistInitialAuditWithQuota(ctx *context.Context, modelEmail models.Email,
 		}
 		for _, id := range accepted {
 			link := initialLink(&candidate, id, 0, scores[id])
+			if addresses := catchAll[id]; len(addresses) != 0 {
+				link.CatchAllAddresses = sql.NullString{String: json2string(addresses), Valid: true}
+			}
 			if _, err := session.Insert(&link); err != nil {
 				return err
 			}
@@ -177,14 +181,21 @@ func persistInitialAudit(ctx *context.Context, modelEmail models.Email, userIDs 
 	return &saved, nil
 }
 
-func resolveIncomingUsers(ctx *context.Context, email *parsemail.Email, emailType int, reallyTo []string, SPFStatus, dkimStatus bool) ([]*models.User, bool, error) {
+func resolveIncomingUsers(ctx *context.Context, email *parsemail.Email, emailType int, reallyTo []string, SPFStatus, dkimStatus bool) ([]*models.User, map[int][]string, bool, error) {
 	if emailType != int(consts.EmailTypeReceive) {
-		return nil, false, nil
+		return nil, nil, false, nil
 	}
 	recipients := incomingAddresses(email, reallyTo)
 	seen := map[int]bool{}
 	users := make([]*models.User, 0)
-	unknown := false
+	add := func(user models.User) {
+		if !seen[user.ID] {
+			users = append(users, &user)
+			seen[user.ID] = true
+		}
+	}
+	var unknown []string
+	seenUnknown := map[string]bool{}
 	for _, raw := range recipients {
 		_, host, ok := strings.Cut(strings.TrimSpace(raw), "@")
 		if !ok || !domain.IsLocal(host) {
@@ -192,50 +203,48 @@ func resolveIncomingUsers(ctx *context.Context, email *parsemail.Email, emailTyp
 		}
 		if srsUser, isSRS, srsErr := forward.ResolveSRS(raw); isSRS {
 			if srsErr != nil {
-				return nil, false, srsErr
+				return nil, nil, false, srsErr
 			}
-			if !seen[srsUser.ID] {
-				copy := srsUser
-				users = append(users, &copy)
-				seen[srsUser.ID] = true
-			}
+			add(srsUser)
 			continue
 		}
 		user, found, err := address.Resolve(raw)
 		if err != nil {
-			return nil, false, err
+			return nil, nil, false, err
 		}
-		if !found {
-			unknown = true
+		if found {
+			add(user)
 			continue
 		}
-		if !seen[user.ID] {
-			copy := user
-			users = append(users, &copy)
-			seen[user.ID] = true
+		local, zone, err := address.Split(raw)
+		if err != nil {
+			continue
+		}
+		actual := local + "@" + zone
+		if !seenUnknown[actual] {
+			unknown = append(unknown, actual)
+			seenUnknown[actual] = true
 		}
 	}
-	if !unknown || !config.Instance.CatchAll {
-		return users, len(users) == 0, nil
+	if len(unknown) == 0 {
+		return users, nil, len(users) == 0, nil
+	}
+	fallback, found, err := inbound.CatchAllRecipient(ctx.Context)
+	if err != nil {
+		return users, nil, false, err
+	}
+	if !found {
+		if len(users) == 0 {
+			return nil, nil, false, address.ErrNotFound
+		}
+		return users, nil, false, nil
 	}
 	if DropUnknownRecipientEmails && ((config.Instance.SpamFilterLevel == 1 && !SPFStatus && !dkimStatus) || (config.Instance.SpamFilterLevel == 2 && !SPFStatus) || (config.Instance.SpamFilterLevel == 3 && !dkimStatus)) {
-		log.WithContext(ctx).Infof("unknown recipient rejected by catch-all spam policy: %v", recipients)
-		return users, len(users) == 0, nil
+		log.WithContext(ctx).Infof("unknown recipient rejected by catch-all spam policy: %v", unknown)
+		return users, nil, len(users) == 0, nil
 	}
-	var admins []*models.User
-	if err := db.Instance.Table(&models.User{}).Where("is_admin=1 AND disabled=0").Find(&admins); err != nil {
-		return nil, false, err
-	}
-	for _, admin := range admins {
-		if !seen[admin.ID] {
-			users = append(users, admin)
-			seen[admin.ID] = true
-		}
-	}
-	if len(users) == 0 {
-		return nil, false, stderrors.New("no administrator available for unknown recipient")
-	}
-	return users, false, nil
+	add(fallback)
+	return users, map[int][]string{fallback.ID: unknown}, false, nil
 }
 
 func incomingAddresses(email *parsemail.Email, reallyTo []string) []string {

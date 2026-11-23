@@ -11,6 +11,11 @@
 - 同机 Docker 网桥反代默认信任 `172.16.0.0/12`，不覆盖显式 `PMAIL_TRUSTED_PROXIES`。自定义网页主机名可显式配置 `PMAIL_WEB_DOMAIN`；已有保存值会保留。
 - 已有数据库域名表时不用设置 `PMAIL_DOMAIN`，继续使用数据库的默认域名。若迁移库已有用户却没有域名记录，先用 `PMAIL_DOMAIN` 指定原来的收信域名。`PMAIL_DOMAINS` 只在空域名表时导入附加域名。
 
+## 外部代收退役与兜底收件
+
+- 启动升级会删除旧外部账号及同步状态（`external_account`、`external_seen`、`external_cursor`，含加密凭据）。已代收邮件、附件和邮箱链接不变。升级前按需备份；备份仍可能包含旧凭据，请妥善保存。离线导入不会复制这三张退役表。
+- 默认兜底只投给一位启用管理员，不再投给所有管理员。可在 **系统管理 → 入站安全** 修改开关或选择启用用户；显式 `PMAIL_CATCH_ALL` 仍优先。已有配置未明确改为数据库设置前，保留原配置的开关值；旧邮件不推断或回填信封地址。
+
 ## 不兼容变更
 
 1. **默认数据库改为 PostgreSQL 17。** SQLite/MySQL 单文件部署需要导入数据库，不能把旧文件直接挂载成 PostgreSQL 数据卷。
@@ -19,7 +24,7 @@
 4. **密码哈希改为 bcrypt。** 旧 MD5 密码在首次成功认证后自动升级；明文密码不写入日志或前端存储。
 5. **外发改用持久化队列。** 网页、587/465 提交的对外邮件先入队，由队列负责重试；本地收件人仍同步入库。可通过 `/api/queue/list` 核对状态。
 6. **Web 前端更换。** PMail Pro 使用 `web/` 中的 React SPA；与 Go API 一起部署，同一容器托管网页与 API。
-7. **新增数据表。** 包括 `domain`、`mailbox_address`、`api_token`、`outbound_queue`、`forward_setting`、`external_account`、`external_seen`，以及新增的用户配额和认证字段。
+7. **新增数据表。** 包括 `domain`、`mailbox_address`、`api_token`、`outbound_queue`、`forward_setting`，以及新增的用户配额和认证字段。
 
 ## 导入旧数据库
 
@@ -89,12 +94,11 @@ docker compose pull && docker compose up -d --wait postgres
 - Web Cookie 写入现在要求同源 `Origin`/`Referer`；反代需保留 `Host`，并按实际对端填写 `PMAIL_TRUSTED_PROXIES` 以启用可信 HTTPS 与来源识别。JSON 需设置 `Content-Type: application/json`；`/api/logout` 只接受 POST。浏览器开发可继续使用 Vite 同源代理。
 - API Token 新增权限范围和默认 90 天过期；显式 `never_expires` 才能签发无期限的新令牌。已有令牌继续工作，但标记 `legacy_scope`，应尽快轮换。`PMAIL_ADMIN_MAIL_ACCESS=1` 才能恢复管理员读取其他人非草稿邮件的能力，并产生额外审计记录。
 - `PMAIL_TRUSTED_RELAYS` 记录可信入站中继；私网不会自动判 SPF 通过。出站拒绝私网/保留地址，用 `PMAIL_SMTP_OUTBOUND_ALLOW` 仅放行实际需要的中继；`PMAIL_SMTP_TLS_REQUIRED_DOMAINS` 中的收件域拒绝 TLS 降级。
-- 外部邮箱密文为绑定端点的新格式，旧格式读取兼容并在同步时迁移。使用旧二进制回滚之前，备份原数据库；旧二进制不能解密已经迁移的凭据，必要时重新配置密码。
 - `PMAIL_WEB_ROOT` 不能包含配置、密钥或数据库文件；如以前指向工作目录，请改为专用前端构建目录。
 
 ## 邮件与同步可靠性调整
 
-- 发信、草稿、手动转发的 JSON 默认 32 MiB（`PMAIL_MAIL_JSON_MAX_BYTES`）。超限是 HTTP 413；SMTP DATA 超限返回 552（现有 SMTP 原始消息上限仍为 30 MiB）。解码 MIME 单段/附件总量均不超过 24 MiB，应用邮件总预算 32 MiB，最多 256 段、32 级嵌套和 50 个收件人。外部邮箱超限断开连接并在同步状态显示原因。
+- 发信、草稿、手动转发的 JSON 默认 32 MiB（`PMAIL_MAIL_JSON_MAX_BYTES`）。超限是 HTTP 413；SMTP DATA 超限返回 552（现有 SMTP 原始消息上限仍为 30 MiB）。解码 MIME 单段/附件总量均不超过 24 MiB，应用邮件总预算 32 MiB，最多 256 段、32 级嵌套和 50 个收件人。
 - `PMAIL_POP3_MAX_CONNECTIONS`（默认 `128`）和 `PMAIL_POP3_MAX_PER_IP`（默认 `8`）同时作用于 110/995，`PMAIL_POP3_IDLE_SECONDS` 默认 `600`。反代或网关后的共享 IP 可能需要调整每来源连接上限。
 - 规则正则改用 Go 语法，不再支持前后向断言或反向引用。保存时检查 1024 字节的正则长度、每条规则最多 32 个条件、每账户最多 100 条规则。已存不兼容规则不会崩溃投递，但应编辑替换。
 - 新 IMAP UID 命名空间会改变 `UIDVALIDITY`，升级后客户端会重建邮箱缓存。`\Deleted` 只是邮箱链接标记，`EXPUNGE` 才删除该链接；为避免并发删除其他来源的数据，IMAP 不立即清理全局 MIME 原文。APPEND 仍未实现，明确返回 `NO`。
@@ -110,7 +114,7 @@ docker compose pull && docker compose up -d --wait postgres
 
 ## 入站分析（C8）
 
-- `PMAIL_SPAM_FILTER_LEVEL` 仍只控制旧的 catch-all 回退前置筛查，不因 C8 扩大范围。已知收件人不受该变量影响。通过旧检查进入持久化的匿名 SMTP 入站与外部邮箱导入会做新分析，按**各用户**设置决定是否进入广告箱；垃圾判定不拒收、不会替其他收件人移动邮件，也不会自动转发判为广告的邮件。已认证的本机投递也使用分析，但不会使用外部发信 IP 的 DNSBL。
+- `PMAIL_SPAM_FILTER_LEVEL` 仍只控制旧的 catch-all 回退前置筛查，不因 C8 扩大范围。已知收件人不受该变量影响。通过旧检查进入持久化的匿名 SMTP 入站会做新分析，按**各用户**设置决定是否进入广告箱；垃圾判定不拒收、不会替其他收件人移动邮件，也不会自动转发判为广告的邮件。已认证的本机投递也使用分析，但不会使用外部发信 IP 的 DNSBL。
 - 个人垃圾过滤与贝叶斯默认启用，默认阈值为管理员设置（初始 `6`）；用户保存设置后优先用自己的阈值。禁用个人垃圾过滤不影响风险和验证码识别。白名单优先于同时匹配的黑名单；允许名单直接放行，不验证原始地址字面值的可信度，请慎用宽泛规则。贝叶斯需每类至少 20 份手动样本才影响评分。
 - `PMAIL_SPAM_KEYWORDS` 可设逗号分隔的中英文短语，覆盖内置表；显式空值关闭该特征。DNSBL 和 ClamAV 默认关闭，在管理后台开启后即时用于新投递。只把 clamd 配置到自己控制的服务（`host:port` 或绝对 Unix socket），因为扫描会发送受大小限制的邮件内容。信任中继须自己追加最上层 Received；缺可用上一跳时跳过其 DNSBL 查询。
 - 历史邮件不会回溯，未分析字段为 `null`。整体分析预算为 1.5 秒，耗尽或过载会降级而不是丢信；DNSBL/ClamAV 不可用只警告。高危附件必须手工确认下载，不能在线预览，所有 Web 附件别名均执行此规则。管理开关 `risk_block_dangerous_attachments` 仅额外启用审计日志，不取消基础确认规则。此功能不替代协议客户端自身的附件安全策略。
@@ -123,5 +127,5 @@ docker compose pull && docker compose up -d --wait postgres
 ## C10 / C10R1：出站 TLS 默认值与数据库密码文件
 
 - 出站 SMTP 默认恢复机会性 TLS：对非强制域，先尝试验证证书的 STARTTLS；协商失败重试不验证证书的 STARTTLS；若再次协商失败，才回退明文。未宣告 STARTTLS 的 MX 可直接回退明文。不验证证书仍加密，但不能防主动中间人攻击。
-- C10 的 `PMAIL_SMTP_ALLOW_UNVERIFIED_TLS` 已删除，不再读取。若希望保留 C10 默认行为，请更新 Compose 文件并设 `PMAIL_SMTP_REQUIRE_VERIFIED_TLS=1`：只对宣告 STARTTLS 的 MX 强制校验；未宣告时仍为兼容旧 MX 允许明文。这不是全面强制 TLS。`PMAIL_SMTP_TLS_REQUIRED_DOMAINS` 的精确收件域始终要求已验证的 TLS，即使对端未宣告也不降级。外部邮箱的“跳过证书验证”是独立的账户选项，仍默认关闭。
+- C10 的 `PMAIL_SMTP_ALLOW_UNVERIFIED_TLS` 已删除，不再读取。若希望保留 C10 默认行为，请更新 Compose 文件并设 `PMAIL_SMTP_REQUIRE_VERIFIED_TLS=1`：只对宣告 STARTTLS 的 MX 强制校验；未宣告时仍为兼容旧 MX 允许明文。这不是全面强制 TLS。`PMAIL_SMTP_TLS_REQUIRED_DOMAINS` 的精确收件域始终要求已验证的 TLS，即使对端未宣告也不降级。
 - 数据库密码文件必须是常规文件且不超过 64 KiB。若部署用了跨目录的符号链接，请把实际文件直接挂载到 `PMAIL_DB_PASSWORD_FILE` 指向的位置，或用同目录可解析的相对链接。初始化仍以 0600 保存密码，容器共享目录只授予 PostgreSQL 穿越权限。

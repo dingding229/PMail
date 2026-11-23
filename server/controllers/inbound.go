@@ -90,12 +90,13 @@ func InboundSettings(ctx *context.Context, w http.ResponseWriter, r *http.Reques
 	var err error
 	if r.Method == http.MethodPut {
 		var body struct {
-			DNSBLEnabled         *bool     `json:"dnsbl_enabled"`
-			Zones                *[]string `json:"dnsbl_zones"`
-			DefaultSpamThreshold *float64  `json:"default_spam_threshold"`
-			ClamdEnabled         *bool     `json:"clamd_enabled"`
-			ClamdAddr            *string   `json:"clamd_addr"`
-			RiskAudit            *bool     `json:"risk_block_dangerous_attachments"`
+			DNSBLEnabled         *bool                  `json:"dnsbl_enabled"`
+			Zones                *[]string              `json:"dnsbl_zones"`
+			DefaultSpamThreshold *float64               `json:"default_spam_threshold"`
+			ClamdEnabled         *bool                  `json:"clamd_enabled"`
+			ClamdAddr            *string                `json:"clamd_addr"`
+			RiskAudit            *bool                  `json:"risk_block_dangerous_attachments"`
+			CatchAll             inbound.CatchAllUpdate `json:"catch_all"`
 		}
 		if !inboundBody(ctx, w, r, &body) {
 			return
@@ -104,7 +105,7 @@ func InboundSettings(ctx *context.Context, w http.ResponseWriter, r *http.Reques
 			inboundErr(ctx, w, inbound.ErrInvalid)
 			return
 		}
-		s, err = inbound.PutSettings(r.Context(), inbound.Settings{DNSBLEnabled: *body.DNSBLEnabled, Zones: *body.Zones, DefaultSpamThreshold: *body.DefaultSpamThreshold, ClamdEnabled: *body.ClamdEnabled, ClamdAddr: *body.ClamdAddr, RiskAudit: *body.RiskAudit})
+		s, err = inbound.PutSettings(r.Context(), inbound.Settings{DNSBLEnabled: *body.DNSBLEnabled, Zones: *body.Zones, DefaultSpamThreshold: *body.DefaultSpamThreshold, ClamdEnabled: *body.ClamdEnabled, ClamdAddr: *body.ClamdAddr, RiskAudit: *body.RiskAudit}, body.CatchAll)
 		if err == nil {
 			log.WithContext(ctx).Infof("audit_event=inbound_settings_changed actor_id=%d", ctx.UserID)
 		}
@@ -119,7 +120,15 @@ func InboundSettings(ctx *context.Context, w http.ResponseWriter, r *http.Reques
 	for i := range s.Warnings {
 		s.Warnings[i].Message = i18n.T(ctx, s.Warnings[i].Code)
 	}
-	inboundOK(w, s)
+	recipients, err := inbound.CatchAllOptions(r.Context())
+	if err != nil {
+		inboundErr(ctx, w, err)
+		return
+	}
+	inboundOK(w, struct {
+		inbound.Settings
+		CatchAllRecipients []inbound.CatchAllOption `json:"catch_all_recipients"`
+	}{s, recipients})
 }
 
 func SpamSettings(ctx *context.Context, w http.ResponseWriter, r *http.Request) {

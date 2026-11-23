@@ -199,11 +199,7 @@ func buildGuide(row models.Domain, key guideKey, v4, v6 netip.Addr) DNSGuide {
 	add("mail_a", "mail_host", "A", m, out.ServerIPv4, true)
 	add("mail_aaaa", "mail_host", "AAAA", m, out.ServerIPv6, v6.IsValid())
 	if key.web != m {
-		value := out.ServerIPv4
-		if key.proxy {
-			value = ""
-		}
-		add("web_a", "web", "A", key.web, value, true)
+		add("web_a", "web", "A", key.web, out.ServerIPv4, true)
 	}
 	add("spf", "authentication", "TXT", d, "v=spf1 mx a ~all", true)
 	dkim := add("dkim", "authentication", "TXT", row.DkimSelector+"._domainkey."+d, key.dkim, true)
@@ -212,13 +208,14 @@ func buildGuide(row models.Domain, key guideKey, v4, v6 netip.Addr) DNSGuide {
 	}
 	add("dmarc", "authentication", "TXT", "_dmarc."+d, "v=DMARC1; p=quarantine; rua=mailto:postmaster@"+d, true)
 	ptr := add("ptr", "reverse_dns", "PTR", m, fqdn(m), false)
-	ptr.Host = "@"
+	ptr.Host, ptr.FQDN = "", ""
 	if v4.IsValid() {
 		ptr.FQDN = reverseName(v4)
 	} else if v6.IsValid() {
 		ptr.FQDN = reverseName(v6)
 	}
 	if v4.IsValid() || v6.IsValid() {
+		ptr.Host = ptr.FQDN
 		ptr.Zone = strings.TrimSuffix(ptr.FQDN, ".")
 	}
 	for _, name := range []string{"imap", "pop"} {
@@ -458,8 +455,15 @@ func localizeGuide(guide DNSGuide, lang string) DNSGuide {
 		switch {
 		case rec.Key == "ptr":
 			rec.Description = i18n.Text(lang, "dns_guide_ptr", guide.MailHost)
+		case rec.Key == "mail_aaaa" && rec.Value == "":
+			rec.Description = i18n.Text(lang, "dns_guide_ipv6_undetected")
 		case rec.Key == "web_a" && guide.proxy:
 			rec.Description = i18n.Text(lang, "dns_guide_proxy", rec.Zone, rec.Host)
+			if rec.Value == "" {
+				rec.Description += " " + i18n.Text(lang, "dns_guide_ipv4_undetected")
+			}
+		case rec.Type == "A" && rec.Value == "":
+			rec.Description = i18n.Text(lang, "dns_guide_ipv4_undetected")
 		case rec.Key == "spf" && len(rec.Actual) > 0:
 			rec.Description = i18n.Text(lang, "dns_guide_spf_existing", rec.Zone, rec.Host)
 		case rec.Key == "autoconfig" || rec.Key == "autodiscover":
@@ -490,8 +494,11 @@ func renderZone(guide DNSGuide, lang string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "; %s\n$ORIGIN %s\n$TTL 3600\n\n", i18n.Text(lang, "dns_guide_zone_intro"), fqdn(guide.Domain))
 	for _, rec := range guide.Records {
+		if strings.TrimSpace(rec.Value) == "" {
+			continue
+		}
 		fmt.Fprintf(&b, "; %s\n", rec.Description)
-		if rec.Type == "PTR" || rec.Zone != guide.Domain || rec.Value == "" {
+		if rec.Type == "PTR" || rec.Zone != guide.Domain {
 			continue
 		}
 		if !rec.Required {

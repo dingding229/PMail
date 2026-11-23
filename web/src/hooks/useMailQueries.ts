@@ -37,8 +37,6 @@ export const queryKeys = {
   emailDetail: (id: number) => ['emails', 'detail', id] as const,
   forward: ['settings', 'forward'] as const,
   rules: ['settings', 'rules'] as const,
-  externalAccounts: ['settings', 'external'] as const,
-  externalPresets: ['settings', 'external', 'presets'] as const,
   tokens: ['settings', 'tokens'] as const,
   spamSettings: ['settings', 'spam'] as const,
   spamRules: ['settings', 'spam', 'rules'] as const,

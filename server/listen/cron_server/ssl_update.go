@@ -4,14 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"errors"
 	"slices"
 	"time"
 
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/services/domain"
-	"github.com/Jinnrry/pmail/services/external"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/services/setup/ssl"
 	"github.com/Jinnrry/pmail/signal"
@@ -30,14 +28,12 @@ func Start(ctx context.Context, cfg *config.Config, active *tls.Certificate) fun
 	go certificateMaintenance(ctx, cfg, active)
 	go auth.RunCleanup(ctx)
 	queueDone := queue.Start(ctx)
-	waitExternal := external.Start(ctx)
 	return func(wait context.Context) error {
-		extErr := waitExternal(wait)
 		select {
 		case <-queueDone:
-			return extErr
+			return nil
 		case <-wait.Done():
-			return errors.Join(extErr, wait.Err())
+			return wait.Err()
 		}
 	}
 }

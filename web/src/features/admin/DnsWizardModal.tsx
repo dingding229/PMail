@@ -92,7 +92,7 @@ export function DnsWizardModal({
         recommended.push(r)
       } else if (r.required) {
         required.push(r)
-      } else if (r.key === 'dmarc' || r.status === 'advice') {
+      } else if (r.key === 'dmarc' || (r.status === 'advice' && r.key !== 'mail_aaaa')) {
         recommended.push(r)
       } else {
         optional.push(r)
@@ -161,7 +161,7 @@ export function DnsWizardModal({
     ].join('\t')
 
     const rows = dns.records
-      .filter((r) => r.type.toUpperCase() !== 'PTR')
+      .filter((r) => r.type.toUpperCase() !== 'PTR' && r.value.trim() !== '')
       .map((r) =>
         [
           r.type,

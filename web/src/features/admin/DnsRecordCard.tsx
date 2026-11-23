@@ -201,7 +201,9 @@ export function DnsRecordCard({ record, checking = false }: DnsRecordCardProps) 
       {/* Copyable DNS Fields Grid */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <CopyableField label={t('admin.dnsWizard.fields.type')} value={record.type} />
-        <CopyableField label={t('admin.dnsWizard.fields.host')} value={record.host || '@'} />
+        {(record.type.toUpperCase() !== 'PTR' || (record.host && record.host !== '@')) && (
+          <CopyableField label={t('admin.dnsWizard.fields.host')} value={record.host || '@'} />
+        )}
         {record.priority !== undefined && record.priority > 0 && (
           <CopyableField
             label={t('admin.dnsWizard.fields.priority')}
@@ -212,93 +214,95 @@ export function DnsRecordCard({ record, checking = false }: DnsRecordCardProps) 
       </div>
 
       {/* Record Value (with long DKIM collapse + 255-byte chunks switcher) */}
-      <div className="rounded-[var(--radius-sm)] border border-[var(--border-hairline)] bg-[var(--surface-subtle)]/65 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[11px] font-medium text-[var(--ink-muted)]">
-            {t('admin.dnsWizard.fields.value')}
-          </span>
-          <div className="flex flex-wrap items-center gap-1">
-            {hasChunks && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                onClick={() => setShowChunks((v) => !v)}
-              >
-                <Scissors className="h-3 w-3" />
-                {showChunks
-                  ? t('admin.dnsWizard.dkimHideChunks')
-                  : t('admin.dnsWizard.dkimShowChunks', {
-                      count: record.value_chunks?.length ?? 0,
-                    })}
-              </Button>
-            )}
-            {isLongValue && !showChunks && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                onClick={() => setExpanded((v) => !v)}
-              >
-                {expanded ? (
-                  <>
-                    <ChevronUp className="h-3 w-3" />
-                    {t('admin.dnsWizard.dkimCollapse')}
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="h-3 w-3" />
-                    {t('admin.dnsWizard.dkimExpand')}
-                  </>
-                )}
-              </Button>
-            )}
-            <Button
-              type="button"
-              variant="secondary"
-              size="xs"
-              onClick={() => void copyText(record.value)}
-            >
-              {copiedValue ? (
-                <Check className="h-3 w-3 text-[var(--success)]" />
-              ) : (
-                <Copy className="h-3 w-3" />
-              )}
-              {t('common.copy')}
-            </Button>
-          </div>
-        </div>
-
-        {showChunks && record.value_chunks ? (
-          <div className="mt-2 space-y-2">
-            <p className="text-[11.5px] text-[var(--ink-muted)]">
-              {t('admin.dnsWizard.dkimChunkHint')}
-            </p>
-            {record.value_chunks.map((chunk, i) => (
-              <div
-                key={i}
-                className="flex items-start justify-between gap-2 rounded border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-2"
-              >
-                <code className="min-w-0 flex-1 break-all font-mono text-[11.5px] text-[var(--ink-primary)] select-all">
-                  &quot;{chunk}&quot;
-                </code>
-                <button
+      {record.value.trim() && (
+        <div className="rounded-[var(--radius-sm)] border border-[var(--border-hairline)] bg-[var(--surface-subtle)]/65 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[11px] font-medium text-[var(--ink-muted)]">
+              {t('admin.dnsWizard.fields.value')}
+            </span>
+            <div className="flex flex-wrap items-center gap-1">
+              {hasChunks && (
+                <Button
                   type="button"
-                  onClick={() => void copyText(chunk)}
-                  aria-label={t('common.copy')}
-                  className="shrink-0 rounded p-1 text-[var(--ink-muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--ink-primary)]"
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setShowChunks((v) => !v)}
                 >
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
+                  <Scissors className="h-3 w-3" />
+                  {showChunks
+                    ? t('admin.dnsWizard.dkimHideChunks')
+                    : t('admin.dnsWizard.dkimShowChunks', {
+                        count: record.value_chunks?.length ?? 0,
+                      })}
+                </Button>
+              )}
+              {isLongValue && !showChunks && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setExpanded((v) => !v)}
+                >
+                  {expanded ? (
+                    <>
+                      <ChevronUp className="h-3 w-3" />
+                      {t('admin.dnsWizard.dkimCollapse')}
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-3 w-3" />
+                      {t('admin.dnsWizard.dkimExpand')}
+                    </>
+                  )}
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="secondary"
+                size="xs"
+                onClick={() => void copyText(record.value)}
+              >
+                {copiedValue ? (
+                  <Check className="h-3 w-3 text-[var(--success)]" />
+                ) : (
+                  <Copy className="h-3 w-3" />
+                )}
+                {t('common.copy')}
+              </Button>
+            </div>
           </div>
-        ) : (
-          <pre className="mt-1.5 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[12px] leading-relaxed text-[var(--ink-primary)] select-all">
-            {displayedValue}
-          </pre>
-        )}
-      </div>
+
+          {showChunks && record.value_chunks ? (
+            <div className="mt-2 space-y-2">
+              <p className="text-[11.5px] text-[var(--ink-muted)]">
+                {t('admin.dnsWizard.dkimChunkHint')}
+              </p>
+              {record.value_chunks.map((chunk, i) => (
+                <div
+                  key={i}
+                  className="flex items-start justify-between gap-2 rounded border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-2"
+                >
+                  <code className="min-w-0 flex-1 break-all font-mono text-[11.5px] text-[var(--ink-primary)] select-all">
+                    &quot;{chunk}&quot;
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => void copyText(chunk)}
+                    aria-label={t('common.copy')}
+                    className="shrink-0 rounded p-1 text-[var(--ink-muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--ink-primary)]"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <pre className="mt-1.5 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[12px] leading-relaxed text-[var(--ink-primary)] select-all">
+              {displayedValue}
+            </pre>
+          )}
+        </div>
+      )}
 
       {/* Side-by-Side Expected vs Actual Comparison on Mismatch / Error */}
       {(record.status === 'mismatch' || record.status === 'error') && (
@@ -319,14 +323,16 @@ export function DnsRecordCard({ record, checking = false }: DnsRecordCardProps) 
               </div>
             </div>
 
-            <div className="rounded-[var(--radius-sm)] border border-[var(--success)]/30 bg-[var(--success-soft)]/50 p-2.5">
-              <p className="text-[11px] font-semibold text-[var(--success)]">
-                {t('admin.dnsWizard.expectedValue')}
-              </p>
-              <div className="mt-1 font-mono text-[11.5px] break-all text-[var(--ink-primary)]">
-                {record.value}
+            {record.value.trim() && (
+              <div className="rounded-[var(--radius-sm)] border border-[var(--success)]/30 bg-[var(--success-soft)]/50 p-2.5">
+                <p className="text-[11px] font-semibold text-[var(--success)]">
+                  {t('admin.dnsWizard.expectedValue')}
+                </p>
+                <div className="mt-1 font-mono text-[11.5px] break-all text-[var(--ink-primary)]">
+                  {record.value}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* SPF Merged Suggested Value Box */}

@@ -8,22 +8,17 @@ import (
 	oerrors "errors"
 	"io"
 	"net/netip"
-	"strings"
 	"time"
 
-	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/consts"
-	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/listen/imap_server"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
-	"github.com/Jinnrry/pmail/services/group"
 	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/services/inboundauth"
-	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/services/rule"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -32,7 +27,6 @@ import (
 	smtp "github.com/emersion/go-smtp"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cast"
-	"xorm.io/xorm"
 )
 
 // DropUnknownRecipientEmails gates SPF/DKIM filtering before catch-all
@@ -71,88 +65,6 @@ func initialLink(row *models.Email, uid, groupID int, score *inbound.Spam) model
 	return link
 }
 
-// ImportExternal commits the message, its owner link and the caller's remote
-// deduplication marker together. Rule side effects happen only after commit.
-func ImportExternal(ctx *context.Context, raw []byte, recipient string, targetGroupID int, seen func(*xorm.Session) (bool, error)) (*models.Email, error) {
-	if ctx.UserID <= 0 || len(raw) == 0 || strings.TrimSpace(recipient) == "" {
-		return nil, oerrors.New("external message or recipient is missing")
-	}
-	email, err := parsemail.ParseLimited([]string{recipient}, bytes.NewReader(raw), len(raw))
-	if err != nil {
-		return nil, err
-	}
-	if email.From == nil || email.From.EmailAddress == "" {
-		return nil, oerrors.New("external sender is missing")
-	}
-	email.Authentication = parsemail.NewEmailAuthentication(false, false)
-	email.AuthUnchecked = true
-	if email.MsgID == "" {
-		email.MsgID = parsemail.GenerateMsgID(domain.DefaultName())
-	}
-	email.Size = len(raw)
-	delivery := inboundDelivery{envelope: inbound.Envelope{}}
-	delivery.analyze(ctx, email, []int{ctx.UserID})
-	var saved *models.Email
-	var owner models.User
-	err = db.Transaction(db.Instance, func(tx *xorm.Session) error {
-		if _, err := quota.Lock(tx, ctx.UserID); err != nil {
-			return err
-		}
-		saved = nil
-		if ctx.Context != nil {
-			tx.Context(ctx.Context)
-		}
-		duplicate, err := seen(tx)
-		if err != nil || duplicate {
-			return err
-		}
-		if err = quota.LockAndCheck(tx, ctx.UserID, int64(email.Size)); err != nil {
-			return err
-		}
-		found, err := tx.ID(ctx.UserID).Get(&owner)
-		if err != nil {
-			return err
-		}
-		if !found {
-			return address.ErrNotFound
-		}
-		if targetGroupID != 0 {
-			ok, err := tx.ID(targetGroupID).Where("user_id=?", ctx.UserID).Exist(&models.Group{})
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return group.ErrInvalidParent
-			}
-		}
-		row := storedEmail(email, 0, int(consts.EmailTypeReceive), email.MsgID, false, false)
-		row.InboundAnalysis = inbound.Storage(delivery.analysis)
-		mailstore.Prepare(&row)
-		mailstore.SetPOPSize(ctx, &row)
-		if _, err = tx.Insert(&row); err != nil {
-			return err
-		}
-		if err = mailstore.WriteParts(tx, &row, false); err != nil {
-			return err
-		}
-		link := initialLink(&row, ctx.UserID, targetGroupID, delivery.scores[ctx.UserID])
-		if _, err = tx.Insert(&link); err != nil {
-			return err
-		}
-		if err = quota.Adjust(tx, ctx.UserID, int64(row.Size)); err != nil {
-			return err
-		}
-		saved = &row
-		return nil
-	})
-	if err != nil || saved == nil {
-		return saved, err
-	}
-	email.MessageId = int64(saved.Id)
-	processIncomingDelivery(ctx, email, saved, []*models.User{&owner}, raw, &delivery)
-	return saved, nil
-}
-
 // LocalDelivery is shared by SMTP submission and Web send to keep local mail
 // on the same persistence/rule/hook path as SMTP 25 receive.
 func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*parsemail.User) (map[string]error, error) {
@@ -172,26 +84,19 @@ func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*p
 	}
 	// Web/authenticated local submission persists one row per recipient for
 	// legacy delivery reporting. Share the expensive scan across those rows.
-	// Administrative catch-all candidates are included only if an address is
-	// unknown; normal delivery still independently enforces its old gate.
 	delivery := inboundDelivery{envelope: inbound.Envelope{MailFrom: email.EnvelopeFrom}}
-	var owners []int
-	catchAll := false
+	var targets []string
 	for _, r := range recipients {
-		if r == nil {
-			continue
-		}
-		if u, ok, err := address.Resolve(r.EmailAddress); err == nil && ok {
-			owners = append(owners, u.ID)
-		} else {
-			catchAll = true
+		if r != nil {
+			targets = append(targets, r.EmailAddress)
 		}
 	}
-	if catchAll && config.Instance != nil && config.Instance.CatchAll {
-		var admins []models.User
-		if err := db.Instance.Cols("id").Where("is_admin=1 AND disabled=0").Find(&admins); err == nil {
-			for _, u := range admins {
-				owners = append(owners, u.ID)
+	var owners []int
+	if len(targets) > 0 {
+		users, _, _, err := resolveIncomingUsers(ctx, email, int(consts.EmailTypeReceive), targets, true, true)
+		if err == nil {
+			for _, user := range users {
+				owners = append(owners, user.ID)
 			}
 		}
 	}
@@ -206,7 +111,7 @@ func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*p
 		// audit email that outbound queue rows reference.
 		localEmail := *email
 		users, saved, err := saveEmail(ctx, len(raw), &localEmail, 0, int(consts.EmailTypeReceive), []string{recipient.EmailAddress}, true, true, &delivery)
-		if err == nil && len(users) == 0 && !config.Instance.CatchAll {
+		if err == nil && len(users) == 0 {
 			err = address.ErrNotFound
 		}
 		if err != nil {
@@ -352,6 +257,9 @@ func (s *Session) Data(r io.Reader) error {
 			if oerrors.Is(saveErr, quota.ErrExceeded) {
 				return quotaSMTPError()
 			}
+			if oerrors.Is(saveErr, address.ErrNotFound) {
+				return unknownRecipientSMTPError()
+			}
 			if oerrors.Is(saveErr, forward.ErrInvalidSRS) {
 				return &smtp.SMTPError{Code: 550, EnhancedCode: smtp.EnhancedCode{5, 1, 1}, Message: "Invalid SRS recipient"}
 			}
@@ -378,7 +286,7 @@ func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserI
 		dkimStatus = email.Authentication.DKIMPassed
 	}
 
-	users, drop, err := resolveIncomingUsers(ctx, email, emailType, reallyTo, SPFStatus, dkimStatus)
+	users, catchAll, drop, err := resolveIncomingUsers(ctx, email, emailType, reallyTo, SPFStatus, dkimStatus)
 	if err != nil || drop {
 		return users, nil, err
 	}
@@ -415,7 +323,7 @@ func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserI
 			modelEmail.InboundAnalysis = inbound.Storage(delivery[0].analysis)
 			scores = delivery[0].scores
 		}
-		saved, accepted, err = persistInitialAuditWithQuota(ctx, modelEmail, userIDs, scores)
+		saved, accepted, err = persistInitialAuditWithQuota(ctx, modelEmail, userIDs, scores, catchAll)
 		if err != nil {
 			return users, nil, err
 		}
@@ -447,30 +355,29 @@ func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserI
 
 func storedEmail(email *parsemail.Email, sendUserID, emailType int, msgID string, SPFStatus, dkimStatus bool) models.Email {
 	return models.Email{
-		Type:          cast.ToInt8(emailType),
-		Subject:       email.Subject,
-		ReplyTo:       json2string(email.ReplyTo),
-		FromName:      email.From.Name,
-		FromAddress:   email.From.EmailAddress,
-		To:            json2string(email.To),
-		Bcc:           json2string(email.Bcc),
-		Cc:            json2string(email.Cc),
-		Text:          sql.NullString{String: string(email.Text), Valid: true},
-		TextFormat:    email.TextFormat,
-		Html:          sql.NullString{String: string(email.HTML), Valid: true},
-		Sender:        json2string(email.Sender),
-		Attachments:   json2string(email.Attachments),
-		Size:          email.Size,
-		SPFCheck:      boolInt8(SPFStatus),
-		DKIMCheck:     boolInt8(dkimStatus),
-		AuthUnchecked: email.AuthUnchecked,
-		AuthResults:   sql.NullString{String: email.AuthResults.Storage(), Valid: email.AuthResults != nil},
-		SendUserID:    sendUserID,
-		SendDate:      time.Now(),
-		Status:        cast.ToInt8(email.Status),
-		CreateTime:    time.Now(),
-		CronSendTime:  time.Now(),
-		MsgID:         msgID,
+		Type:         cast.ToInt8(emailType),
+		Subject:      email.Subject,
+		ReplyTo:      json2string(email.ReplyTo),
+		FromName:     email.From.Name,
+		FromAddress:  email.From.EmailAddress,
+		To:           json2string(email.To),
+		Bcc:          json2string(email.Bcc),
+		Cc:           json2string(email.Cc),
+		Text:         sql.NullString{String: string(email.Text), Valid: true},
+		TextFormat:   email.TextFormat,
+		Html:         sql.NullString{String: string(email.HTML), Valid: true},
+		Sender:       json2string(email.Sender),
+		Attachments:  json2string(email.Attachments),
+		Size:         email.Size,
+		SPFCheck:     boolInt8(SPFStatus),
+		DKIMCheck:    boolInt8(dkimStatus),
+		AuthResults:  sql.NullString{String: email.AuthResults.Storage(), Valid: email.AuthResults != nil},
+		SendUserID:   sendUserID,
+		SendDate:     time.Now(),
+		Status:       cast.ToInt8(email.Status),
+		CreateTime:   time.Now(),
+		CronSendTime: time.Now(),
+		MsgID:        msgID,
 	}
 
 }

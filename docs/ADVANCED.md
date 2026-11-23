@@ -75,7 +75,7 @@ docker compose down -v
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | 数据库、账号默认 `pmail`；密码默认随机生成到 `secrets` 卷，已有部署可保留显式值 |
 | `PMAIL_DB_TYPE` / `PMAIL_DB_DSN` | 基础 Compose 默认使用 PostgreSQL；显式连接串优先，默认使用 `PMAIL_DB_PASSWORD_FILE` 指向的凭据文件连接项目内的 `postgres:5432` |
 | `PMAIL_ADMIN_ACCOUNT` / `PMAIL_ADMIN_PASSWORD` | 仅当数据库没有用户且显式设置密码时直接创建管理员（账号默认 `admin`）；未设置密码则使用首次注册密钥，已有用户不受影响 |
-| `PMAIL_SECRET_KEY` | 外部邮箱凭据的加密密钥、SRS 密钥等；留空时生成 `pmail_config` 卷内的 `secret.key`，必须与数据一并保留 |
+| `PMAIL_SECRET_KEY` | 应用加密与 SRS 密钥等；留空时生成 `pmail_config` 卷内的 `secret.key`，必须与数据一并保留 |
 | `PMAIL_WEB_MODE` | `proxy` 默认仅提供网页 HTTP；公网直连使用覆盖文件选择 `public`。两种模式都默认 HTTP-01 申请邮件证书 |
 | `PMAIL_WEB_ROOT` | 静态前端构建产物目录，默认 `/work/web`；本地可用相对路径（相对进程工作目录）。与配置、密钥或数据目录重叠时拒绝启动 |
 | `PMAIL_CORS_ORIGINS` | 可选开发联调白名单，逗号分隔的完整源，例如 `http://localhost:5173`；默认禁用；跨源白名单不能绕过 Cookie 写入的同源校验 |
@@ -100,13 +100,16 @@ docker compose down -v
 | `PMAIL_LOG_LEVEL` | `debug`、`info`、`warn` 或 `error` |
 | `PMAIL_SPAM_FILTER_LEVEL` | **只作用于 catch-all（未知收件人）分支**，已知收件人不受此设置影响。`0` 关闭过滤，`1` 在 SPF 与 DKIM 均失败时过滤，`2` 在 SPF 失败时过滤，`3` 在 DKIM 失败时过滤。 |
 | `PMAIL_SPAM_KEYWORDS` | 可选，逗号分隔，覆盖新入站引擎的内置中英文垃圾关键词；显式空值只关闭关键词评分。与 catch-all 前置筛查无关。 |
-| `PMAIL_CATCH_ALL` / `PMAIL_ALLOW_USER_ALIAS` | 未知本地收件人是否允许回退到管理员；是否允许普通用户自助创建别名。关闭 catch-all 后，未知收件人不再进入管理员投递分支。 |
-| `PMAIL_QUEUE_WORKERS` / `PMAIL_FETCH_WORKERS` | 外发队列和外部邮箱收取并发数 |
-| `PMAIL_FETCH_ALLOW_PRIVATE` | 允许外部邮箱连接私网，仅用于受控环境 |
+| `PMAIL_CATCH_ALL` / `PMAIL_ALLOW_USER_ALIAS` | `PMAIL_CATCH_ALL` 显式设置会覆盖后台的兜底开关（默认开启）；`PMAIL_ALLOW_USER_ALIAS` 控制普通用户能否自助创建别名。打开兜底时，仅已配置域名内的未知地址投给一位兜底收件人；关闭时 SMTP 返回 550 5.1.1。 |
+| `PMAIL_QUEUE_WORKERS` | 外发队列并发数 |
+
+### 兜底收件
+
+在 **系统管理 → 入站安全** 设置兜底开关和用户。默认投给最早创建的启用管理员；所选用户被禁用或删除时也按此回退。环境变量只覆盖开关，不覆盖所选用户。邮件保留该收件人的实际信封地址，不会向所有管理员分发。
 
 ### DNS 向导
 
-管理员从域名管理选择记录检测或下载 BIND 记录片段。邮件主机沿用每个域名的 `smtp.<domain>`，无需新增主机名变量；`PMAIL_WEB_DOMAIN` 只指定网页入口，反代模式下网页 A 记录应指向反代。合并导出片段时保留现有 SOA/NS，若已有 SPF 请编辑原记录而非新增。`imap`/`pop` 建议别名用于沿用现有协议和证书主机名；使用 PMail 自动 HTTP-01 邮件证书时，按上文把这些主机也解析到正确的服务。PTR 在公网 IP 服务商处修改。
+管理员从域名管理选择记录检测或下载 BIND 记录片段。邮件主机沿用每个域名的 `smtp.<domain>`，无需新增主机名变量；`PMAIL_WEB_DOMAIN` 只指定网页入口，反代模式下网页 A 记录默认建议本机公网 IPv4；若反代在其他服务器，换成其公网 IP，网页可开启 Cloudflare 代理。容器没检测到公网 IPv6 时，SMTP AAAA 为可选；宿主机有公网 IPv6 可手动填或设置 `PMAIL_PUBLIC_IPV6`。合并导出片段时保留现有 SOA/NS，若已有 SPF 请编辑原记录而非新增。`imap`/`pop` 建议别名用于沿用现有协议和证书主机名；使用 PMail 自动 HTTP-01 邮件证书时，按上文把这些主机也解析到正确的服务。PTR 在公网 IP 服务商处修改。
 
 HTTP-01 邮件证书要求公网 80 端口的 `/.well-known/acme-challenge/` 通到 PMail。发布的 A 和 AAAA 都须正确；容器若无法发现宿主机的公网地址，可用 `PMAIL_PUBLIC_IPV4` / `PMAIL_PUBLIC_IPV6` 显式指定。TLS 日志会提示不匹配或暂时无法判定的名称。
 
@@ -185,7 +188,7 @@ Vite 在 `http://localhost:5173` 提供页面，将 `/api`（包括附件）代�
 - Cookie 为 `HttpOnly`、`SameSite=Lax`；直连 HTTPS 或可信代理声明 HTTPS 时使用 `Secure`。在反向代理保持原始 `Host`，配好 `PMAIL_TRUSTED_PROXIES`，以同源路径调用 API。Cookie 写请求校验浏览器 `Origin`/`Referer`；带 JSON 请求体须使用 `Content-Type: application/json`；注销是 `POST /api/logout`。无浏览器来源的自动化请使用 Bearer token，或在使用 Cookie 时提供正确的 Origin。
 - 新 API Token 默认 `read`、90 天过期，可选择 `send`（含读取及发信/草稿）、`admin`（仅管理员）或显式 `never_expires: true`。旧令牌保留权限并有 `legacy_scope` 弃用标识；请轮换。管理员默认不能读取其他人的邮件。
 - 入站详情和列表的 `auth_results` 给出 SPF、DKIM、DMARC 原始判定与理由。DMARC 策略作为证据记录，不自动替认证失败邮件新增拒收/隔离动作。已存旧邮件无详细证据时返回 `null`。
-- 外部邮箱的主机、端口、协议、用户和 TLS 信任设置变更时，所有者须重新输入密码；管理员不能更改其他用户的外部端点。旧凭据将在同步时重新加密。TLS/DKIM 私钥与注册密钥应为服务用户拥有的常规文件，Unix 上应为 `0600`；若用证书挂载，提供实际私钥文件而非最终路径为软链接的文件。
+- TLS/DKIM 私钥与注册密钥应为服务用户拥有的常规文件，Unix 上应为 `0600`；若用证书挂载，提供实际私钥文件而非最终路径为软链接的文件。
 
 ### Telegram 私聊推送
 

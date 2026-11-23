@@ -1,5 +1,7 @@
 package models
 
+import "database/sql"
+
 // Scores live on mailbox links; shared content evidence lives on Email.
 type SpamPreference struct {
 	UserID       int     `xorm:"user_id pk" json:"-"`
@@ -22,13 +24,15 @@ type SpamRule struct {
 func (SpamRule) TableName() string { return "spam_rule" }
 
 type InboundSettings struct {
-	ID                   int     `xorm:"id pk" json:"-"`
-	DNSBLEnabled         bool    `xorm:"dnsbl_enabled bool notnull" json:"dnsbl_enabled"`
-	ZonesJSON            string  `xorm:"dnsbl_zones text notnull" json:"-"`
-	DefaultSpamThreshold float64 `xorm:"default_spam_threshold double notnull" json:"default_spam_threshold"`
-	ClamdEnabled         bool    `xorm:"clamd_enabled bool notnull" json:"clamd_enabled"`
-	ClamdAddr            string  `xorm:"clamd_addr varchar(255) notnull" json:"clamd_addr"`
-	RiskAudit            bool    `xorm:"risk_block_dangerous_attachments bool notnull" json:"risk_block_dangerous_attachments"`
+	ID                   int          `xorm:"id pk" json:"-"`
+	DNSBLEnabled         bool         `xorm:"dnsbl_enabled bool notnull" json:"dnsbl_enabled"`
+	ZonesJSON            string       `xorm:"dnsbl_zones text notnull" json:"-"`
+	DefaultSpamThreshold float64      `xorm:"default_spam_threshold double notnull" json:"default_spam_threshold"`
+	ClamdEnabled         bool         `xorm:"clamd_enabled bool notnull" json:"clamd_enabled"`
+	ClamdAddr            string       `xorm:"clamd_addr varchar(255) notnull" json:"clamd_addr"`
+	RiskAudit            bool         `xorm:"risk_block_dangerous_attachments bool notnull" json:"risk_block_dangerous_attachments"`
+	CatchAllEnabled      sql.NullBool `xorm:"catch_all_enabled bool" json:"-"`
+	CatchAllRecipientID  int          `xorm:"catch_all_recipient_id int notnull default(0)" json:"-"`
 }
 
 func (InboundSettings) TableName() string { return "inbound_settings" }

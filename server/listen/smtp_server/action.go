@@ -6,11 +6,11 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"net/netip"
 
-	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
+	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/id"
@@ -130,21 +130,35 @@ func (s *Session) Rcpt(to string, opts *smtp.RcptOptions) error {
 			s.To = append(s.To, to)
 			return nil
 		}
-		if user, found, err := address.Resolve(to); err != nil {
-			return err
-		} else if found {
-			if err := quota.Check(user, s.Size); err != nil {
-				if errors.Is(err, quota.ErrExceeded) {
-					return &smtp.SMTPError{Code: 452, EnhancedCode: smtp.EnhancedCode{4, 2, 2}, Message: "Mailbox storage quota exceeded"}
-				}
-				return err
+		user, found, err := address.Resolve(to)
+		if err != nil {
+			return localPersistenceSMTPError()
+		}
+		if !found {
+			if _, _, err := address.Split(to); err != nil {
+				return unknownRecipientSMTPError()
 			}
-		} else if !config.Instance.CatchAll {
-			return &smtp.SMTPError{Code: 550, EnhancedCode: smtp.EnhancedCode{5, 1, 1}, Message: "User unknown"}
+			user, found, err = inbound.CatchAllRecipient(s.Ctx.Context)
+			if err != nil {
+				return localPersistenceSMTPError()
+			}
+			if !found {
+				return unknownRecipientSMTPError()
+			}
+		}
+		if err := quota.Check(user, s.Size); err != nil {
+			if errors.Is(err, quota.ErrExceeded) {
+				return quotaSMTPError()
+			}
+			return err
 		}
 	}
 	s.To = append(s.To, to)
 	return nil
+}
+
+func unknownRecipientSMTPError() error {
+	return &smtp.SMTPError{Code: 550, EnhancedCode: smtp.EnhancedCode{5, 1, 1}, Message: "User unknown"}
 }
 
 func (s *Session) Reset() {

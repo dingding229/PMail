@@ -91,12 +91,10 @@ func EffectiveConfig(candidate *Config) (*Config, error) {
 		}
 	}
 
-	if value, ok := os.LookupEnv("PMAIL_CATCH_ALL"); ok && value != "" {
-		b, err := strconv.ParseBool(value)
-		if err != nil {
-			return nil, fmt.Errorf("PMAIL_CATCH_ALL must be true or false")
-		}
-		cfg.CatchAll = b
+	if enabled, set, err := CatchAllOverride(); err != nil {
+		return nil, err
+	} else if set {
+		cfg.CatchAll = enabled
 	}
 	if value, ok := os.LookupEnv("PMAIL_ALLOW_USER_ALIAS"); ok && value != "" {
 		b, err := strconv.ParseBool(value)
@@ -110,6 +108,19 @@ func EffectiveConfig(candidate *Config) (*Config, error) {
 	}
 	cfg.fixPaths()
 	return cfg, nil
+}
+
+// CatchAllOverride reports an explicit, nonempty operator override.
+func CatchAllOverride() (enabled, set bool, err error) {
+	value := os.Getenv("PMAIL_CATCH_ALL")
+	if value == "" {
+		return false, false, nil
+	}
+	enabled, err = strconv.ParseBool(value)
+	if err != nil {
+		return false, false, fmt.Errorf("PMAIL_CATCH_ALL must be true or false")
+	}
+	return enabled, true, nil
 }
 
 func applyWebMode(cfg *Config, mode string) error {

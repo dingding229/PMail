@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Loader2, Plus, ShieldCheck, X } from 'lucide-react'
-import { adminInboundApi, type InboundSettings } from '@/api'
+import { adminInboundApi, type InboundSettingsUpdate } from '@/api'
 import { queryKeys } from '@/hooks/useMailQueries'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,6 +28,12 @@ export function InboundSecuritySection() {
   const [clamdAddr, setClamdAddr] = useState('')
   const [blockDangerous, setBlockDangerous] = useState(true)
 
+  const [catchAllEnabled, setCatchAllEnabled] = useState(true)
+  const [catchAllRecipient, setCatchAllRecipient] = useState(0)
+  const catchAllEnvControlled = data?.catch_all.env_controlled ?? false
+  const catchAllOptions = data?.catch_all_recipients ?? []
+  const catchAllRecipientUnavailable = catchAllRecipient > 0 && !catchAllOptions.some(({id}) => id === catchAllRecipient)
+
   useEffect(() => {
     if (!data) return
     setDnsblEnabled(data.dnsbl_enabled)
@@ -36,10 +42,12 @@ export function InboundSecuritySection() {
     setClamdEnabled(data.clamd_enabled)
     setClamdAddr(data.clamd_addr ?? '')
     setBlockDangerous(data.risk_block_dangerous_attachments)
+    setCatchAllEnabled(data.catch_all.enabled)
+    setCatchAllRecipient(data.catch_all.recipient_id)
   }, [data])
 
   const saveMutation = useMutation({
-    mutationFn: (payload: InboundSettings) => {
+    mutationFn: (payload: InboundSettingsUpdate) => {
       if (payload.clamd_enabled && !payload.clamd_addr.trim()) {
         throw new Error(t('admin.inbound.clamdAddrRequired'))
       }
@@ -93,6 +101,47 @@ export function InboundSecuritySection() {
         </div>
       ) : (
         <div className="space-y-4">
+          <div className="rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-4 space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="admin_catch_all">{t('admin.inbound.catchAllLabel')}</Label>
+                <p id="admin_catch_all_hint" className="mt-0.5 text-[12px] text-[var(--ink-muted)]">
+                  {catchAllEnvControlled ? t('admin.inbound.catchAllEnv') : t('admin.inbound.catchAllDesc')}
+                </p>
+              </div>
+              <Switch
+                id="admin_catch_all"
+                aria-describedby="admin_catch_all_hint"
+                disabled={catchAllEnvControlled}
+                checked={catchAllEnabled}
+                onCheckedChange={setCatchAllEnabled}
+              />
+            </div>
+            <div className="space-y-2 border-t border-[var(--border-hairline)] pt-3">
+              <Label htmlFor="admin_catch_all_recipient">{t('admin.inbound.catchAllRecipient')}</Label>
+              <select
+                id="admin_catch_all_recipient"
+                aria-describedby="admin_catch_all_recipient_hint"
+                value={catchAllRecipient}
+                onChange={(event) => setCatchAllRecipient(Number(event.target.value))}
+                className="h-9 w-full rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-3 text-sm text-[var(--ink-primary)] sm:max-w-sm"
+              >
+                <option value={0}>{t('admin.inbound.catchAllDefault')}</option>
+                {catchAllRecipientUnavailable && (
+                  <option value={catchAllRecipient} disabled>{t('admin.inbound.catchAllUnavailable')}</option>
+                )}
+                {catchAllOptions.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name && user.name !== user.account ? `${user.name} (${user.account})` : user.account}
+                  </option>
+                ))}
+              </select>
+              <p id="admin_catch_all_recipient_hint" className="text-[12px] text-[var(--ink-muted)]">
+                {t('admin.inbound.catchAllRecipientHint')}
+              </p>
+            </div>
+          </div>
+
           {/* DNSBL */}
           <div className="rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-4 space-y-3">
             <div className="flex items-center justify-between gap-4">
@@ -246,6 +295,10 @@ export function InboundSecuritySection() {
                   clamd_enabled: clamdEnabled,
                   clamd_addr: clamdAddr.trim(),
                   risk_block_dangerous_attachments: blockDangerous,
+                  catch_all: {
+                    ...(catchAllEnvControlled ? {} : { enabled: catchAllEnabled }),
+                    recipient_id: catchAllRecipient,
+                  },
                 })
               }
             >

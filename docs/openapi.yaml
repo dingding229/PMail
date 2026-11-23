@@ -1093,217 +1093,6 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '500': {$ref: '#/components/responses/InternalError'}
-  /api/external/list:
-    get:
-      operationId: listExternalGet
-      tags: [External]
-      summary: List external mailboxes (all users for an administrator)
-      x-permission: user
-      parameters:
-      - {$ref: '#/components/parameters/PMailLang'}
-      - {$ref: '#/components/parameters/AcceptLanguage'}
-      x-error-codes: {'200': [402, 403, 500], '403': [405], '500': [500]}
-      responses:
-        '200':
-          description: Success or legacy application error; inspect errorNo.
-          content:
-            application/json:
-              schema:
-                oneOf:
-                - {$ref: '#/components/schemas/ExternalAccountNullableListSuccess'}
-                - {$ref: '#/components/schemas/Error402403500'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '500': {$ref: '#/components/responses/InternalError'}
-    post:
-      operationId: listExternalPost
-      tags: [External]
-      summary: List external mailboxes (all users for an administrator)
-      x-permission: user
-      parameters:
-      - {$ref: '#/components/parameters/PMailLang'}
-      - {$ref: '#/components/parameters/AcceptLanguage'}
-      x-error-codes: {'200': [402, 403, 500], '403': [405], '500': [500]}
-      responses:
-        '200':
-          description: Success or legacy application error; inspect errorNo.
-          content:
-            application/json:
-              schema:
-                oneOf:
-                - {$ref: '#/components/schemas/ExternalAccountNullableListSuccess'}
-                - {$ref: '#/components/schemas/Error402403500'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '500': {$ref: '#/components/responses/InternalError'}
-  /api/external/create:
-    post:
-      operationId: createExternal
-      tags: [External]
-      summary: Add an external mailbox to the current account
-      x-permission: user
-      parameters:
-      - {$ref: '#/components/parameters/PMailLang'}
-      - {$ref: '#/components/parameters/AcceptLanguage'}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/ExternalCreateRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100], '409': [100]}
-      responses:
-        '200':
-          description: Success or legacy application error; inspect errorNo.
-          content:
-            application/json:
-              schema:
-                oneOf:
-                - {$ref: '#/components/schemas/ExternalAccountSuccess'}
-                - {$ref: '#/components/schemas/Error402403500'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '405': {$ref: '#/components/responses/MethodNotAllowed'}
-        '409': {$ref: '#/components/responses/Conflict'}
-  /api/external/update:
-    post:
-      operationId: updateExternal
-      tags: [External]
-      summary: Change an external mailbox
-      x-permission: owner
-      x-endpoint-policy: Only the owner can change endpoints; a new password is required.
-      description: Mailbox owner or admin. Send the complete editable form; not every omitted field preserves the stored
-        value.
-      parameters:
-      - {$ref: '#/components/parameters/PMailLang'}
-      - {$ref: '#/components/parameters/AcceptLanguage'}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/ExternalUpdateRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100], '409': [100]}
-      responses:
-        '200':
-          description: Success or legacy application error; inspect errorNo.
-          content:
-            application/json:
-              schema:
-                oneOf:
-                - {$ref: '#/components/schemas/ExternalAccountSuccess'}
-                - {$ref: '#/components/schemas/Error402403500'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '405': {$ref: '#/components/responses/MethodNotAllowed'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
-  /api/external/delete:
-    post:
-      operationId: deleteExternal
-      tags: [External]
-      summary: Delete an external mailbox
-      x-permission: owner
-      description: Mailbox owner or admin.
-      parameters:
-      - {$ref: '#/components/parameters/PMailLang'}
-      - {$ref: '#/components/parameters/AcceptLanguage'}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/IdRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '500': [500]}
-      responses:
-        '200':
-          description: Success or legacy application error; inspect errorNo.
-          content:
-            application/json:
-              schema:
-                oneOf:
-                - {$ref: '#/components/schemas/NullValueSuccess'}
-                - {$ref: '#/components/schemas/Error402403500'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '405': {$ref: '#/components/responses/MethodNotAllowed'}
-        '500': {$ref: '#/components/responses/InternalError'}
-  /api/external/test:
-    post:
-      operationId: testExternal
-      tags: [External]
-      summary: Test external mail settings without saving
-      x-permission: user
-      parameters:
-      - {$ref: '#/components/parameters/PMailLang'}
-      - {$ref: '#/components/parameters/AcceptLanguage'}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/ExternalTestRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '405': [100]}
-      responses:
-        '200':
-          description: Success or legacy application error; inspect errorNo.
-          content:
-            application/json:
-              schema:
-                oneOf:
-                - {$ref: '#/components/schemas/ExternalTestResultSuccess'}
-                - {$ref: '#/components/schemas/Error402403500'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '405': {$ref: '#/components/responses/MethodNotAllowed'}
-        '413': {$ref: '#/components/responses/PayloadTooLarge'}
-  /api/external/sync_now:
-    post:
-      operationId: syncExternalNow
-      tags: [External]
-      summary: Start an external mailbox sync
-      x-permission: owner
-      description: Mailbox owner or admin. A started result does not mean the sync has completed.
-      parameters:
-      - {$ref: '#/components/parameters/PMailLang'}
-      - {$ref: '#/components/parameters/AcceptLanguage'}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/IdRequest'}
-      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '404': [100], '405': [100], '409': [100], '500': [
-          500]}
-      responses:
-        '200':
-          description: Success or legacy application error; inspect errorNo.
-          content:
-            application/json:
-              schema:
-                oneOf:
-                - {$ref: '#/components/schemas/ExternalSyncResultSuccess'}
-                - {$ref: '#/components/schemas/Error402403500'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '405': {$ref: '#/components/responses/MethodNotAllowed'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '500': {$ref: '#/components/responses/InternalError'}
-  /api/external/presets:
-    get:
-      operationId: externalPresets
-      tags: [External]
-      summary: List external provider connection presets
-      x-permission: user
-      parameters:
-      - {$ref: '#/components/parameters/PMailLang'}
-      - {$ref: '#/components/parameters/AcceptLanguage'}
-      x-error-codes: {'200': [402, 403, 500], '403': [405]}
-      responses:
-        '200':
-          description: Success or legacy application error; inspect errorNo.
-          content:
-            application/json:
-              schema:
-                oneOf:
-                - {$ref: '#/components/schemas/ExternalPresetListSuccess'}
-                - {$ref: '#/components/schemas/Error402403500'}
-        '403': {$ref: '#/components/responses/Forbidden'}
   /api/settings/modify_password:
     post:
       operationId: legacyChangePassword
@@ -5409,6 +5198,25 @@ components:
         risk_block_dangerous_attachments:
           type: boolean
           description: Additionally audit high-risk access attempts. Confirmation and preview rejection always apply.
+        catch_all:
+          type: object
+          description: Optional on update. Zero chooses the oldest enabled administrator; the environment may override only the enabled switch.
+          properties:
+            enabled: {type: boolean}
+            recipient_id: {type: integer, minimum: 0}
+            env_controlled: {type: boolean, readOnly: true}
+          additionalProperties: false
+        catch_all_recipients:
+          type: array
+          readOnly: true
+          items:
+            type: object
+            required: [id, account, name]
+            properties:
+              id: {type: integer, minimum: 1}
+              account: {type: string}
+              name: {type: string}
+            additionalProperties: false
         warnings:
           type: array
           readOnly: true
@@ -6386,151 +6194,6 @@ components:
         updated: {type: string, format: date-time}
       required: [next_retry_at_iso, created_iso, updated_iso, id, kind, user_id, mail_from, rcpt_to, attempts, max_attempts,
         next_retry_at, status, last_error, created, updated]
-    ExternalPreset:
-      type: object
-      required: [name, protocol, host, port, tls_mode]
-      properties:
-        name: {type: string}
-        protocol:
-          enum: [imap, pop3]
-        host: {type: string}
-        port: {type: integer, minimum: 0, maximum: 65535}
-        tls_mode:
-          enum: [tls, starttls, none]
-    ExternalAccount:
-      type: object
-      required:
-      - last_sync_at_iso
-      - last_success_at_iso
-      - created_iso
-      - updated_iso
-      - id
-      - user_id
-      - name
-      - protocol
-      - host
-      - port
-      - tls_mode
-      - username
-      - folder
-      - interval_minutes
-      - initial_days
-      - delete_remote
-      - target_group_id
-      - enabled
-      - insecure_skip_verify
-      - last_sync_at
-      - last_success_at
-      - last_error
-      - created
-      - updated
-      properties:
-        last_sync_at_iso: {$ref: '#/components/schemas/IsoTimestamp'}
-        last_success_at_iso: {$ref: '#/components/schemas/IsoTimestamp'}
-        created_iso: {$ref: '#/components/schemas/IsoTimestamp'}
-        updated_iso: {$ref: '#/components/schemas/IsoTimestamp'}
-        id: {type: integer}
-        user_id: {type: integer}
-        name: {type: string}
-        protocol:
-          enum: [imap, pop3]
-        host: {type: string}
-        port: {type: integer, minimum: 0, maximum: 65535}
-        tls_mode:
-          enum: [tls, starttls, none]
-        username: {type: string}
-        folder: {type: string, default: INBOX}
-        interval_minutes: {type: integer, description: Values below 2 use 10 minutes.}
-        initial_days: {type: integer, description: Negative values use 30; 0 means no age cutoff.}
-        delete_remote: {type: boolean}
-        target_group_id: {type: integer}
-        enabled: {type: boolean}
-        insecure_skip_verify: {type: boolean}
-        last_sync_at:
-          type: [string, 'null']
-          format: date-time
-        last_success_at:
-          type: [string, 'null']
-          format: date-time
-        last_error: {type: string, description: Localized synchronization error category; empty when there is no last
-            error.}
-        created: {type: string, format: date-time}
-        updated: {type: string, format: date-time}
-    ExternalCreateRequest:
-      type: object
-      required: [protocol, host, tls_mode, username, password]
-      properties:
-        name: {type: string}
-        protocol:
-          enum: [imap, pop3]
-        host: {type: string}
-        port: {type: integer, minimum: 0, maximum: 65535}
-        tls_mode:
-          enum: [tls, starttls, none]
-        username: {type: string}
-        folder: {type: string, default: INBOX}
-        interval_minutes: {type: integer, description: Values below 2 use 10 minutes.}
-        initial_days: {type: integer, description: Negative values use 30; 0 means no age cutoff.}
-        delete_remote: {type: boolean}
-        target_group_id: {type: integer}
-        enabled: {type: boolean}
-        insecure_skip_verify: {type: boolean}
-        password: {type: string, format: password, writeOnly: true}
-    ExternalUpdateRequest:
-      type: object
-      required: [id]
-      properties:
-        id: {type: integer, minimum: 1}
-        name: {type: string}
-        protocol:
-          enum: [imap, pop3]
-        host: {type: string}
-        port: {type: integer, minimum: 0, maximum: 65535}
-        tls_mode:
-          enum: [tls, starttls, none]
-        username: {type: string}
-        folder: {type: string, default: INBOX}
-        interval_minutes: {type: integer, description: Values below 2 use 10 minutes.}
-        initial_days: {type: integer, description: Negative values use 30; 0 means no age cutoff.}
-        delete_remote: {type: boolean}
-        target_group_id: {type: integer}
-        enabled: {type: boolean}
-        insecure_skip_verify: {type: boolean}
-        password: {type: string, format: password, writeOnly: true, description: Empty or omitted preserves the stored
-            password.}
-    ExternalTestRequest:
-      type: object
-      required: [protocol, host, tls_mode, username, password]
-      properties:
-        name: {type: string}
-        protocol:
-          enum: [imap, pop3]
-        host: {type: string}
-        port: {type: integer, minimum: 0, maximum: 65535}
-        tls_mode:
-          enum: [tls, starttls, none]
-        username: {type: string}
-        folder: {type: string, default: INBOX}
-        interval_minutes: {type: integer, description: Values below 2 use 10 minutes.}
-        initial_days: {type: integer, description: Negative values use 30; 0 means no age cutoff.}
-        delete_remote: {type: boolean}
-        target_group_id: {type: integer}
-        enabled: {type: boolean}
-        insecure_skip_verify: {type: boolean}
-        password: {type: string, format: password, writeOnly: true}
-    ExternalTestResult:
-      type: object
-      required: [folders]
-      properties:
-        folders:
-          type: [array, 'null']
-          items: {type: string}
-    ExternalSyncResult:
-      type: object
-      required: [status, message]
-      properties:
-        status: {const: started}
-        message: {type: string}
     Domain:
       type: object
       required: [created_iso, updated_iso, id, name, is_default, dkim_selector, created, updated]
@@ -7093,50 +6756,6 @@ components:
           errorNo: {const: 0}
           errorMsg: {const: ''}
           data: {type: 'null'}
-    ExternalAccountNullableListSuccess:
-      allOf:
-      - {$ref: '#/components/schemas/Envelope'}
-      - type: object
-        properties:
-          errorNo: {const: 0}
-          errorMsg: {const: ''}
-          data:
-            type: [array, 'null']
-            items: {$ref: '#/components/schemas/ExternalAccount'}
-    ExternalAccountSuccess:
-      allOf:
-      - {$ref: '#/components/schemas/Envelope'}
-      - type: object
-        properties:
-          errorNo: {const: 0}
-          errorMsg: {const: ''}
-          data: {$ref: '#/components/schemas/ExternalAccount'}
-    ExternalTestResultSuccess:
-      allOf:
-      - {$ref: '#/components/schemas/Envelope'}
-      - type: object
-        properties:
-          errorNo: {const: 0}
-          errorMsg: {const: ''}
-          data: {$ref: '#/components/schemas/ExternalTestResult'}
-    ExternalSyncResultSuccess:
-      allOf:
-      - {$ref: '#/components/schemas/Envelope'}
-      - type: object
-        properties:
-          errorNo: {const: 0}
-          errorMsg: {const: ''}
-          data: {$ref: '#/components/schemas/ExternalSyncResult'}
-    ExternalPresetListSuccess:
-      allOf:
-      - {$ref: '#/components/schemas/Envelope'}
-      - type: object
-        properties:
-          errorNo: {const: 0}
-          errorMsg: {const: ''}
-          data:
-            type: array
-            items: {$ref: '#/components/schemas/ExternalPreset'}
     UserInfoSuccess:
       allOf:
       - {$ref: '#/components/schemas/Envelope'}

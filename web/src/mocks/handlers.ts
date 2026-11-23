@@ -8,10 +8,9 @@ import {
   type ApiTokenItem,
   type BootstrapResponse,
   type DomainDnsResponse,
-  type ExternalAccount,
-  type ExternalPreset,
   type GroupOption,
   type InboundSettings,
+  type InboundSettingsUpdate,
   type MailboxAddress,
   type MailDomain,
   type MailRule,
@@ -61,6 +60,8 @@ let mockInboundSettings: InboundSettings = {
   clamd_enabled: false,
   clamd_addr: 'tcp://clamav:3310',
   risk_block_dangerous_attachments: true,
+  catch_all: { enabled: true, env_controlled: false, recipient_id: 0 },
+  catch_all_recipients: [{ id: 1, account: 'admin', name: 'Administrator' }],
 }
 
 /* ==================== C9 Contract Stores: Telegram, Update, Inline Images, Signatures ==================== */
@@ -335,62 +336,6 @@ let mockRules: MailRule[] = [
     action: 1,
     params: '',
     sort: 10,
-  },
-]
-
-const EXTERNAL_PRESETS: ExternalPreset[] = [
-  { name: 'Gmail (IMAP)', protocol: 'imap', host: 'imap.gmail.com', port: 993, tls_mode: 'tls' },
-  { name: 'QQ 邮箱 (IMAP)', protocol: 'imap', host: 'imap.qq.com', port: 993, tls_mode: 'tls' },
-  { name: '网易 163 (IMAP)', protocol: 'imap', host: 'imap.163.com', port: 993, tls_mode: 'tls' },
-  { name: 'Outlook / Office365', protocol: 'imap', host: 'outlook.office365.com', port: 993, tls_mode: 'tls' },
-  { name: 'iCloud Mail', protocol: 'imap', host: 'imap.mail.me.com', port: 993, tls_mode: 'tls' },
-]
-
-let nextExtId = 10
-let mockExternalAccounts: ExternalAccount[] = [
-  {
-    id: 1,
-    user_id: 1,
-    name: '工作 Gmail',
-    protocol: 'imap',
-    host: 'imap.gmail.com',
-    port: 993,
-    tls_mode: 'tls',
-    username: 'linshen.dev@gmail.com',
-    folder: 'INBOX',
-    interval_minutes: 10,
-    initial_days: 30,
-    delete_remote: false,
-    target_group_id: 10,
-    enabled: true,
-    insecure_skip_verify: false,
-    last_sync_at: dayjs().subtract(5, 'minute').toISOString(),
-    last_success_at: dayjs().subtract(5, 'minute').toISOString(),
-    last_error: '',
-    created: '2026-10-12T08:00:00Z',
-    updated: dayjs().subtract(5, 'minute').toISOString(),
-  },
-  {
-    id: 2,
-    user_id: 1,
-    name: '旧版 QQ 邮箱',
-    protocol: 'imap',
-    host: 'imap.qq.com',
-    port: 993,
-    tls_mode: 'tls',
-    username: '8829104@qq.com',
-    folder: 'INBOX',
-    interval_minutes: 15,
-    initial_days: 30,
-    delete_remote: false,
-    target_group_id: 0,
-    enabled: true,
-    insecure_skip_verify: false,
-    last_sync_at: dayjs().subtract(12, 'minute').toISOString(),
-    last_success_at: dayjs().subtract(2, 'day').toISOString(),
-    last_error: 'IMAP 认证失败：应用授权码已过期，请在 QQ 邮箱设置中重新生成授权码',
-    created: '2026-10-18T11:30:00Z',
-    updated: dayjs().subtract(12, 'minute').toISOString(),
   },
 ]
 
@@ -1111,7 +1056,7 @@ export const handlers = [
     return ok(null)
   }),
 
-  /* ==================== Forward / Rules / External / Tokens / Queue ==================== */
+  /* ==================== Forward / Rules / Tokens / Queue ==================== */
   http.post('/api/forward/get', async () => {
     await delay(40)
     return ok({
@@ -1184,94 +1129,6 @@ export const handlers = [
     const body = (await request.json()) as { id: number }
     mockRules = mockRules.filter((r) => r.id !== body.id)
     return ok('success')
-  }),
-
-  http.get('/api/external/presets', async () => {
-    await delay(30)
-    return ok(EXTERNAL_PRESETS)
-  }),
-
-  http.post('/api/external/list', async () => {
-    await delay(45)
-    return ok(mockExternalAccounts)
-  }),
-
-  http.post('/api/external/create', async ({ request }) => {
-    await delay(120)
-    const body = (await request.json()) as Partial<ExternalAccount>
-    const created: ExternalAccount = {
-      id: nextExtId++,
-      user_id: 1,
-      name: body.name || body.username || '外部邮箱',
-      protocol: body.protocol ?? 'imap',
-      host: body.host ?? '',
-      port: body.port ?? 993,
-      tls_mode: body.tls_mode ?? 'tls',
-      username: body.username ?? '',
-      folder: body.folder || 'INBOX',
-      interval_minutes: body.interval_minutes ?? 10,
-      initial_days: body.initial_days ?? 30,
-      delete_remote: body.delete_remote ?? false,
-      target_group_id: body.target_group_id ?? 0,
-      enabled: body.enabled ?? true,
-      insecure_skip_verify: body.insecure_skip_verify ?? false,
-      last_sync_at: null,
-      last_success_at: null,
-      last_error: '',
-      created: new Date().toISOString(),
-      updated: new Date().toISOString(),
-    }
-    mockExternalAccounts = [created, ...mockExternalAccounts]
-    return ok(created)
-  }),
-
-  http.post('/api/external/update', async ({ request }) => {
-    await delay(100)
-    const body = (await request.json()) as Partial<ExternalAccount> & {
-      id: number
-      password?: string
-    }
-    const existing = mockExternalAccounts.find((a) => a.id === body.id)
-    if (existing) {
-      const endpointChanged =
-        (body.host !== undefined && body.host !== existing.host) ||
-        (body.port !== undefined && Number(body.port) !== existing.port) ||
-        (body.protocol !== undefined && body.protocol !== existing.protocol) ||
-        (body.username !== undefined && body.username !== existing.username) ||
-        (body.tls_mode !== undefined && body.tls_mode !== existing.tls_mode) ||
-        (body.insecure_skip_verify !== undefined &&
-          Boolean(body.insecure_skip_verify) !== Boolean(existing.insecure_skip_verify))
-      if (endpointChanged && !body.password?.trim()) {
-        return fail('修改服务器连接参数后必须重新输入密码', 100, 400)
-      }
-    }
-    mockExternalAccounts = mockExternalAccounts.map((acc) =>
-      acc.id === body.id ? { ...acc, ...body, updated: new Date().toISOString() } : acc,
-    )
-    const updated = mockExternalAccounts.find((a) => a.id === body.id)
-    return ok(updated)
-  }),
-
-  http.post('/api/external/delete', async ({ request }) => {
-    await delay(80)
-    const body = (await request.json()) as { id: number }
-    mockExternalAccounts = mockExternalAccounts.filter((a) => a.id !== body.id)
-    return ok(null)
-  }),
-
-  http.post('/api/external/test', async () => {
-    await delay(350)
-    return ok({ folders: ['INBOX', 'Sent', 'Archive', 'Work'] })
-  }),
-
-  http.post('/api/external/sync_now', async ({ request }) => {
-    await delay(150)
-    const body = (await request.json()) as { id: number }
-    const now = new Date().toISOString()
-    mockExternalAccounts = mockExternalAccounts.map((acc) =>
-      acc.id === body.id ? { ...acc, last_sync_at: now, last_success_at: now, last_error: '' } : acc,
-    )
-    return ok({ status: 'started', message: 'external sync started' })
   }),
 
   http.post('/api/token/list', async () => {
@@ -1868,7 +1725,7 @@ export const handlers = [
 
   http.put('/api/admin/inbound', async ({ request }) => {
     await delay(80)
-    const body = (await request.json()) as InboundSettings
+    const body = (await request.json()) as InboundSettingsUpdate
     mockInboundSettings = {
       dnsbl_enabled: Boolean(body.dnsbl_enabled),
       dnsbl_zones: Array.isArray(body.dnsbl_zones) ? body.dnsbl_zones : [],
@@ -1879,6 +1736,8 @@ export const handlers = [
       clamd_enabled: Boolean(body.clamd_enabled),
       clamd_addr: String(body.clamd_addr || ''),
       risk_block_dangerous_attachments: Boolean(body.risk_block_dangerous_attachments),
+      catch_all: { ...mockInboundSettings.catch_all, ...body.catch_all },
+      catch_all_recipients: mockInboundSettings.catch_all_recipients,
     }
     return ok(mockInboundSettings)
   }),

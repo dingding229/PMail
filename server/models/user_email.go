@@ -15,7 +15,9 @@ type UserEmail struct {
 	GroupId     int            `xorm:"group_id int notnull default(0) comment('分组id')" json:"group_id"`
 	Status      int8           `xorm:"status tinyint(4) notnull default(0) comment('0未发送或收件，1已发送，2发送失败，3删除 4草稿 5广告')" json:"status"` // 0未发送或收件，1已发送，2发送失败 3删除 4草稿箱(Drafts)  5骚扰邮件(Junk)
 	InboundSpam sql.NullString `xorm:"inbound_spam text" json:"-"`
-	Created     time.Time      `xorm:"create datetime created index('idx_create_time')"`
+	// JSON array of actual envelope addresses delivered via catch-all to this owner.
+	CatchAllAddresses sql.NullString `xorm:"catch_all_addresses text" json:"-"`
+	Created           time.Time      `xorm:"create datetime created index('idx_create_time')"`
 }
 
 func (p UserEmail) TableName() string {

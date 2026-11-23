@@ -15,6 +15,7 @@ import (
 )
 
 func TestC7bAnonymousRelayAndCatchAllMatrix(t *testing.T) {
+	t.Setenv("PMAIL_CATCH_ALL", "")
 	e := newAuthenticationTestEngine(t)
 	oldDB, oldCfg := db.Instance, config.Instance
 	db.Instance = e
@@ -45,11 +46,11 @@ func TestC7bAnonymousRelayAndCatchAllMatrix(t *testing.T) {
 				t.Fatalf("%t RCPT %s: %v", catchAll, tc.to, err)
 			}
 		}
-		users, drop, err := resolveIncomingUsers(s.Ctx, &parsemail.Email{}, 0, []string{known, unknown, remote}, true, true)
+		users, _, drop, err := resolveIncomingUsers(s.Ctx, &parsemail.Email{}, 0, []string{known, unknown, remote}, true, true)
 		if err != nil || drop || len(users) != 1+intBool(catchAll) || users[0].ID != owner.ID {
 			t.Fatalf("mixed delivery: %v drop=%t %+v", err, drop, users)
 		}
-		if users, drop, err := resolveIncomingUsers(s.Ctx, &parsemail.Email{}, 0, []string{remote}, true, true); err != nil || !drop || len(users) != 0 {
+		if users, _, drop, err := resolveIncomingUsers(s.Ctx, &parsemail.Email{}, 0, []string{remote}, true, true); err != nil || !drop || len(users) != 0 {
 			t.Fatal("non-local caught by catch-all")
 		}
 	}

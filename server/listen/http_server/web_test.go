@@ -132,10 +132,12 @@ func TestUnknownAPIUsesLanguageWithoutServingSPA(t *testing.T) {
 	t.Setenv("PMAIL_WEB_ROOT", filepath.Join(t.TempDir(), "not-built"))
 	mux := http.NewServeMux()
 	router(mux, "test")
-	r := httptest.NewRequest(http.MethodPost, "/api/not-a-route", nil)
-	r.Header.Set("X-PMail-Lang", "en")
-	r.Header.Set("Accept", "text/html")
-	w := httptest.NewRecorder()
-	webMiddleware(mux).ServeHTTP(w, r)
-	assertUnknownAPI(t, w, i18n.Text(i18n.English, "not_found"))
+	for _, path := range []string{"/api/not-a-route", "/api/external/list"} {
+		r := httptest.NewRequest(http.MethodPost, path, nil)
+		r.Header.Set("X-PMail-Lang", "en")
+		r.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		webMiddleware(mux).ServeHTTP(w, r)
+		assertUnknownAPI(t, w, i18n.Text(i18n.English, "not_found"))
+	}
 }

@@ -6,7 +6,6 @@ import {
   Folder,
   Forward,
   KeyRound,
-  MailPlus,
   Palette,
   PenLine,
   Send,
@@ -28,7 +27,6 @@ import { RulesSection } from './sections/RulesSection'
 import { SpamSection } from './sections/SpamSection'
 import { TelegramSection } from './sections/TelegramSection'
 import { GroupsSection } from './sections/GroupsSection'
-import { ExternalMailSection } from './sections/ExternalMailSection'
 import { TokensSection } from './sections/TokensSection'
 import { QueueSection } from './sections/QueueSection'
 
@@ -42,7 +40,6 @@ type SettingsTabKey =
   | 'spam'
   | 'telegram'
   | 'groups'
-  | 'external'
   | 'tokens'
   | 'queue'
 
@@ -62,7 +59,6 @@ export function SettingsPage() {
     { key: 'spam', label: t('settings.tabs.spam'), icon: ShieldBan },
     { key: 'telegram', label: t('settings.tabs.telegram'), icon: Send },
     { key: 'groups', label: t('settings.tabs.groups'), icon: Folder },
-    { key: 'external', label: t('settings.tabs.external'), icon: MailPlus },
     { key: 'tokens', label: t('settings.tabs.tokens'), icon: KeyRound },
     { key: 'queue', label: t('settings.tabs.queue'), icon: SendToBack },
   ]
@@ -103,7 +99,6 @@ export function SettingsPage() {
       {activeTab === 'spam' && <SpamSection />}
       {activeTab === 'telegram' && <TelegramSection />}
       {activeTab === 'groups' && <GroupsSection />}
-      {activeTab === 'external' && <ExternalMailSection />}
       {activeTab === 'tokens' && <TokensSection />}
       {activeTab === 'queue' && <QueueSection scope="mine" />}
     </SectionPanelShell>

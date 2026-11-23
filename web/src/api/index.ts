@@ -7,7 +7,6 @@ export { groupApi } from './group'
 export {
   forwardApi,
   ruleApi,
-  externalApi,
   tokenApi,
   queueApi,
   domainApi,

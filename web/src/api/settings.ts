@@ -6,14 +6,10 @@ import type {
   AdminUpdateInfo,
   ApiTokenItem,
   DomainDnsResponse,
-  ExternalAccount,
-  ExternalAccountPayload,
-  ExternalPreset,
-  ExternalSyncResult,
-  ExternalTestResult,
   ForwardSettingsRequest,
   ForwardSettingsView,
   InboundSettings,
+  InboundSettingsUpdate,
   MailDomain,
   MailRule,
   QueueItem,
@@ -42,19 +38,6 @@ export const ruleApi = {
   add: (payload: RuleRequest) => apiPost<string>('/api/rule/add', payload),
   update: (payload: RuleRequest) => apiPost<string>('/api/rule/update', payload),
   remove: (id: number) => apiPost<string>('/api/rule/del', { id }),
-}
-
-export const externalApi = {
-  list: async () => (await apiPost<ExternalAccount[] | null>('/api/external/list', {})) ?? [],
-  create: (payload: ExternalAccountPayload) =>
-    apiPost<ExternalAccount>('/api/external/create', payload),
-  update: (payload: ExternalAccountPayload & { id: number }) =>
-    apiPost<ExternalAccount>('/api/external/update', payload),
-  remove: (id: number) => apiPost<null>('/api/external/delete', { id }),
-  test: (payload: ExternalAccountPayload) =>
-    apiPost<ExternalTestResult>('/api/external/test', payload),
-  syncNow: (id: number) => apiPost<ExternalSyncResult>('/api/external/sync_now', { id }),
-  presets: () => apiGet<ExternalPreset[]>('/api/external/presets'),
 }
 
 export const tokenApi = {
@@ -97,7 +80,7 @@ export const spamRulesApi = {
 
 export const adminInboundApi = {
   get: () => apiGet<InboundSettings>('/api/admin/inbound'),
-  update: (payload: InboundSettings) => apiPut<InboundSettings>('/api/admin/inbound', payload),
+  update: (payload: InboundSettingsUpdate) => apiPut<InboundSettings>('/api/admin/inbound', payload),
 }
 
 export const adminTelegramApi = {

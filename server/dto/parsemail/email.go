@@ -99,7 +99,6 @@ type Email struct {
 	Size           int
 	Authentication *EmailAuthentication
 	AuthResults    *models.MailAuthResults
-	AuthUnchecked  bool // explicitly imported without transport authentication
 	// EnvelopeFrom is set by SMTP sessions when the envelope sender is known.
 	EnvelopeFrom      string `json:"-"`
 	EnvelopeFromKnown bool   `json:"-"`

@@ -16,10 +16,9 @@ import (
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/utils/context"
-	"xorm.io/xorm"
 )
 
-func TestSMTPAndExternalPersistSharedAndOwnerAnalysis(t *testing.T) {
+func TestSMTPAndLocalPersistSharedAndOwnerAnalysis(t *testing.T) {
 	e := newAuthenticationTestEngine(t)
 	old, oldConfig := db.Instance, config.Instance
 	db.Instance = e
@@ -64,11 +63,6 @@ func TestSMTPAndExternalPersistSharedAndOwnerAnalysis(t *testing.T) {
 	}
 	check(mails[0].Id, a.ID, consts.EmailStatusJunk, "spam")
 	check(mails[0].Id, b.ID, consts.EmailStatusWait, "ham")
-	imported, err := ImportExternal(&context.Context{Context: ctx, UserID: a.ID}, []byte(wire), "a@example.test", 0, func(*xorm.Session) (bool, error) { return false, nil })
-	if err != nil || imported == nil || !imported.InboundAnalysis.Valid {
-		t.Fatalf("import: %+v %v", imported, err)
-	}
-	check(imported.Id, a.ID, consts.EmailStatusJunk, "spam")
 	local, err := parsemail.ParseLimited([]string{"b@example.test"}, strings.NewReader(wire), len(wire))
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +72,7 @@ func TestSMTPAndExternalPersistSharedAndOwnerAnalysis(t *testing.T) {
 		t.Fatalf("local: %v %v", err, perAddress)
 	}
 	var last models.Email
-	if ok, err := e.Desc("id").Get(&last); err != nil || !ok || last.Id == imported.Id || !last.InboundAnalysis.Valid {
+	if ok, err := e.Desc("id").Get(&last); err != nil || !ok || last.Id == mails[0].Id || !last.InboundAnalysis.Valid {
 		t.Fatalf("local result id=%d %v", last.Id, err)
 	}
 	check(last.Id, b.ID, consts.EmailStatusWait, "ham")

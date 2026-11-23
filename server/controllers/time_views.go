@@ -70,16 +70,6 @@ func apiDNSGuide(row domain.DNSGuide) any {
 	}{row, isotime.UTC(row.CheckedAt)}
 }
 
-func apiExternal(row models.ExternalAccount) any {
-	return struct {
-		models.ExternalAccount
-		LastSyncAtISO    *time.Time `json:"last_sync_at_iso"`
-		LastSuccessAtISO *time.Time `json:"last_success_at_iso"`
-		CreatedISO       *time.Time `json:"created_iso"`
-		UpdatedISO       *time.Time `json:"updated_iso"`
-	}{row, isotime.Optional(row.LastSyncAt), isotime.Optional(row.LastSuccessAt), isotime.UTC(row.Created), isotime.UTC(row.Updated)}
-}
-
 func apiQueueItem(row models.OutboundQueue) any {
 	return struct {
 		models.OutboundQueue

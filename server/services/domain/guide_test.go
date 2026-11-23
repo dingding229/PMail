@@ -2,12 +2,15 @@ package domain
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/utils/ip"
 )
 
 type guideDNS struct {
@@ -180,5 +183,72 @@ func TestMXAliasAndForeignHostsAndProxiedMailHost(t *testing.T) {
 	checkGuideRecord(context.Background(), fake, &a, domain, guide.MailHost, ip, netip.Addr{}, true)
 	if a.Status != "mismatch" || a.hint != "dns_guide_mail_proxied" {
 		t.Fatalf("proxied mail host: %+v", a)
+	}
+}
+
+func TestGuideRecordAddressMatrix(t *testing.T) {
+	row := models.Domain{Name: "example.test", DkimSelector: "default"}
+	v4 := netip.MustParseAddr("203.0.113.10")
+	detectedV6 := netip.MustParseAddr("2001:db8::10")
+	const overrideV6 = "2001:db8::42"
+	for _, proxy := range []bool{false, true} {
+		for _, detected := range []bool{false, true} {
+			for _, override := range []string{"", overrideV6} {
+				t.Run(fmt.Sprintf("proxy=%t/detected=%t/override=%s", proxy, detected, override), func(t *testing.T) {
+					t.Setenv("PMAIL_PUBLIC_IPV4", v4.String())
+					t.Setenv("PMAIL_PUBLIC_IPV6", override)
+					key := guideKey{web: "mail.example.test", dkim: "v=DKIM1; k=rsa; p=valid-fixture", proxy: proxy, v4: os.Getenv("PMAIL_PUBLIC_IPV4"), v6: os.Getenv("PMAIL_PUBLIC_IPV6")}
+					var v6 netip.Addr
+					if detected {
+						v6 = detectedV6
+					}
+					wantV6 := v6
+					if override != "" {
+						// Both operator values are supplied: PublicAddresses does not need the network.
+						gotV4, gotV6 := ip.PublicAddresses(t.Context(), key.v4, key.v6)
+						if gotV4 != v4 {
+							t.Fatalf("IPv4 override: %s", gotV4)
+						}
+						v6, wantV6 = gotV6, netip.MustParseAddr(overrideV6)
+					}
+					g := localizeGuide(buildGuide(row, key, v4, v6), "zh-CN")
+					if got := getRecord(t, g, "web_a"); got.Value != v4.String() || proxy && !strings.Contains(got.Description, "Cloudflare") {
+						t.Fatalf("web A: %+v", got)
+					}
+					aaaa := getRecord(t, g, "mail_aaaa")
+					if aaaa.Required != wantV6.IsValid() || (wantV6.IsValid() && aaaa.Value != wantV6.String()) || (!wantV6.IsValid() && (aaaa.Value != "" || !strings.Contains(aaaa.Description, "未检测到 IPv6"))) {
+						t.Fatalf("mail AAAA: %+v", aaaa)
+					}
+					if ptr := getRecord(t, g, "ptr"); ptr.Host != "10.113.0.203.in-addr.arpa." || ptr.Host != ptr.FQDN {
+						t.Fatalf("PTR host: %+v", ptr)
+					}
+					for _, record := range g.Records {
+						if record.Value == "" && (record.Key != "mail_aaaa" || wantV6.IsValid()) {
+							t.Fatalf("unexpected empty record: %+v", record)
+						}
+					}
+					if strings.Contains(renderZone(g, "zh-CN"), " IN AAAA ") != wantV6.IsValid() {
+						t.Fatal("BIND includes unexpected AAAA record")
+					}
+				})
+			}
+		}
+		t.Run(fmt.Sprintf("proxy=%t/no-public-addresses", proxy), func(t *testing.T) {
+			g := localizeGuide(buildGuide(row, guideKey{proxy: proxy, web: "mail.example.test", dkim: "v=DKIM1; p=fixture"}, netip.Addr{}, netip.Addr{}), "en")
+			for _, r := range g.Records {
+				missing := r.Key == "web_a" || r.Key == "mail_a" || r.Key == "mail_aaaa"
+				if (r.Value == "") != missing {
+					t.Fatalf("unexpected empty value: %+v", r)
+				}
+			}
+			ptr := getRecord(t, g, "ptr")
+			if ptr.Host != "" || ptr.FQDN != "" {
+				t.Fatalf("PTR without a reverse name: %+v", ptr)
+			}
+			zone := renderZone(g, "en")
+			if strings.Contains(zone, " IN A ") || strings.Contains(zone, " IN AAAA ") || strings.Contains(zone, " IN PTR ") {
+				t.Fatal("exported an address without a value")
+			}
+		})
 	}
 }

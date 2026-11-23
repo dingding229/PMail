@@ -34,13 +34,14 @@ var (
 const RuleLimit = 500
 
 type Settings struct {
-	DNSBLEnabled         bool      `json:"dnsbl_enabled"`
-	Zones                []string  `json:"dnsbl_zones"`
-	DefaultSpamThreshold float64   `json:"default_spam_threshold"`
-	ClamdEnabled         bool      `json:"clamd_enabled"`
-	ClamdAddr            string    `json:"clamd_addr"`
-	RiskAudit            bool      `json:"risk_block_dangerous_attachments"`
-	Warnings             []Warning `json:"warnings,omitempty"`
+	DNSBLEnabled         bool           `json:"dnsbl_enabled"`
+	Zones                []string       `json:"dnsbl_zones"`
+	DefaultSpamThreshold float64        `json:"default_spam_threshold"`
+	ClamdEnabled         bool           `json:"clamd_enabled"`
+	ClamdAddr            string         `json:"clamd_addr"`
+	RiskAudit            bool           `json:"risk_block_dangerous_attachments"`
+	Warnings             []Warning      `json:"warnings,omitempty"`
+	CatchAll             CatchAllPolicy `json:"catch_all"`
 }
 type Warning struct {
 	Code    string `json:"code"`
@@ -139,15 +140,21 @@ func GetSettings(ctx context.Context) (Settings, error) { return getSettings(ctx
 
 func getSettings(ctx context.Context, engine *xorm.Engine) (Settings, error) {
 	s := Settings{DefaultSpamThreshold: 6, Zones: []string{}}
-	if engine == nil {
-		return s, nil
-	}
 	var row models.InboundSettings
+	if engine == nil {
+		var err error
+		s.CatchAll, err = catchAllPolicy(row)
+		return s, err
+	}
 	found, err := engine.Context(ctx).ID(1).Get(&row)
+	if err != nil {
+		return s, err
+	}
+	s.CatchAll, err = catchAllPolicy(row)
 	if err != nil || !found {
 		return s, err
 	}
-	if err = json.Unmarshal([]byte(row.ZonesJSON), &s.Zones); err != nil {
+	if err := json.Unmarshal([]byte(row.ZonesJSON), &s.Zones); err != nil {
 		return s, err
 	}
 	s.DNSBLEnabled = row.DNSBLEnabled
@@ -157,7 +164,8 @@ func getSettings(ctx context.Context, engine *xorm.Engine) (Settings, error) {
 	s.RiskAudit = row.RiskAudit
 	return s, nil
 }
-func PutSettings(ctx context.Context, s Settings) (Settings, error) {
+
+func PutSettings(ctx context.Context, s Settings, change CatchAllUpdate) (Settings, error) {
 	s, err := normalizeSettings(s)
 	if err != nil {
 		return s, err
@@ -167,15 +175,28 @@ func PutSettings(ctx context.Context, s Settings) (Settings, error) {
 	defer settingsWrite.Unlock()
 	err = db.Transaction(db.Instance, func(tx *xorm.Session) error {
 		tx.Context(ctx)
-		vals := []any{1, s.DNSBLEnabled, string(zones), s.DefaultSpamThreshold, s.ClamdEnabled, s.ClamdAddr, s.RiskAudit}
-		_, err := tx.Exec(append([]any{settingsUpsert(db.Instance.DriverName())}, vals...)...)
+		var row models.InboundSettings
+		if _, err := tx.ID(1).Cols("catch_all_enabled", "catch_all_recipient_id").Get(&row); err != nil {
+			return err
+		}
+		if err := updateCatchAll(tx, &row, change); err != nil {
+			return err
+		}
+		var err error
+		s.CatchAll, err = catchAllPolicy(row)
+		if err != nil {
+			return err
+		}
+		vals := []any{1, s.DNSBLEnabled, string(zones), s.DefaultSpamThreshold, s.ClamdEnabled, s.ClamdAddr, s.RiskAudit,
+			row.CatchAllEnabled, row.CatchAllRecipientID}
+		_, err = tx.Exec(append([]any{settingsUpsert(db.Instance.DriverName())}, vals...)...)
 		return err
 	})
 	return s, err
 }
 func settingsUpsert(driver string) string {
-	const base = "INSERT INTO inbound_settings (id,dnsbl_enabled,dnsbl_zones,default_spam_threshold,clamd_enabled,clamd_addr,risk_block_dangerous_attachments) VALUES (?,?,?,?,?,?,?)"
-	names := []string{"dnsbl_enabled", "dnsbl_zones", "default_spam_threshold", "clamd_enabled", "clamd_addr", "risk_block_dangerous_attachments"}
+	const base = "INSERT INTO inbound_settings (id,dnsbl_enabled,dnsbl_zones,default_spam_threshold,clamd_enabled,clamd_addr,risk_block_dangerous_attachments,catch_all_enabled,catch_all_recipient_id) VALUES (?,?,?,?,?,?,?,?,?)"
+	names := []string{"dnsbl_enabled", "dnsbl_zones", "default_spam_threshold", "clamd_enabled", "clamd_addr", "risk_block_dangerous_attachments", "catch_all_enabled", "catch_all_recipient_id"}
 	var updates []string
 	for _, c := range names {
 		if driver == config.DBTypeMySQL {
