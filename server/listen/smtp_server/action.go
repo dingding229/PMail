@@ -3,9 +3,11 @@ package smtp_server
 import (
 	stdctx "context"
 	"errors"
-	"github.com/Jinnrry/pmail/models"
+	"net"
 	"net/netip"
+	"strings"
 
+	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/antivirus"
 	"github.com/Jinnrry/pmail/services/auth"
@@ -18,8 +20,6 @@ import (
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 	log "github.com/sirupsen/logrus"
-	"net"
-	"strings"
 )
 
 // The Backend implements SMTP server methods.
@@ -84,12 +84,25 @@ func (s *Session) AuthPlain(username, pwd string) error {
 	}
 	user, appID, err := auth.AuthenticateMail(username, pwd, remote)
 	if err != nil {
-		return err
+		return smtpAuthenticationError(err)
 	}
 	s.User = username
 	s.Ctx.UserAccount, s.Ctx.UserID, s.Ctx.UserName, s.Ctx.IsAdmin = user.Account, user.ID, user.Name, user.IsAdmin == 1
 	s.Ctx.AuthVersion, s.Ctx.FactorVersion, s.Ctx.AppPasswordID = user.AuthVersion, user.FactorVersion, appID
 	return nil
+}
+
+// SMTP clients should stop retrying invalid credentials, but can retry a
+// rate-limited request or an unavailable authentication backend later.
+func smtpAuthenticationError(err error) *smtp.SMTPError {
+	switch {
+	case errors.Is(err, auth.ErrCredentials):
+		return &smtp.SMTPError{Code: 535, EnhancedCode: smtp.EnhancedCode{5, 7, 8}, Message: "authentication credentials invalid"}
+	case errors.Is(err, auth.ErrLocked):
+		return &smtp.SMTPError{Code: 454, EnhancedCode: smtp.EnhancedCode{4, 7, 0}, Message: "too many authentication attempts; try again later"}
+	default:
+		return &smtp.SMTPError{Code: 454, EnhancedCode: smtp.EnhancedCode{4, 7, 0}, Message: "authentication temporarily unavailable; try again later"}
+	}
 }
 
 func (s *Session) validateSubmission() error {

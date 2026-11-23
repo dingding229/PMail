@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -13,8 +15,10 @@ import (
 	"time"
 
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/password"
+	"github.com/emersion/go-smtp"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -78,13 +82,20 @@ func TestSMTPAuthenticationRequiresTLS(t *testing.T) {
 				t.Fatal("missing AUTH after TLS")
 			}
 			encode := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
-			if mechanism == "PLAIN" {
-				command("AUTH PLAIN "+encode("\x00tls-user\x00test-password"), 235)
-			} else {
+			authenticate := func(pwd string, code int) string {
+				t.Helper()
+				if mechanism == "PLAIN" {
+					return command("AUTH PLAIN "+encode("\x00tls-user\x00"+pwd), code)
+				}
 				command("AUTH LOGIN", 334)
 				command(encode("tls-user"), 334)
-				command(encode("test-password"), 235)
+				return command(encode(pwd), code)
 			}
+			if got := authenticate("incorrect-password", 535); got != "5.7.8 authentication credentials invalid" {
+				t.Fatalf("invalid credentials reply: %q", got)
+			}
+			// The permanent AUTH error does not close the connection.
+			authenticate("test-password", 235)
 			command("QUIT", 221)
 		})
 	}
@@ -118,5 +129,27 @@ func TestSMTPAuthenticationDoesNotLogCredentials(t *testing.T) {
 		if strings.Contains(output.String(), secret) {
 			t.Error("authentication log contains credentials")
 		}
+	}
+}
+
+func TestSMTPAuthenticationErrorMapping(t *testing.T) {
+	cases := []struct {
+		name  string
+		cause error
+		want  smtp.SMTPError
+	}{
+		{"invalid credentials", fmt.Errorf("wrapped: %w", auth.ErrCredentials),
+			smtp.SMTPError{Code: 535, EnhancedCode: smtp.EnhancedCode{5, 7, 8}, Message: "authentication credentials invalid"}},
+		{"rate limited", fmt.Errorf("wrapped: %w", auth.ErrLocked),
+			smtp.SMTPError{Code: 454, EnhancedCode: smtp.EnhancedCode{4, 7, 0}, Message: "too many authentication attempts; try again later"}},
+		{"backend failure", errors.New("private database detail"),
+			smtp.SMTPError{Code: 454, EnhancedCode: smtp.EnhancedCode{4, 7, 0}, Message: "authentication temporarily unavailable; try again later"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := smtpAuthenticationError(tc.cause); *got != tc.want {
+				t.Fatalf("got %#v; want %#v", got, tc.want)
+			}
+		})
 	}
 }
