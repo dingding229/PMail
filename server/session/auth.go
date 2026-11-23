@@ -18,6 +18,7 @@ func Login(ctx context.Context, user *models.User) error {
 	}
 	Instance.Put(ctx, "user_id", user.ID)
 	Instance.Put(ctx, "auth_version", user.AuthVersion)
+	Instance.Put(ctx, "factor_version", user.FactorVersion)
 	return nil
 }
 
@@ -36,7 +37,7 @@ func CurrentUser(ctx context.Context) (*models.User, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !found || user.Disabled != 0 || user.AuthVersion != Instance.GetInt64(ctx, "auth_version") {
+	if !found || user.Disabled != 0 || user.AuthVersion != Instance.GetInt64(ctx, "auth_version") || user.FactorVersion != Instance.GetInt64(ctx, "factor_version") {
 		return nil, Instance.Destroy(ctx)
 	}
 	return &user, nil

@@ -85,6 +85,7 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 
 		publicBootstrap := r.URL.Path == "/api/bootstrap"
 		publicRegister := r.URL.Path == "/api/register"
+		publicLogin := r.URL.Path == "/api/login" || r.URL.Path == "/api/login/2fa"
 		w.Header().Add("Vary", "Accept-Language, X-PMail-Lang")
 		if publicBootstrap || publicRegister {
 			w.Header().Set("Cache-Control", "no-store")
@@ -108,14 +109,14 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 			refuse(http.StatusMethodNotAllowed, response.ParamsError, "method_not_allowed")
 			return
 		}
-		if !(r.Method == http.MethodPost && r.URL.Path == "/api/compose/inline-image") && r.Method != http.MethodOptions && inNamespace(r.URL.Path, "/api") && (r.ContentLength != 0 || (r.Method == http.MethodPost && (r.URL.Path == "/api/login" || publicRegister))) {
+		if !(r.Method == http.MethodPost && r.URL.Path == "/api/compose/inline-image") && r.Method != http.MethodOptions && inNamespace(r.URL.Path, "/api") && (r.ContentLength != 0 || (r.Method == http.MethodPost && (publicLogin || publicRegister))) {
 			media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 			if err != nil || media != "application/json" {
 				refuse(http.StatusUnsupportedMediaType, response.ParamsError, "json_media_type_required")
 				return
 			}
 		}
-		if !isSafeMethod(r.Method) && (publicRegister || r.URL.Path == "/api/login") &&
+		if !isSafeMethod(r.Method) && (publicRegister || publicLogin) &&
 			(r.Header.Get("Origin") != "" || r.Header.Get("Referer") != "") && !sameOrigin(r) {
 			noteOriginRejection(r)
 			refuse(http.StatusForbidden, response.NoAccessPrivileges, "origin_forbidden")
@@ -165,6 +166,7 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 			if userInfo != nil {
 				ctx.UserID = userInfo.ID
 				ctx.AuthVersion = userInfo.AuthVersion
+				ctx.FactorVersion = userInfo.FactorVersion
 				ctx.TokenScope = scope
 				ctx.UserName = userInfo.Name
 				ctx.UserAccount = userInfo.Account
@@ -172,7 +174,7 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 				if lang, ok := i18n.Preference(userInfo.Lang); ok && lang != "" {
 					ctx.Lang = lang
 				}
-			} else if r.URL.Path != "/api/login" && !publicBootstrap {
+			} else if !publicLogin && !publicBootstrap {
 				if isInbound {
 					refuse(401, response.NeedLogin, "inbound_login_required")
 					return

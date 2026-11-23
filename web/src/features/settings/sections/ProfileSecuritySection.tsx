@@ -23,6 +23,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
+import { AccountCredentials } from './AccountCredentials'
+
 export function ProfileSecuritySection() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -328,6 +330,7 @@ export function ProfileSecuritySection() {
           </Button>
         </form>
       </section>
+      {user && <AccountCredentials key={user.id} userID={user.id} />}
     </div>
   )
 }

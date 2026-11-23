@@ -105,7 +105,7 @@ paths:
     post:
       operationId: login
       tags: [Auth]
-      summary: Authenticate and set the browser session
+      summary: Verify the login password and sign in or request a second factor
       x-permission: public
       security: []
       parameters:
@@ -125,10 +125,11 @@ paths:
               schema:
                 oneOf:
                 - {$ref: '#/components/schemas/LoginUserSuccess'}
+                - {$ref: '#/components/schemas/LoginChallengeSuccess'}
                 - {$ref: '#/components/schemas/Error100402500'}
           headers:
             Set-Cookie:
-              description: Session cookie set/renewed, or cleared on logout/password change.
+              description: Set or renewed on completed sign-in only; not issued for a second-factor challenge.
               schema: {type: string}
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
@@ -136,6 +137,284 @@ paths:
         '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
         '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
+  /api/login/2fa:
+    post:
+      operationId: loginSecondFactor
+      tags: [Auth]
+      summary: Complete a challenged login and set the browser session
+      description: The challenge is bound to the source IP, expires after five minutes, and is consumed once. Invalid codes count against the login rate limit.
+      x-permission: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+              - {$ref: '#/components/schemas/SecondFactorCode'}
+              - type: object
+                required: [challenge]
+                properties:
+                  challenge: {type: string}
+      responses:
+        '200':
+          description: Login completed; Set-Cookie establishes the authenticated session.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LoginUserSuccess'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/2fa:
+    get:
+      operationId: secondFactorStatus
+      tags: [Auth]
+      summary: Check the current browser user’s two-step verification status
+      x-permission: user
+      security: [{Session: []}]
+      responses:
+        '200':
+          description: Success. Legacy authentication/setup failures may also return HTTP 200 with a nonzero errorNo.
+          headers:
+            Cache-Control:
+              schema: {const: "private, no-store"}
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Envelope'}
+                - type: object
+                  properties:
+                    errorNo: {const: 0}
+                    errorMsg: {const: ''}
+                    data: {$ref: '#/components/schemas/SecondFactorStatus'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/2fa/setup:
+    post:
+      operationId: setupSecondFactor
+      tags: [Auth]
+      summary: Issue a pending authenticator setup key
+      x-permission: user
+      security: [{Session: []}]
+      description: The setup key expires after ten minutes and does not enable two-step verification by itself.
+      responses:
+        '200':
+          description: Success. Legacy authentication/setup failures may also return HTTP 200 with a nonzero errorNo.
+          headers:
+            Cache-Control:
+              schema: {const: "private, no-store"}
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Envelope'}
+                - type: object
+                  properties:
+                    errorNo: {const: 0}
+                    errorMsg: {const: ''}
+                    data: {$ref: '#/components/schemas/SecondFactorSetup'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/2fa/enable:
+    post:
+      operationId: enableSecondFactor
+      tags: [Auth]
+      summary: Verify an authenticator code and enable two-step verification
+      x-permission: user
+      security: [{Session: []}]
+      description: Returns ten recovery codes once and rotates the current browser session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [code], properties: {code: {type: string, pattern: "^[0-9]{6}$"}}}
+      responses:
+        '200':
+          description: Success. Legacy authentication/setup failures may also return HTTP 200 with a nonzero errorNo.
+          headers:
+            Cache-Control:
+              schema: {const: "private, no-store"}
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Envelope'}
+                - type: object
+                  properties:
+                    errorNo: {const: 0}
+                    errorMsg: {const: ''}
+                    data: {$ref: '#/components/schemas/RecoveryCodes'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/2fa/disable:
+    post:
+      operationId: disableSecondFactor
+      tags: [Auth]
+      summary: Disable two-step verification and delete its credentials
+      x-permission: user
+      security: [{Session: []}]
+      description: Current password and an unused authenticator or recovery code are required.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConfirmSecondFactor'}
+      responses:
+        '200':
+          description: Success. Legacy authentication/setup failures may also return HTTP 200 with a nonzero errorNo.
+          headers:
+            Cache-Control:
+              schema: {const: "private, no-store"}
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Envelope'}
+                - type: object
+                  properties:
+                    errorNo: {const: 0}
+                    errorMsg: {const: ''}
+                    data: {$ref: '#/components/schemas/SecondFactorStatus'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/2fa/recovery_codes:
+    post:
+      operationId: regenerateRecoveryCodes
+      tags: [Auth]
+      summary: Replace and return all recovery codes
+      x-permission: user
+      security: [{Session: []}]
+      description: Current password and an unused authenticator or recovery code are required.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConfirmSecondFactor'}
+      responses:
+        '200':
+          description: Success. Legacy authentication/setup failures may also return HTTP 200 with a nonzero errorNo.
+          headers:
+            Cache-Control:
+              schema: {const: "private, no-store"}
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Envelope'}
+                - type: object
+                  properties:
+                    errorNo: {const: 0}
+                    errorMsg: {const: ''}
+                    data: {$ref: '#/components/schemas/RecoveryCodes'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/app_passwords:
+    get:
+      operationId: listAppPasswords
+      tags: [Auth]
+      summary: List app-password metadata
+      x-permission: user
+      security: [{Session: []}]
+      responses:
+        '200':
+          description: Success. Legacy authentication/setup failures may also return HTTP 200 with a nonzero errorNo.
+          headers:
+            Cache-Control:
+              schema: {const: "private, no-store"}
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Envelope'}
+                - type: object
+                  properties:
+                    errorNo: {const: 0}
+                    errorMsg: {const: ''}
+                    data: {type: array, items: {$ref: '#/components/schemas/AppPassword'}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      operationId: createAppPassword
+      tags: [Auth]
+      summary: Create a named app password and return its secret once
+      x-permission: user
+      security: [{Session: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [name], properties: {name: {type: string, minLength: 1, maxLength: 80}}}
+      responses:
+        '200':
+          description: Success. Legacy authentication/setup failures may also return HTTP 200 with a nonzero errorNo.
+          headers:
+            Cache-Control:
+              schema: {const: "private, no-store"}
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Envelope'}
+                - type: object
+                  properties:
+                    errorNo: {const: 0}
+                    errorMsg: {const: ''}
+                    data: {$ref: '#/components/schemas/CreatedAppPassword'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/app_passwords/{id}:
+    delete:
+      operationId: deleteAppPassword
+      tags: [Auth]
+      summary: Revoke an owned app password
+      x-permission: user
+      security: [{Session: []}]
+      parameters:
+      - {in: path, name: id, required: true, schema: {type: integer, minimum: 1}}
+      responses:
+        '200':
+          description: Success. Legacy authentication/setup failures may also return HTTP 200 with a nonzero errorNo.
+          headers:
+            Cache-Control:
+              schema: {const: "private, no-store"}
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Envelope'}
+                - type: object
+                  properties:
+                    errorNo: {const: 0}
+                    errorMsg: {const: ''}
+                    data: {type: 'null'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/logout:
     post:
       operationId: logout
@@ -1375,6 +1654,41 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/user/reset_2fa:
+    post:
+      operationId: adminResetSecondFactor
+      tags: [Users]
+      summary: Reset another user’s two-step verification
+      x-permission: admin
+      security: [{Session: []}]
+      description: Deletes the target’s authenticator secret and recovery codes and writes an audit event. API tokens cannot call this endpoint.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [id], properties: {id: {type: integer, minimum: 1}}}
+      responses:
+        '200':
+          description: Success. Legacy authentication/setup failures may also return HTTP 200 with a nonzero errorNo.
+          headers:
+            Cache-Control:
+              schema: {const: "private, no-store"}
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Envelope'}
+                - type: object
+                  properties:
+                    errorNo: {const: 0}
+                    errorMsg: {const: ''}
+                    data: {type: 'null'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/user/reset_password:
     post:
@@ -6326,7 +6640,7 @@ components:
         can_send: {type: boolean}
     User:
       type: object
-      required: [created_iso, last_login_at_iso, id, account, name, disabled, is_admin, lang, quota_mb, created, last_login_at]
+      required: [created_iso, last_login_at_iso, id, account, name, disabled, is_admin, totp_enabled, lang, quota_mb, created, last_login_at]
       properties:
         created_iso: {$ref: '#/components/schemas/IsoTimestamp'}
         last_login_at_iso: {$ref: '#/components/schemas/IsoTimestamp'}
@@ -6335,6 +6649,7 @@ components:
         name: {type: string}
         disabled: {type: integer, enum: [0, 1]}
         is_admin: {type: integer, enum: [0, 1]}
+        totp_enabled: {type: boolean}
         lang:
           enum: ['', zh-CN, en]
           description: Saved language preference; an empty string means no explicit preference.
@@ -6345,7 +6660,7 @@ components:
           format: date-time
     CurrentUser:
       type: object
-      required: [created_iso, last_login_at_iso, id, account, name, disabled, is_admin, lang, quota_mb, created, last_login_at,
+      required: [created_iso, last_login_at_iso, id, account, name, disabled, is_admin, totp_enabled, lang, quota_mb, created, last_login_at,
         display_name, addresses, used_bytes]
       properties:
         created_iso: {$ref: '#/components/schemas/IsoTimestamp'}
@@ -6355,6 +6670,7 @@ components:
         name: {type: string}
         disabled: {type: integer, enum: [0, 1]}
         is_admin: {type: integer, enum: [0, 1]}
+        totp_enabled: {type: boolean}
         lang:
           enum: ['', zh-CN, en]
           description: Saved language preference; an empty string means no explicit preference.
@@ -6577,6 +6893,69 @@ components:
           errorNo: {enum: [500]}
           errorMsg: {type: string}
           data: {}
+    LoginChallengeSuccess:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          errorNo: {const: 0}
+          errorMsg: {const: ''}
+          data:
+            type: object
+            required: [two_factor_required, challenge, expires_in]
+            properties:
+              two_factor_required: {const: true}
+              challenge: {type: string}
+              expires_in: {const: 300}
+    SecondFactorCode:
+      type: object
+      required: [code]
+      properties:
+        code: {type: string}
+        recovery: {type: boolean, default: false}
+    ConfirmSecondFactor:
+      allOf:
+      - {$ref: '#/components/schemas/SecondFactorCode'}
+      - type: object
+        required: [password]
+        properties:
+          password: {type: string}
+    SecondFactorStatus:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: {type: boolean}
+    SecondFactorSetup:
+      type: object
+      required: [secret, otpauth_uri]
+      properties:
+        secret: {type: string, description: Base32-encoded authenticator setup key.}
+        otpauth_uri: {type: string, format: uri}
+    RecoveryCodes:
+      type: object
+      required: [enabled, recovery_codes]
+      properties:
+        enabled: {const: true}
+        recovery_codes:
+          type: array
+          minItems: 10
+          maxItems: 10
+          items: {type: string}
+    AppPassword:
+      type: object
+      required: [id, name, created_at, last_used_at]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        created_at: {type: string, format: date-time}
+        last_used_at: {type: [string, 'null'], format: date-time}
+    CreatedAppPassword:
+      allOf:
+      - {$ref: '#/components/schemas/AppPassword'}
+      - type: object
+        required: [password]
+        properties:
+          password: {type: string, minLength: 16, maxLength: 16}
     LoginUserSuccess:
       allOf:
       - {$ref: '#/components/schemas/Envelope'}

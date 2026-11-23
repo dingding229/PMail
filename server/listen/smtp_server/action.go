@@ -80,18 +80,18 @@ func (s *Session) AuthPlain(username, pwd string) error {
 	if s.RemoteAddress != nil {
 		remote = s.RemoteAddress.String()
 	}
-	user, err := auth.Authenticate(username, pwd, remote)
+	user, appID, err := auth.AuthenticateMail(username, pwd, remote)
 	if err != nil {
 		return err
 	}
 	s.User = username
 	s.Ctx.UserAccount, s.Ctx.UserID, s.Ctx.UserName, s.Ctx.IsAdmin = user.Account, user.ID, user.Name, user.IsAdmin == 1
-	s.Ctx.AuthVersion = user.AuthVersion
+	s.Ctx.AuthVersion, s.Ctx.FactorVersion, s.Ctx.AppPasswordID = user.AuthVersion, user.FactorVersion, appID
 	return nil
 }
 
 func (s *Session) validateSubmission() error {
-	if s.Ctx.UserID > 0 && auth.ValidateSessionRole(s.Ctx.UserID, s.Ctx.AuthVersion, s.Ctx.IsAdmin) != nil {
+	if s.Ctx.UserID > 0 && auth.ValidateMailSession(s.Ctx.UserID, s.Ctx.AuthVersion, s.Ctx.FactorVersion, s.Ctx.AppPasswordID, &s.Ctx.IsAdmin) != nil {
 		return &smtp.SMTPError{Code: 535, EnhancedCode: smtp.EnhancedCode{5, 7, 8}, Message: "authentication expired; reconnect and authenticate"}
 	}
 	return nil

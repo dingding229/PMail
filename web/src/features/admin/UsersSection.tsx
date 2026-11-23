@@ -15,6 +15,7 @@ import {
   KeyRound,
   Loader2,
   Plus,
+  ShieldOff,
   Users,
 } from 'lucide-react'
 import { userApi, type UserProfile } from '@/api'
@@ -39,13 +40,14 @@ import { AddressesSection } from '@/features/settings/sections/AddressesSection'
 
 const PAGE_SIZE = 10
 
-export function UsersSection() {
+export function UsersSection({ currentUserID }: { currentUserID?: number }) {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
 
   const [page, setPage] = useState(1)
   const [createOpen, setCreateOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null)
+  const [resetFactorUser, setResetFactorUser] = useState<UserProfile | null>(null)
   const [resetPwdUser, setResetPwdUser] = useState<UserProfile | null>(null)
   const [newPassword, setNewPassword] = useState('')
   const [disablingUser, setDisablingUser] = useState<UserProfile | null>(null)
@@ -142,6 +144,23 @@ export function UsersSection() {
       toast.error(err instanceof Error ? err.message : t('common.unknownError'))
     },
   })
+
+  const resetFactorMutation = useMutation({
+    mutationFn: (id: number) => userApi.resetSecondFactor(id),
+    onSuccess: () => {
+      toast.success(t('security.resetSuccess'))
+      setResetFactorUser(null)
+      invalidate()
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : t('common.unknownError')),
+  })
+
+  const renderFactorStatus = (u: UserProfile) => (
+    <Badge variant={u.totp_enabled ? 'success' : 'default'}>
+      {u.totp_enabled ? t('security.enabled') : t('security.disabled')}
+    </Badge>
+  )
+  const canResetFactor = (u: UserProfile) => !!u.totp_enabled && currentUserID != null && u.id !== currentUserID
 
   const resetPwdMutation = useMutation({
     mutationFn: () => {
@@ -279,6 +298,7 @@ export function UsersSection() {
                             {u.is_admin === 1 && (
                               <Badge variant="accent">{t('admin.users.roleAdmin')}</Badge>
                             )}
+                            {renderFactorStatus(u)}
                           </div>
                           <p className="font-mono text-[11.5px] text-[var(--ink-muted)]">
                             {u.account} ·{' '}
@@ -336,6 +356,11 @@ export function UsersSection() {
                         >
                           <KeyRound className="h-3.5 w-3.5" />
                         </Button>
+                        {canResetFactor(u) && (
+                          <Button variant="ghost" size="iconSm" title={t('security.reset')} aria-label={t('security.reset')} onClick={() => setResetFactorUser(u)}>
+                            <ShieldOff className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                         {u.disabled === 1 ? (
                           <Button
                             variant="ghost"
@@ -385,6 +410,7 @@ export function UsersSection() {
                         {u.is_admin === 1 && (
                           <Badge variant="accent">{t('admin.users.roleAdmin')}</Badge>
                         )}
+                        {renderFactorStatus(u)}
                       </div>
                       <p className="font-mono text-[11.5px] text-[var(--ink-muted)] truncate">
                         {u.account} · {t('admin.users.addressesCount', { count: u.addresses?.length ?? 0 })}
@@ -418,6 +444,9 @@ export function UsersSection() {
                   >
                     {t('admin.users.resetPassword')}
                   </Button>
+                  {canResetFactor(u) && (
+                    <Button variant="outline" size="xs" onClick={() => setResetFactorUser(u)}>{t('security.reset')}</Button>
+                  )}
                   {u.disabled === 1 ? (
                     <Button
                       variant="outline"
@@ -569,6 +598,23 @@ export function UsersSection() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={resetFactorUser !== null} onOpenChange={(open) => {
+        if (!open && !resetFactorMutation.isPending) setResetFactorUser(null)
+      }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('security.reset')}</DialogTitle>
+            <DialogDescription>{t('security.resetConfirm', { account: resetFactorUser?.account })}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={resetFactorMutation.isPending} onClick={() => setResetFactorUser(null)}>{t('common.cancel')}</Button>
+            <Button type="button" variant="danger" disabled={!resetFactorUser || resetFactorMutation.isPending} onClick={() => {
+              if (resetFactorUser) resetFactorMutation.mutate(resetFactorUser.id)
+            }}>{t('common.confirm')}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

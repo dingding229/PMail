@@ -5,6 +5,7 @@ import {
   SYSTEM_GROUP_IDS,
   type AdminTelegramStatus,
   type AdminUpdateInfo,
+  type AppPassword,
   type ApiTokenItem,
   type BootstrapResponse,
   type DomainDnsResponse,
@@ -217,6 +218,7 @@ let mockUsers: UserProfile[] = [
   {
     id: 2,
     account: 'chen',
+    totp_enabled: true,
     name: '陈知意',
     display_name: '陈知意',
     disabled: 0,
@@ -280,6 +282,31 @@ let mockUsers: UserProfile[] = [
 ]
 
 const getMe = () => mockUsers[0]!
+
+// Deliberately simple credentials for VITE_MOCK=1 only. Authenticator code:
+// 123456. Real verification and storage are implemented exclusively on the server.
+let mockFactorSetup = false
+let mockChallenge: { id: string; expires: number } | undefined
+let mockRecovery = new Set<string>()
+let mockAppPasswords: AppPassword[] = []
+let mockAppID = 0
+function mockSecret() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => alphabet[byte & 31]).join('')
+}
+function mockRecoverySet() {
+  mockRecovery = new Set(Array.from({ length: 10 }, () => mockSecret().match(/.{4}/g)!.join('-')))
+  return [...mockRecovery]
+}
+function checkMockFactor(code: string | undefined, recovery?: boolean) {
+  return !!code && (recovery ? mockRecovery.delete(code) : code === '123456')
+}
+function mockLoginResult() {
+  const me = getMe()
+  loggedIn = true
+  return ok({ account: me.account, name: me.name, is_admin: me.is_admin, domains: mockDomains.map((d) => d.name) })
+}
+
 
 /* ==================== Groups & Emails Store ==================== */
 let customGroups: GroupOption[] = [...INITIAL_CUSTOM_GROUPS]
@@ -858,21 +885,78 @@ export const handlers = [
     if (body.password === 'wrong') {
       return fail(lang === 'en' ? 'Invalid account or password' : '账号或密码错误', 100)
     }
-    loggedIn = true
-    const me = getMe()
-    me.account = body.account
-    return ok({
-      account: me.account,
-      name: me.name,
-      is_admin: me.is_admin,
-      domains: mockDomains.map((d) => d.name),
-    })
+    getMe().account = body.account
+    if (getMe().totp_enabled) {
+      mockChallenge = { id: crypto.randomUUID(), expires: Date.now() + 300_000 }
+      return ok({ two_factor_required: true, challenge: mockChallenge.id, expires_in: 300 })
+    }
+    return mockLoginResult()
+  }),
+
+  http.post('/api/login/2fa', async ({ request }) => {
+    const { challenge, code, recovery } = await request.json() as { challenge?: string; code?: string; recovery?: boolean }
+    if (!mockChallenge || challenge !== mockChallenge.id || Date.now() >= mockChallenge.expires) {
+      return fail(getLang(request) === 'en' ? 'Sign-in challenge expired.' : '登录验证已过期。', 100, 409)
+    }
+    if (!checkMockFactor(code, recovery)) return fail(getLang(request) === 'en' ? 'Invalid code.' : '验证码无效。', 100, 400)
+    mockChallenge = undefined
+    return mockLoginResult()
   }),
 
   http.post('/api/logout', async () => {
     await delay(60)
     loggedIn = false
     return ok('success')
+  }),
+
+  http.get('/api/2fa', () => loggedIn ? ok({ enabled: !!getMe().totp_enabled }) : fail('未登录', 403, 401)),
+  http.post('/api/2fa/setup', () => {
+    if (!loggedIn) return fail('未登录', 403, 401)
+    if (getMe().totp_enabled) return fail('两步验证已开启。', 100, 409)
+    mockFactorSetup = true
+    const secret = 'PMF4VVWHN3R2H3LA'
+    const account = getMe().addresses?.find((address) => address.is_primary)?.address ?? getMe().account
+    return ok({ secret, otpauth_uri: `otpauth://totp/${encodeURIComponent(`PMail Pro:${account}`)}?secret=${secret}&issuer=PMail%20Pro` })
+  }),
+  http.post('/api/2fa/enable', async ({ request }) => {
+    if (!loggedIn) return fail('未登录', 403, 401)
+    const { code } = await request.json() as { code?: string }
+    if (!mockFactorSetup || !checkMockFactor(code)) return fail(getLang(request) === 'en' ? 'Mock mode code: 123456.' : '模拟模式验证码：123456。', 100, 400)
+    mockFactorSetup = false
+    getMe().totp_enabled = true
+    return ok({ enabled: true, recovery_codes: mockRecoverySet() })
+  }),
+  ...(['disable', 'recovery_codes'] as const).map((action) => http.post(`/api/2fa/${action}`, async ({ request }) => {
+    if (!loggedIn) return fail('未登录', 403, 401)
+    const body = await request.json() as { password?: string; code?: string; recovery?: boolean }
+    if (!body.password || body.password === 'wrong' || !getMe().totp_enabled || !checkMockFactor(body.code, body.recovery)) {
+      return fail(getLang(request) === 'en' ? 'Invalid password or code.' : '密码或验证码无效。', 100, 400)
+    }
+    if (action === 'recovery_codes') return ok({ enabled: true, recovery_codes: mockRecoverySet() })
+    getMe().totp_enabled = false
+    mockRecovery.clear()
+    return ok({ enabled: false })
+  })),
+  http.get('/api/app_passwords', () => loggedIn ? ok(mockAppPasswords) : fail('未登录', 403, 401)),
+  http.post('/api/app_passwords', async ({ request }) => {
+    if (!loggedIn) return fail('未登录', 403, 401)
+    const { name } = await request.json() as { name: string }
+    const app = { id: ++mockAppID, name: name.trim(), created_at: new Date().toISOString(), last_used_at: null }
+    mockAppPasswords = [app, ...mockAppPasswords]
+    return ok({ ...app, password: mockSecret() })
+  }),
+  http.delete('/api/app_passwords/:id', ({ params }) => {
+    if (!loggedIn) return fail('未登录', 403, 401)
+    mockAppPasswords = mockAppPasswords.filter((value) => value.id !== Number(params.id))
+    return ok(null)
+  }),
+  http.post('/api/user/reset_2fa', async ({ request }) => {
+    if (!loggedIn || getMe().is_admin !== 1) return fail('无权访问', 405, 403)
+    const { id } = await request.json() as { id: number }
+    const target = mockUsers.find((value) => value.id === id && id !== getMe().id)
+    if (!target) return fail('无效账号', 100, 400)
+    target.totp_enabled = false
+    return ok(null)
   }),
 
   /* ==================== User & Admin Users ==================== */

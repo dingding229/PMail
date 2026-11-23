@@ -6,11 +6,12 @@ import (
 )
 
 func (s *serverSession) Login(username, pwd string) error {
-	user, err := auth.Authenticate(username, pwd, s.remoteAddr)
+	user, appID, err := auth.AuthenticateMail(username, pwd, s.remoteAddr)
 	if err != nil {
 		return authFailure()
 	}
 	s.status = AUTHORIZED
+	s.ctx.FactorVersion, s.ctx.AppPasswordID = user.FactorVersion, appID
 	s.ctx.UserID, s.ctx.UserName, s.ctx.UserAccount, s.ctx.AuthVersion = user.ID, user.Name, user.Account, user.AuthVersion
 	return nil
 }
@@ -20,7 +21,7 @@ func authFailure() *imap.Error {
 }
 
 func (s *serverSession) requireSession() error {
-	if err := auth.ValidateSession(s.ctx.UserID, s.ctx.AuthVersion); err != nil {
+	if err := auth.ValidateMailSession(s.ctx.UserID, s.ctx.AuthVersion, s.ctx.FactorVersion, s.ctx.AppPasswordID, nil); err != nil {
 		return authFailure()
 	}
 	return nil

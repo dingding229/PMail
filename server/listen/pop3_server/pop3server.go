@@ -187,12 +187,12 @@ func serveConnection(conn net.Conn, host string, secure bool, tlsConfig *tls.Con
 				err = send("-ERR USER and PASS required")
 				break
 			}
-			user, authErr := auth.Authenticate(login, arg, conn.RemoteAddr().String())
+			user, appID, authErr := auth.AuthenticateMail(login, arg, conn.RemoteAddr().String())
 			if authErr != nil {
 				err = send("-ERR authentication failed")
 				break
 			}
-			drop, err = openMaildrop(user)
+			drop, err = openMaildrop(user, appID)
 			if err != nil {
 				if errors.Is(err, errMaildropLocked) {
 					err = send("-ERR " + errMaildropLocked.Error())

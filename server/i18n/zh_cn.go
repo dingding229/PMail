@@ -2,6 +2,13 @@ package i18n
 
 // #nosec G101 -- user-facing translations contain labels and errors about passwords/tokens, not credential values.
 var cn = map[string]string{
+	"two_factor_state_changed":       "两步验证状态已变化或设置已过期，请重试。",
+	"two_factor_invalid_code":        "验证码或恢复码无效，或已经使用。",
+	"two_factor_challenge_expired":   "登录验证已过期或已使用，请重新登录。",
+	"two_factor_reset_target":        "管理员只能为其他用户重置两步验证。",
+	"app_password_invalid":           "请为应用专用密码输入 1 至 80 个字符的名称。",
+	"app_password_limit":             "最多可创建 20 个应用专用密码，请先删除一个。",
+	"app_password_not_found":         "应用专用密码不存在。",
 	"telegram_not_configured":        "管理员尚未配置 Telegram 机器人",
 	"telegram_not_bound":             "尚未绑定 Telegram，或机器人已被屏蔽",
 	"telegram_bind_expired":          "绑定码无效或已过期",

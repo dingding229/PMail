@@ -32,6 +32,24 @@ export interface LoginRequest {
   password: string
 }
 
+export type LoginResult = AuthSessionUser | {
+  two_factor_required: true
+  challenge: string
+  expires_in: number
+}
+
+export interface SecondFactorCode {
+  code: string
+  recovery: boolean
+}
+
+export interface AppPassword {
+  id: number
+  name: string
+  created_at: string
+  last_used_at: string | null
+}
+
 export interface AuthSessionUser {
   account: string
   name: string
@@ -58,6 +76,7 @@ export interface UserProfile {
   name: string
   display_name: string
   disabled: number
+  totp_enabled?: boolean
   is_admin: number
   quota_mb: number
   used_bytes: number

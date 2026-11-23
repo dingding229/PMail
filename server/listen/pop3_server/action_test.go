@@ -72,7 +72,7 @@ func addMessage(t *testing.T, owner, id int, subject string) {
 
 func TestMaildropSequenceSnapshotAndStableUIDL(t *testing.T) {
 	owner := popFixture(t)
-	d, err := openMaildrop(owner)
+	d, err := openMaildrop(owner, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestPOP3WireSequenceAndUpdate(t *testing.T) {
 	if found, err := db.Instance.Where("email_id=? AND user_id=? AND group_id=22", 8, owner.ID).Get(&filed); err != nil || !found || filed.Status != consts.EmailStatusWait {
 		t.Fatalf("QUIT removed a link from a different folder: %+v, %v", filed, err)
 	}
-	fresh, err := openMaildrop(owner)
+	fresh, err := openMaildrop(owner, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestPOP3DisconnectDoesNotCommit(t *testing.T) {
 	}
 	_ = client.Close()
 	<-done
-	drop, err := openMaildrop(owner)
+	drop, err := openMaildrop(owner, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestCachedPOPOctetsMatchRETR(t *testing.T) {
 	if _, err := db.Instance.ID(8).Cols("pop_octets").Update(&row); err != nil {
 		t.Fatal(err)
 	}
-	d, err := openMaildrop(owner)
+	d, err := openMaildrop(owner, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

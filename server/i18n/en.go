@@ -2,6 +2,13 @@ package i18n
 
 // #nosec G101 -- user-facing translations contain labels and errors about passwords/tokens, not credential values.
 var en = map[string]string{
+	"two_factor_state_changed":       "The two-step verification state changed or setup expired. Start again.",
+	"two_factor_invalid_code":        "Invalid or already used verification or recovery code.",
+	"two_factor_challenge_expired":   "The login challenge expired or was already used. Sign in again.",
+	"two_factor_reset_target":        "An administrator may only reset two-step verification for another user.",
+	"app_password_invalid":           "Enter a name of 1 to 80 characters for the app password.",
+	"app_password_limit":             "You can have up to 20 app passwords. Delete one before creating another.",
+	"app_password_not_found":         "The app password does not exist.",
 	"telegram_not_configured":        "The administrator has not configured a Telegram bot",
 	"telegram_not_bound":             "Telegram is not linked or the bot was blocked",
 	"telegram_bind_expired":          "The binding code is invalid or expired",

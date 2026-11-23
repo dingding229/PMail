@@ -11,6 +11,8 @@ const (
 type Context struct {
 	context.Context `json:"-"`
 	UserID          int
+	FactorVersion   int64  `json:"-"`
+	AppPasswordID   int    `json:"-"`
 	AuthVersion     int64  `json:"-"`
 	TokenScope      string `json:"-"`
 	UserAccount     string

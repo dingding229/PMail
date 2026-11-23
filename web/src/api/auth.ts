@@ -3,6 +3,8 @@ import type {
   AuthSessionUser,
   BootstrapResponse,
   LoginRequest,
+  LoginResult,
+  SecondFactorCode,
   RegisterRequest,
 } from './types'
 
@@ -19,7 +21,10 @@ export const authApi = {
     apiPost<string>('/api/setup/domain', payload, { skipAuthRedirect: true }),
 
   login: (payload: LoginRequest) =>
-    apiPost<AuthSessionUser>('/api/login', payload, { skipAuthRedirect: true }),
+    apiPost<LoginResult>('/api/login', payload, { skipAuthRedirect: true }),
+
+  loginSecondFactor: (payload: SecondFactorCode & { challenge: string }) =>
+    apiPost<AuthSessionUser>('/api/login/2fa', payload, { skipAuthRedirect: true }),
 
   logout: () => apiPost<string>('/api/logout', {}, { skipAuthRedirect: true }),
 }

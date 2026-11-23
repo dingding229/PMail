@@ -86,7 +86,7 @@ export function AdminPage() {
       guardContent={forbiddenView}
     >
       {activeTab === 'domains' && <DomainsSection />}
-      {activeTab === 'users' && <UsersSection />}
+      {activeTab === 'users' && <UsersSection currentUserID={user?.id} />}
       {activeTab === 'addresses' && <AdminAddressesSection />}
       {activeTab === 'inbound' && <InboundSecuritySection />}
       {activeTab === 'telegram' && <AdminTelegramSection />}

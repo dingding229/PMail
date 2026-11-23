@@ -2,14 +2,15 @@ package controllers
 
 import (
 	"errors"
-	"github.com/Jinnrry/pmail/utils/clientip"
 	"net/http"
 
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
+	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/session"
+	"github.com/Jinnrry/pmail/utils/clientip"
 	"github.com/Jinnrry/pmail/utils/context"
 )
 
@@ -23,7 +24,8 @@ func Login(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	if !readRequest(ctx, w, req, &data, false) {
 		return
 	}
-	u, err := auth.Authenticate(data.Account, data.Password, clientip.Source(req))
+	w.Header().Set("Cache-Control", "private, no-store")
+	u, challenge, err := auth.BeginWebLogin(data.Account, data.Password, clientip.Source(req))
 	if errors.Is(err, auth.ErrLocked) {
 		apiError(ctx, w, http.StatusTooManyRequests, response.ParamsError, "rate_limit")
 		return
@@ -36,7 +38,33 @@ func Login(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		serviceError(ctx, w, err)
 		return
 	}
-	if err := session.Login(req.Context(), &u); err != nil {
+	if challenge != "" {
+		success(w, map[string]any{"two_factor_required": true, "challenge": challenge, "expires_in": 300})
+		return
+	}
+	completeLogin(ctx, w, req, &u)
+}
+
+func LoginSecondFactor(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Cache-Control", "private, no-store")
+	var body struct {
+		Challenge string `json:"challenge"`
+		Code      string `json:"code"`
+		Recovery  bool   `json:"recovery"`
+	}
+	if !readRequest(ctx, w, req, &body, false) {
+		return
+	}
+	u, err := auth.FinishWebLogin(req.Context(), body.Challenge, body.Code, clientip.Source(req), body.Recovery)
+	if err != nil {
+		factorError(ctx, w, err)
+		return
+	}
+	completeLogin(ctx, w, req, &u)
+}
+
+func completeLogin(ctx *context.Context, w http.ResponseWriter, req *http.Request, u *models.User) {
+	if err := session.Login(req.Context(), u); err != nil {
 		serviceError(ctx, w, err)
 		return
 	}

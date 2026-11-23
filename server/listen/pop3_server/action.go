@@ -43,11 +43,11 @@ const visibleMessage = `email.type=? AND EXISTS (
 	SELECT 1 FROM user_email WHERE email_id=email.id AND ` + inboxLink + `
 )`
 
-func openMaildrop(user models.User) (*maildrop, error) {
+func openMaildrop(user models.User, appID int) (*maildrop, error) {
 	if _, held := maildropLocks.LoadOrStore(user.ID, true); held {
 		return nil, errMaildropLocked
 	}
-	ctx := &context.Context{Context: stdcontext.Background(), UserID: user.ID, UserName: user.Name, UserAccount: user.Account, AuthVersion: user.AuthVersion}
+	ctx := &context.Context{Context: stdcontext.Background(), UserID: user.ID, UserName: user.Name, UserAccount: user.Account, AuthVersion: user.AuthVersion, FactorVersion: user.FactorVersion, AppPasswordID: appID}
 	ctx.SetValue(context.LogID, id.GenLogID())
 	var rows []struct {
 		ID     int   `xorm:"id"`
@@ -68,8 +68,10 @@ func openMaildrop(user models.User) (*maildrop, error) {
 	return drop, nil
 }
 
-func (d *maildrop) close()          { maildropLocks.Delete(d.ctx.UserID) }
-func (d *maildrop) validate() error { return auth.ValidateSession(d.ctx.UserID, d.ctx.AuthVersion) }
+func (d *maildrop) close() { maildropLocks.Delete(d.ctx.UserID) }
+func (d *maildrop) validate() error {
+	return auth.ValidateMailSession(d.ctx.UserID, d.ctx.AuthVersion, d.ctx.FactorVersion, d.ctx.AppPasswordID, nil)
+}
 
 func (d *maildrop) ref(number int) (*messageRef, error) {
 	if number < 1 || number > len(d.messages) || d.messages[number-1].marked {

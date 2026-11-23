@@ -42,6 +42,8 @@ export const userApi = {
   resetPassword: (payload: { id: number; password: string }) =>
     apiPost<null>('/api/user/reset_password', payload),
 
+  resetSecondFactor: (id: number) => apiPost<null>('/api/user/reset_2fa', { id }),
+
   setQuota: (payload: { id: number; quota_mb: number }) =>
     apiPost<null>('/api/user/set_quota', payload),
 

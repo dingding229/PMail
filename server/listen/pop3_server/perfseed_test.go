@@ -11,7 +11,7 @@ func BenchmarkPMailPOP3STAT(b *testing.B) {
 	owner := perfseed.Seed(b)
 	b.ReportAllocs()
 	for b.Loop() {
-		d, err := openMaildrop(owner)
+		d, err := openMaildrop(owner, 0)
 		if err != nil {
 			b.Fatal(err)
 		}

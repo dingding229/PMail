@@ -59,7 +59,7 @@ func Allows(scope, method, path string) bool {
 	if scope == Legacy {
 		return true
 	}
-	if path == "/api/login" || path == "/api/logout" || path == "/api/token/create" {
+	if path == "/api/login" || path == "/api/login/2fa" || path == "/api/logout" || path == "/api/token/create" {
 		return false
 	}
 	if scope == Admin {

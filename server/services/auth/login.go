@@ -48,80 +48,111 @@ func ipOf(remote string) string {
 	return "unknown"
 }
 
-// Authenticate is the only password login path. Resolve aliases before limiting
-// so changing the spelling or alias of an account doesn't reset its attempt count.
+// Authenticate is the ordinary password path, not a second-factor bypass.
 func Authenticate(login, secret, remote string) (models.User, error) {
+	u, _, err := authenticate(login, secret, remote, false, false)
+	return u, err
+}
+
+func AuthenticateMail(login, secret, remote string) (models.User, int, error) {
+	return authenticate(login, secret, remote, true, false)
+}
+
+func authenticate(login, secret, remote string, mail, canChallenge bool) (models.User, int, error) {
 	var user models.User
 	if len(login) > 320 {
-		return user, ErrCredentials
+		return user, 0, ErrCredentials
 	}
-	release, ok := lookupLimits.acquire(ipOf(remote), time.Now())
+	ip := ipOf(remote)
+	release, ok := lookupLimits.acquire(ip, time.Now())
 	if !ok {
-		return user, ErrLocked
+		return user, 0, ErrLocked
 	}
 	defer release()
 	login = strings.TrimSpace(login)
 	user, found, err := address.OwnerForLogin(login)
 	if err != nil {
-		return models.User{}, err
+		return models.User{}, 0, err
 	}
 	identity := "name:" + strings.ToLower(login)
 	if found {
 		identity = "id:" + strconv.Itoa(user.ID)
 	}
-	key := ipOf(remote) + "|" + identity
+	key := ip + "|" + identity
 	if !reserve(key, failureWindow) {
-		return models.User{}, ErrLocked
+		return models.User{}, 0, ErrLocked
 	}
-	outcome := 0 // Internal errors don't count as failed credential attempts.
+	outcome := 0
 	defer func() { complete(key, outcome, failureWindow) }()
 	for i := 0; i < 2; i++ {
 		if !found || user.Disabled != 0 {
 			outcome = -1
-			return models.User{}, ErrCredentials
+			return models.User{}, 0, ErrCredentials
 		}
-		valid, upgrade := password.Verify(user.Password, secret)
+		var valid, upgrade bool
+		if !user.TOTPEnabled || canChallenge {
+			valid, upgrade = password.Verify(user.Password, secret)
+		}
+		appID := 0
+		if !valid && mail {
+			appID, err = authenticateApp(user.ID, secret)
+			if err != nil {
+				return models.User{}, 0, err
+			}
+			valid = appID != 0
+		}
 		if !valid {
 			outcome = -1
-			return models.User{}, ErrCredentials
+			return models.User{}, 0, ErrCredentials
 		}
-		now := time.Now()
+		// A verified password is only half a login and cannot reset failures
+		// accumulated by the second step or update the last login time.
+		if canChallenge && user.TOTPEnabled {
+			return user, 0, nil
+		}
+		now := time.Now().UTC()
 		updates := map[string]any{"last_login_at": now}
-		write := db.Instance.Table(&models.User{}).ID(user.ID).Where("auth_version = ? AND disabled = 0", user.AuthVersion)
 		if upgrade {
 			hash, err := password.Hash(secret)
 			if err != nil {
-				return models.User{}, err
+				return models.User{}, 0, err
 			}
 			updates["password"] = hash
 		}
+		write := db.Instance.Table(&models.User{}).ID(user.ID).Where("auth_version = ? AND factor_version = ? AND disabled = 0", user.AuthVersion, user.FactorVersion)
 		n, err := write.Update(updates)
 		if err != nil {
-			return models.User{}, err
+			return models.User{}, 0, err
 		}
 		if n == 0 {
-			// MySQL may report no change for two last_login_at updates in the same
-			// second. Check the current version before rejecting or retrying.
 			var fresh models.User
 			found, err = db.Instance.ID(user.ID).Get(&fresh)
 			if err != nil {
-				return models.User{}, err
+				return models.User{}, 0, err
 			}
-			if !upgrade && found && fresh.Disabled == 0 && fresh.AuthVersion == user.AuthVersion {
-				outcome = 1
-				return fresh, nil
+			// Some MySQL configurations report zero affected rows for the same timestamp.
+			if upgrade || !found || fresh.Disabled != 0 || !sameSnapshot(user, fresh) {
+				user = fresh
+				continue
 			}
 			user = fresh
-			continue
 		}
 		if upgrade {
 			user.Password = updates["password"].(string)
 		}
+		if appID != 0 {
+			if err := touchApp(appID, user.ID, now); err != nil {
+				return models.User{}, 0, err
+			}
+			if err := ValidateMailSession(user.ID, user.AuthVersion, user.FactorVersion, appID, nil); err != nil {
+				return models.User{}, 0, err
+			}
+		}
 		user.LastLoginAt = &now
 		outcome = 1
-		return user, nil
+		return user, appID, nil
 	}
-	return models.User{}, ErrCredentials
+	return models.User{}, 0, ErrCredentials
 }
 
 // ReserveRegistration uses a dedicated per-IP bucket in the login limiter.

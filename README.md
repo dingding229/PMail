@@ -80,7 +80,7 @@ DNS 生效后，PMail 会自动为 `smtp`、`imap`、`pop` 申请证书，不用
 | SMTP | `smtp.example.com` | 465 | SSL/TLS |
 | POP3 | `pop.example.com` | 995 | SSL/TLS |
 
-也支持 IMAP 143、SMTP 587 的 STARTTLS 方式。
+也支持 IMAP 143、SMTP 587 的 STARTTLS 方式。开启两步验证后，请在「邮箱设置 → 个人资料与安全」生成应用专用密码，供 IMAP、SMTP 和 POP3 客户端使用。
 
 ## 升级
 
