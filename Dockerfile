@@ -12,6 +12,7 @@ ARG TARGETARCH
 ARG TARGETVARIANT
 ARG VERSION=0.0.3
 ARG GITHASH=unknown
+ARG BUILD_TIME
 WORKDIR /build/server
 COPY server/go.mod server/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
@@ -23,7 +24,12 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     export CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH"; \
     if [ "$GOARCH" = arm ] && [ -n "$TARGETVARIANT" ]; then export GOARM="${TARGETVARIANT#v}"; fi; \
     mkdir -p /out; \
-    go build -trimpath -ldflags "-s -w -X 'main.version=$VERSION' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$GITHASH' -X 'main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)'" -o /out/pmail .
+    build_time="${BUILD_TIME:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"; \
+    go build -trimpath -ldflags "-s -w -X 'main.version=$VERSION' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$GITHASH' -X 'main.buildTime=$build_time'" -o /out/pmail .
+
+FROM scratch AS release-files
+COPY --from=backend /out/pmail /pmail
+COPY --from=frontend /build/web/dist/ /web/
 
 FROM alpine:3.24.4
 WORKDIR /work
@@ -31,8 +37,7 @@ RUN apk add --no-cache ca-certificates tzdata \
     && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && echo Asia/Shanghai > /etc/timezone \
     && mkdir -m 700 /work/config
-COPY --from=backend /out/pmail /work/pmail
-COPY --from=frontend /build/web/dist/ /work/web/
+COPY --from=release-files / /work/
 EXPOSE 25 80 110 143 443 465 587 993 995
 HEALTHCHECK --interval=30s --timeout=5s --start-period=75s --retries=3 CMD ["/work/pmail", "healthcheck"]
 CMD ["/work/pmail"]

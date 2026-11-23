@@ -46,3 +46,27 @@ func TestC7LogFormatterEscapesLines(t *testing.T) {
 		t.Fatalf("formatter output: %q (%v)", b, err)
 	}
 }
+
+func TestVerifiedStagedWebRootKeepsSensitivePathChecks(t *testing.T) {
+	old, previous := ROOT_PATH, stagedWebRoot
+	t.Cleanup(func() { ROOT_PATH, stagedWebRoot = old, previous })
+	ROOT_PATH = t.TempDir()
+	stagedWebRoot = ""
+	site := filepath.Join(ROOT_PATH, "config", "update", "staged", "v0.0.4", "web")
+	if err := os.MkdirAll(site, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PMAIL_WEB_ROOT", site)
+	if err := ValidateWebRoot(&Config{}); err == nil {
+		t.Fatal("an env override cannot expose the staged config subtree")
+	}
+	if err := UseStagedWebRoot("v0.0.4"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateWebRoot(&Config{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateWebRoot(&Config{DbType: DBTypeSQLite, DbDSN: filepath.Join(site, "db.sqlite")}); err == nil {
+		t.Fatal("staged served files must still not overlap secrets or databases")
+	}
+}

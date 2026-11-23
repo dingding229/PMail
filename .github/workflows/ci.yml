@@ -38,17 +38,20 @@ jobs:
         working-directory: server
         run: go test ./...
 
-  updater-image:
+  compose:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Verify fresh and existing Compose configurations
         run: python3 deploy/test-compose-config.py
-      - name: Build production updater image without publishing
-        run: docker build --platform linux/amd64 -f Dockerfile.updater -t pmail-c11-updater:ci .
-      - name: Verify authenticated job route in the image
-        run: bash deploy/smoke-updater.sh pmail-c11-updater:ci pmail-c11-updater-ci
+      - name: Verify release packaging without publishing or signing
+        run: |
+          docker build --target release-files --platform linux/amd64 --output "type=local,dest=$RUNNER_TEMP/pmail-files" .
+          test -x "$RUNNER_TEMP/pmail-files/pmail"
+          test -s "$RUNNER_TEMP/pmail-files/web/index.html"
+          python3 deploy/release-notes.py "$(node -p "require('./web/package.json').version")" > "$RUNNER_TEMP/notes.md"
+          test -s "$RUNNER_TEMP/notes.md"
 
   static-analysis:
     runs-on: ubuntu-latest

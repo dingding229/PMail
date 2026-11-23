@@ -31,7 +31,7 @@ func c9Error(ctx *context.Context, w http.ResponseWriter, err error) {
 		status int
 	}{
 		{telegram.ErrToken, 400}, {telegram.ErrProxy, 400}, {telegram.ErrInvalid, 400}, {telegram.ErrNotConfigured, 409}, {telegram.ErrNotBound, 409}, {telegram.ErrBindExpired, 409}, {telegram.ErrRateLimited, 429}, {telegram.ErrUnavailable, 502},
-		{update.ErrRate, 429}, {update.ErrDisabled, 409}, {update.ErrSidecar, 502}, {update.ErrJob, 404}, {update.ErrBusy, 409},
+		{update.ErrRate, 429}, {update.ErrDisabled, 409}, {update.ErrUnavailable, 502}, {update.ErrStale, 409}, {update.ErrJob, 404}, {update.ErrBusy, 409},
 		{compose.ErrType, 415}, {compose.ErrTooLarge, 413}, {compose.ErrQuota, 409}, {compose.ErrRef, 400}, {compose.ErrSignature, 400}, {compose.ErrSignatureLimit, 409}, {compose.ErrNotFound, 404},
 	} {
 		if errors.Is(err, pair.err) {
@@ -144,13 +144,29 @@ func localizedUpdate(ctx *context.Context, info update.Info) update.Info {
 		message := i18n.T(ctx, *info.Error)
 		info.Error = &message
 	}
+	if info.Updater.Reason != "" {
+		info.Updater.Reason = i18n.T(ctx, info.Updater.Reason)
+	}
+	if info.Job != nil {
+		localizeUpdateJob(ctx, info.Job)
+	}
 	return info
 }
 func UpdateApply(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	if !inboundAccess(ctx, w, true) {
 		return
 	}
-	job, err := update.Apply(r.Context())
+	var body struct {
+		Version string `json:"version"`
+	}
+	if !inboundBody(ctx, w, r, &body) {
+		return
+	}
+	if body.Version == "" {
+		InboundError(ctx, w, http.StatusBadRequest, response.ParamsError, "inbound_invalid_parameters")
+		return
+	}
+	job, err := update.Current().Apply(r.Context(), body.Version)
 	if err != nil {
 		c9Error(ctx, w, err)
 		return
@@ -162,12 +178,15 @@ func UpdateJob(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	if !inboundAccess(ctx, w, true) {
 		return
 	}
-	job, err := update.Status(r.Context(), r.PathValue("job_id"))
+	job, err := update.Current().Status(r.PathValue("job_id"))
+	localizeUpdateJob(ctx, &job)
+	c9Response(ctx, w, job, err)
+}
+func localizeUpdateJob(ctx *context.Context, job *update.Job) {
 	if job.Message != nil {
 		m := i18n.T(ctx, *job.Message)
 		job.Message = &m
 	}
-	c9Response(ctx, w, job, err)
 }
 func InlineImage(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 	if !inboundAccess(ctx, w, false) {

@@ -32,12 +32,12 @@ curl -fsSLO https://raw.githubusercontent.com/dingding229/PMail/master/docker-co
 docker compose up -d
 ```
 
-启动容器不需要 `.env`；在 HTTPS 反代之后访问网页时，按下一步配置可信代理。
+启动容器不需要 `.env`。
 
 ### 3. 打开网页完成设置
 
 1. **配置反向代理。** 在 Nginx Proxy Manager（NPM）中新建代理主机 `mail.example.com`，转发到 `http://172.17.0.1:8080`，并申请 SSL 证书。不用 NPM 的话，见 [不用反向代理](#不用反向代理)。
-   在 `.env` 设置 `PMAIL_TRUSTED_PROXIES` 为 PMail 实际看到的反代地址（IPv4 用 `/32`，IPv6 用 `/128`），然后运行 `docker compose up -d`。不要信任整段 Docker 私网或对公网开放反代上游端口。自定义网页主机名（不是 `mail.<邮件域名>`）时，也请设置 `PMAIL_WEB_DOMAIN`；服务不会根据请求 `Host` 自动保存网页主机名。
+   同机 Docker 网桥反代默认无需填写配置，代理应保留 `Host`、覆盖 `X-Forwarded-Proto` 并正确处理 `X-Forwarded-For`。自定义网页主机名时可设置 `PMAIL_WEB_DOMAIN`；服务不会根据请求 `Host` 自动保存网页主机名。
 2. **读取注册密钥：**
 
    ```bash
@@ -80,7 +80,7 @@ DNS 生效后，PMail 会自动为 `smtp`、`imap`、`pop` 申请证书，不用
 
 ## 升级
 
-在 **系统管理 → 系统更新** 可以查看新版本和更新日志。手动升级：
+在 **系统管理 → 系统更新** 查看版本和更新日志。支持程序自更新的官方 Linux 镜像可选 **立即更新**：PMail 验签后暂存并重启，不需要额外容器。首次从旧版本升级、没有签名发布包或需要更新基础镜像时，在宿主机手动执行：
 
 ```bash
 docker compose pull
@@ -114,7 +114,7 @@ docker compose up -d
 `smtp`、`imap`、`pop` 的 DNS 要直接指向服务器。执行 `docker compose logs pmail | grep -i certificate`，日志会说明哪个名字没有指向本机。
 
 **点退出登录没反应，或者操作时提示“请求来源被拒绝”**
-即使反代在同一台 Docker 主机上，也要显式配置 `PMAIL_TRUSTED_PROXIES`；反代需保留 `Host` 并覆盖 `X-Forwarded-Proto`。检查 `docker compose logs pmail` 中的实际代理对端地址，设置其 `/32` 或 `/128`，再执行 `docker compose up -d`。
+反代需保留 `Host` 并覆盖 `X-Forwarded-Proto`。容器反代模式默认仅信任 `172.16.0.0/12`；其他地址可按日志提示显式设置 `PMAIL_TRUSTED_PROXIES`。默认网页上游只绑定 Docker 网桥，同一 Docker 主机上能访问上游的不可信容器仍可伪造转发头；共享宿主机时请仅信任实际代理地址（`/32` 或 `/128`），且不要公开该上游端口。
 
 **发出的信进了垃圾箱**
 用 DNS 向导检查 SPF、DKIM、DMARC 是否都已生效，并设置 PTR。

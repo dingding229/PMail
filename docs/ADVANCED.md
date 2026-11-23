@@ -32,7 +32,7 @@ docker compose pull
 docker compose up -d
 ```
 
-`docker-compose.yml` 默认使用 `latest`。要固定或回滚到某个版本，把文件里两处 `dingding229/pmail-pro:latest` 改成目标标签（如 `dingding229/pmail-pro:v0.0.2`），再执行上面两条命令。**Compose 不会自动回滚**；若新版本修改过数据库，回滚前先按下一节恢复升级前的备份。
+`docker-compose.yml` 默认使用 `latest`。要固定或回滚到某个版本，用 `.env` 中的 `PMAIL_IMAGE` 固定到目标标签（如 `dingding229/pmail-pro:v0.0.2`），再执行上面两条命令。**Compose 不会自动回滚**；若新版本修改过数据库，回滚前先按下一节恢复升级前的备份。
 
 ## 恢复数据库
 
@@ -88,7 +88,7 @@ docker compose down -v
 | `PMAIL_SMTP_OUTBOUND_ALLOW` | 逗号分隔的显式内网 SMTP 目标 CIDR 或精确 MX 主机名；默认拒绝私有/保留地址。 |
 | `PMAIL_SMTP_TLS_REQUIRED_DOMAINS` | 逗号分隔的精确收件域；必须验证 MX 的 STARTTLS 证书，否则不降级投递。 |
 | `PMAIL_SMTP_REQUIRE_VERIFIED_TLS` | 默认 `0`：非强制域先尝试带证书验证的 STARTTLS，再尝试不验证证书的 STARTTLS，协商仍失败时可退回明文。设为 `1` 时，已宣告 STARTTLS 的 MX 验证失败不降级；未宣告的 MX 仍可明文。必须使用经验证 TLS 的收件域请配置 `PMAIL_SMTP_TLS_REQUIRED_DOMAINS`。 |
-| `PMAIL_TRUSTED_PROXIES` | 逗号分隔的可信 Web 反代 CIDR，仅信任实际连接的代理。让代理覆盖 `X-Forwarded-Proto`、正确追加/清理 `X-Forwarded-For` 并保留 `Host`。默认为空，包括 Docker 和公网覆盖；仅为实际反代设置其 `/32` 或 `/128`，避免信任带转发头的直连客户端。 |
+| `PMAIL_TRUSTED_PROXIES` | 逗号分隔的可信 Web 反代 CIDR，仅信任实际连接的代理。让代理覆盖 `X-Forwarded-Proto`、正确追加/清理 `X-Forwarded-For` 并保留 `Host`。容器且非 public 时，未显式设置默认 `172.16.0.0/12`，不含 `192.168.0.0/16`；public 或非容器默认空。显式值（含空值）覆盖默认值。 |
 | `PMAIL_ADMIN_MAIL_ACCESS` | 设为 1 才允许管理员读取、预览、下载或转发他人非草稿邮件，访问会审计。 |
 | `PMAIL_PRINT_REGISTRATION_KEY` | 仅设为 1 才兼容旧版把密钥打印到 stdout；默认只提示受保护文件路径。 |
 | `PMAIL_DEFAULT_LANG` | 引导接口提供的前端默认语言，默认 `zh-CN` |
@@ -153,7 +153,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 CI 的[工作流](../.github/workflows/ci.yml)分别检查前后端、执行 Go 的常规与集成测试。在 `server/` 目录使用 `go test -tags integration ./...` 运行集成测试；需要能绑定固定邮件端口的权限和独立、空白的 PostgreSQL 测试库（`PMAIL_TEST_PG_DSN`），该库账号还须能建 schema。可选的 MySQL 主程序集成测试用 `PMAIL_TEST_MYSQL_DSN` 与 `go test -tags integration . -args mysql`，不要使用生产库。
 
-[镜像发布工作流](../.github/workflows/docker.yml)构建 `linux/amd64` 和 `linux/arm64` 并推送到 Docker Hub：需配置有 `dingding229/pmail-pro` 与 `dingding229/pmail-pro-updater` 两个仓库写入权限的密钥 `DOCKERHUB_TOKEN`，若使用其他有写入权限的账号，再设置 `DOCKERHUB_USERNAME`（默认 `dingding229`）。仅与源码版本一致的 `v0.x.y` Git 标签触发发布，同时推送对应的 `v0.x.y` 和 `latest` 镜像标签。
+[发布工作流](../.github/workflows/docker.yml) 仅在 `v0.x.y` 标签匹配源码版本时构建 `linux/amd64` 与 `linux/arm64`。它推送 `dingding229/pmail-pro` 的版本标签及 `latest`（需 `DOCKERHUB_TOKEN`；可选 `DOCKERHUB_USERNAME`），并用 `CHANGELOG.md` 的对应段落创建 GitHub Release。该 Release 上传两种架构的程序/网页压缩包及 `checksums.txt`、`checksums.txt.sig`。发布前须配对设置代码中的 Ed25519 公钥和仓库 Secret `PMAIL_RELEASE_SIGNING_KEY`；缺失或不匹配会阻止发布。
 
 ### Web 前端与 API
 
@@ -195,21 +195,15 @@ Vite 在 `http://localhost:5173` 提供页面，将 `/api`（包括附件）代�
 | `PMAIL_TELEGRAM_API_BASE` | 可选可信 Bot API 基址，默认 `https://api.telegram.org`；非回环必须用 HTTPS。 |
 | `PMAIL_PUBLIC_URL` | 可选，构建 “打开邮箱” 链接的公共 Web 地址。 |
 | `PMAIL_UPDATE_CHECK` | 设为 `0` 禁用更新检查；默认每六小时检查。 |
-| `PMAIL_UPDATE_RELEASES_URL` | 仅供测试覆盖发布信息源；留空使用官方 GitHub Releases API。只允许 HTTPS，HTTP 仅限 `localhost`、`127.0.0.1`、`[::1]`；非法值启动时记录警告并回退默认值。不跟随重定向，不改变更新镜像来源。 |
-| `PMAIL_UPDATER_TOKEN` | 在线更新器的内部令牌（至少 32 个字符）；设置后即启用，`PMAIL_UPDATER_ENABLED=0` 可强制关闭。 |
+| `PMAIL_UPDATE_RELEASES_URL` | 仅测试用发布信息源。默认用官方 GitHub API；回环 HTTP 只允许检查元数据，不能下载更新。自定义 HTTPS 源的附件及跳转需同源，仍须通过内置公钥验签。 |
+| `PMAIL_DISABLE_STAGED_UPDATE` | 设为 `1` 跳过暂存程序并关闭在线安装；改 `.env` 后 `docker compose up -d` 以新环境重建应用容器。 |
 
-### 可选在线更新器
+### 程序自更新
 
-手动更新仍可用：`docker compose pull`，然后 `docker compose up -d`。在线更新器默认不启用。发布镜像可用后，标准部署目录只需要 `docker-compose.yml` 和 `.env`，**无需克隆源码或本地构建**。先备份数据库与配置，再用 `openssl rand -hex 32` 生成随机令牌，加入 `.env`（不要提交或公开）：
+进入 **系统管理 → 系统更新**，查看日志并确认版本。支持自更新的官方 Linux 镜像须带验签公钥；现有旧镜像先手动升级一次。已检查的版本需提供签名附件，才能在界面点击 **立即更新**。没有可验证的附件时仍可手动升级镜像。
 
-```dotenv
-PMAIL_UPDATER_TOKEN=<粘贴生成的随机令牌>
-```
+PMail 通过 HTTPS 下载对应架构的程序和网页，使用内置 Ed25519 公钥校验版本绑定的清单并核对 SHA-256。数据暂存于 `/work/config/update/staged`。PMail 排空并退出，由 Compose 的 `restart: unless-stopped` 拉起同一个容器；启动时重新验签并验证程序和网页内容。新程序需要连续 60 秒通过健康探测才标记成功。连续三次启动未达标则回退到镜像程序；若单次启动超过 3 分钟仍未达标，进程会退出以触发下一次尝试。后台与日志会显示结果。更新到等于或高于暂存版本的镜像会清理暂存文件。
 
-```bash
-docker compose --profile updater up -d
-```
-
-公网直连 HTTPS 的安装仍需要主 Compose 文件。将 `docker-compose.public.yml` 保存为同一目录的 `docker-compose.override.yml`，然后执行上面的启动命令；如果保留原文件名，可以使用 `docker compose -f docker-compose.yml -f docker-compose.public.yml --profile updater up -d`。二者择一，避免同时保留内容不一致的两个公网覆盖文件。Sidecar 的 `./:/project:ro` 只需读取上述 Compose 文件和 `.env`；不会读取源码。只下载 `docker-compose.public.yml` 或依赖自定义文件列表、外部 env 文件、相对宿主机绑定路径的部署不受支持，请用标准文件布局或手动更新。
-
-Sidecar 没有宿主机端口，只在私有网络接受受令牌保护的请求。它只拉取、重建同一 Compose 项目的 `pmail` 服务，不自动切换固定镜像标签。**挂载 Docker socket 等价于给 sidecar 宿主机级权限**，内部网络与令牌不能削弱这一点；仅在信任 sidecar 镜像和宿主机 Compose 文件时启用。PMail 主服务不挂 socket。设置 `PMAIL_UPDATER_ENABLED=0` 并停止 `updater` 可关闭该功能。
+- 自更新只替换程序与网页，不更新 Linux 基础镜像，也不回滚数据库、队列或配置。升级前备份；数据库已迁移而需回退时，按兼容性说明恢复整套备份。
+- **同机反代安全**：默认 `172.16.0.0/12` 适合只绑定网桥的标准部署。同一 Docker 主机上能够直连上游的不可信容器可能伪造转发头、影响来源 IP 限流；请按需隔离网络或仅允许反代的 `/32`、`/128`。自定义公网绑定应使用 public 模式，或显式将 `PMAIL_TRUSTED_PROXIES` 置空。
+- 签名保护下载链，不保护已被攻破的 PMail 进程或能写配置卷的宿主机。发现入侵时不要依赖暂存程序；隔离容器，使用可信镜像并从可信备份恢复。

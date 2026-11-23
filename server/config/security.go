@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Jinnrry/pmail/internal/releasebundle"
 )
 
 func Flag(name string) bool {
@@ -68,12 +70,35 @@ func containsPath(parent, child string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
+// Set only by the verified exec handoff, never by PMAIL_WEB_ROOT itself.
+var stagedWebRoot string
+
+func UseStagedWebRoot(tag string) error {
+	if releasebundle.Rank(tag) < 0 {
+		return fmt.Errorf("invalid staged web version")
+	}
+	root, err := filepath.EvalSymlinks(ROOT_PATH)
+	if err != nil {
+		return err
+	}
+	expected := filepath.Join(root, "config", "update", "staged", tag, "web")
+	actual, err := filepath.EvalSymlinks(expected)
+	if err != nil || actual != expected {
+		return fmt.Errorf("invalid staged web path")
+	}
+	stagedWebRoot = expected
+	return nil
+}
+
 func ValidateWebRoot(cfg *Config) error {
 	root, err := canonicalPath(WebRoot())
 	if err != nil {
 		return fmt.Errorf("validate PMAIL_WEB_ROOT: %w", err)
 	}
-	sensitive := []string{filepath.Join(ROOT_PATH, "config"), filepath.Join(ROOT_PATH, "data")}
+	sensitive := []string{filepath.Join(ROOT_PATH, "data")}
+	if stagedWebRoot == "" || root != stagedWebRoot {
+		sensitive = append(sensitive, filepath.Join(ROOT_PATH, "config"))
+	}
 	for _, file := range []string{cfg.SSLPrivateKeyPath, cfg.DkimPrivateKeyPath, dbPasswordFile()} {
 		if file != "" {
 			sensitive = append(sensitive, file, filepath.Dir(file))

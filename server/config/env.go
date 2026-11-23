@@ -152,6 +152,9 @@ func loadSecretKey() (string, error) {
 }
 
 func WebRoot() string {
+	if stagedWebRoot != "" {
+		return stagedWebRoot
+	}
 	if value := strings.TrimSpace(os.Getenv("PMAIL_WEB_ROOT")); value != "" {
 		return value
 	}

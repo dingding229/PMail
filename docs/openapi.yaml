@@ -3665,7 +3665,7 @@ paths:
         The server operator can override the source for testing via
         PMAIL_UPDATE_RELEASES_URL (HTTPS only, except HTTP on localhost, 127.0.0.1,
         or [::1]); invalid configuration falls back to GitHub. Redirects are not followed.
-        This setting cannot be supplied in the request and does not change the updater image source.
+        This setting cannot be supplied in the request and cannot override release-package signature verification.
       tags:
       - Updates
       x-permission: admin
@@ -3724,6 +3724,17 @@ paths:
       tags:
       - Updates
       x-permission: admin
+      description: Stage and verify the latest checked release. Callers must explicitly confirm its tag.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              additionalProperties: false
+              properties:
+                version: {type: string, pattern: '^v0\.[0-9]+\.[0-9]+$'}
       x-i18n-error-codes:
       - inbound_login_required
       - inbound_permission_denied
@@ -3732,6 +3743,7 @@ paths:
       - updater_disabled
       - updater_unavailable
       - updater_busy
+      - update_target_stale
       responses:
         '202':
           description: Success.
@@ -3751,6 +3763,10 @@ paths:
                 - errorMsg
                 - data
                 additionalProperties: false
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '413':
+          description: Request body exceeds the limit.
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
         '401':
           description: 'Localized errors: inbound_login_required.'
           content:
@@ -3764,7 +3780,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/C9Error'
         '409':
-          description: 'Localized errors: updater_disabled, updater_busy.'
+          description: 'Localized errors: updater_disabled, updater_busy, update_target_stale.'
           content:
             application/json:
               schema:
@@ -3799,8 +3815,6 @@ paths:
       - inbound_permission_denied
       - internal_error
       - inbound_internal_error
-      - updater_disabled
-      - updater_unavailable
       - update_job_not_found
       responses:
         '200':
@@ -3839,20 +3853,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/C9Error'
-        '409':
-          description: 'Localized errors: updater_disabled.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/C9Error'
         '500':
           description: 'Localized errors: internal_error, inbound_internal_error.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/C9Error'
-        '502':
-          description: 'Localized errors: updater_unavailable.'
           content:
             application/json:
               schema:
@@ -4984,10 +4986,13 @@ components:
               oneOf:
               - type: string
               - type: 'null'
+            reason: {type: string, description: Localized explanation when unavailable.}
           required:
           - enabled
           - kind
           additionalProperties: false
+        job:
+          $ref: '#/components/schemas/C9UpdateJob'
         manual_commands:
           type: array
           items:
@@ -5038,11 +5043,15 @@ components:
     C9UpdateJob:
       type: object
       properties:
+        job_id: {type: string, pattern: '^[a-f0-9]{32}$'}
+        version: {type: string}
         state:
           type: string
           enum:
           - pending
-          - pulling
+          - downloading
+          - verifying
+          - staging
           - restarting
           - done
           - failed
@@ -5051,6 +5060,8 @@ components:
           - type: string
           - type: 'null'
       required:
+      - job_id
+      - version
       - state
       - message
       additionalProperties: false

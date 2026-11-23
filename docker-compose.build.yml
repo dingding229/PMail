@@ -6,8 +6,3 @@ services:
       context: .
   init-secrets:
     image: pmail-pro:local
-  updater:
-    image: pmail-pro-updater:local
-    build:
-      context: .
-      dockerfile: Dockerfile.updater

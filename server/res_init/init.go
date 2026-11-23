@@ -163,7 +163,7 @@ func Init(serverVersion string) {
 		ctx, stopScheduler := stdcontext.WithCancel(stdcontext.Background())
 		registration.StartNotices(ctx, cfg.WebDomain)
 		inbound.SetNotifier(telegram.Notify)
-		c9Workers := []<-chan struct{}{telegram.Start(ctx), compose.Start(ctx), update.Start(ctx, serverVersion)}
+		c9Workers := []<-chan struct{}{telegram.Start(ctx), compose.Start(ctx), update.Start(ctx, serverVersion), update.StartHealth(ctx, cfg.HttpPort)}
 		quotaDone := make(chan struct{})
 		go func() { defer close(quotaDone); quota.RunReconciliation(ctx) }()
 		projectionDone := make(chan struct{})
@@ -180,6 +180,8 @@ func Init(serverVersion string) {
 		case <-signal.RestartChan:
 			restart = true
 			log.Info("Server restarting")
+		case <-signal.UpdateExitChan:
+			log.Info("Server draining before staged update startup")
 		case <-signal.StopChan:
 			log.Info("Server stopping")
 		}

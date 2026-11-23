@@ -28,8 +28,23 @@ func trusted(addr netip.Addr, proxies []netip.Prefix) bool {
 }
 
 func proxies() []netip.Prefix {
-	values, _ := config.CIDRs(os.Getenv("PMAIL_TRUSTED_PROXIES"))
+	values, _ := config.CIDRs(trustedProxies())
 	return values // configuration is also validated at startup
+}
+
+var inContainer = func() bool {
+	_, err := os.Stat("/.dockerenv")
+	return err == nil
+}
+
+func trustedProxies() string {
+	if configured, ok := os.LookupEnv("PMAIL_TRUSTED_PROXIES"); ok {
+		return configured
+	}
+	if inContainer() && os.Getenv("PMAIL_WEB_MODE") != "public" {
+		return "172.16.0.0/12"
+	}
+	return ""
 }
 
 // Source trusts only hops listed by the operator. Starting from the socket

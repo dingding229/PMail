@@ -147,7 +147,7 @@ function buildMockUpdateInfo(): AdminUpdateInfo {
     check_error: null,
     updater: {
       enabled: !isManual,
-      kind: isManual ? null : 'docker',
+      kind: isManual ? null : 'self-update',
     },
     manual_commands: [
       'docker compose pull pmail',
@@ -1989,7 +1989,7 @@ export const handlers = [
     return ok(buildMockUpdateInfo())
   }),
 
-  http.post('/api/admin/update/apply', async () => {
+  http.post('/api/admin/update/apply', async ({ request }) => {
     await delay(100)
     const info = buildMockUpdateInfo()
     if (!info.updater.enabled) {
@@ -1997,6 +1997,8 @@ export const handlers = [
         code: 'updater_disabled',
       })
     }
+    const body = await request.json() as { version?: string }
+    if (body.version !== info.latest) return fail('版本已变更，请重新确认', 100, 409)
     const jobId = `upd_${Date.now()}`
     mockUpdateJobStep.set(jobId, 0)
     return HttpResponse.json({ errorNo: 0, errorMsg: '', data: { job_id: jobId } }, { status: 202 })
@@ -2007,20 +2009,12 @@ export const handlers = [
     const jobId = String(params.jobId || '')
     const step = mockUpdateJobStep.get(jobId) ?? 0
     mockUpdateJobStep.set(jobId, step + 1)
-    const states: UpdateJobState[] = ['pending', 'pulling', 'restarting', 'done']
+    const states: UpdateJobState[] = ['pending', 'downloading', 'verifying', 'staging', 'restarting', 'done']
     const state = states[Math.min(step, states.length - 1)] ?? 'done'
     if (state === 'done' && typeof window !== 'undefined') {
       localStorage.setItem('pmail_mock_update', 'latest')
     }
-    return ok({
-      state,
-      message:
-        state === 'pulling'
-          ? 'Pulling ghcr.io/dingding229/pmail:v0.2.0 (78%)'
-          : state === 'restarting'
-            ? 'Restarting pmail container...'
-            : null,
-    })
+    return ok({ job_id: jobId, version: 'v0.2.0', state, message: null })
   }),
 
   http.post('/api/compose/inline-image', async ({ request }) => {

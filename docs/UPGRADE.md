@@ -4,10 +4,11 @@
 
 ## 从 v0.0.2 / v0.0.3 升级
 
-- 若 v0.0.2 使用 `PMAIL_PROJECT_NAME` 或 `COMPOSE_PROJECT_NAME`，保留原值；如果已用 v0.0.3，把当前正在使用的项目名设为 `.env` 中的 `COMPOSE_PROJECT_NAME`，避免遗留变量切换到另一套同名逻辑卷。用 `docker compose config` 的 `volumes.*.name` 和 `docker volume ls` 核对现有卷，勿用 `down -v`。
-- 旧 `.env` 的发布端口/绑定地址、镜像标签、`POSTGRES_USER` 与 `POSTGRES_DB` 均可继续使用。保留已初始化的 `secrets` 卷，修改 `.env` 中的 `POSTGRES_PASSWORD` 不会轮换现有数据库密码。更新器应使用相同项目名；若使用临时 `-p`、`-f` 或外部环境文件，优先手动更新，避免 sidecar 无法复现宿主机上的配置。
-- 从 v0.0.3 的隐式 Docker 私网代理信任升级时，先在 `.env` 明确设置反代实际地址（`PMAIL_TRUSTED_PROXIES`）。若此前依赖浏览器地址自动设置网页主机名，而新部署使用非默认名称，请显式配置 `PMAIL_WEB_DOMAIN`；已有保存值会保留。
-- 已有数据库域名表时不需要 `PMAIL_DOMAIN` 才能启动，应用继续使用数据库的默认域名。若迁移的旧库已有用户但没有域名记录，先用 `PMAIL_DOMAIN` 指定原来收信的主域名。`PMAIL_DOMAINS` 仅在域名表为空时用于导入附加域名，不能在线重写现有域名，也不代替主域名。
+- 备份后手动拉取支持程序自更新的镜像。若安装过旧更新容器，替换 Compose 前先用旧文件停止并删除该容器；已替换文件时，确认不会影响同项目其他服务后可用 `docker compose up -d --remove-orphans` 清理。旧更新器令牌不再需要，主程序不挂 Docker socket。
+- 保持实际运行的 Compose 项目名，必要时在 `.env` 设置 `COMPOSE_PROJECT_NAME`；`PMAIL_PROJECT_NAME` 同样受支持。用 `docker compose config` 的 `volumes.*.name` 和 `docker volume ls` 核对卷；勿执行 `down -v`。镜像标签仍可使用 `PMAIL_IMAGE`。
+- 原绑定地址和发布端口的变量不再用于 Compose 映射，请直接修改 Compose 的端口。默认库名和账号均为 `pmail`；此前用了自定义 PostgreSQL 用户/数据库的部署，要保留旧数据库容器实际使用的用户/库及 PMail 的 `PMAIL_DB_USER`、`PMAIL_DB_NAME` 或 `PMAIL_DB_DSN`。保留 `secrets` 卷；旧 `POSTGRES_PASSWORD` 仍仅用于生成缺失的密码文件。
+- 同机 Docker 网桥反代默认信任 `172.16.0.0/12`，不覆盖显式 `PMAIL_TRUSTED_PROXIES`。自定义网页主机名可显式配置 `PMAIL_WEB_DOMAIN`；已有保存值会保留。
+- 已有数据库域名表时不用设置 `PMAIL_DOMAIN`，继续使用数据库的默认域名。若迁移库已有用户却没有域名记录，先用 `PMAIL_DOMAIN` 指定原来的收信域名。`PMAIL_DOMAINS` 只在空域名表时导入附加域名。
 
 ## 不兼容变更
 
@@ -116,9 +117,6 @@ docker compose pull && docker compose up -d --wait postgres
 ## C9：Telegram、在线更新与富文本
 
 - Telegram 预设关闭。已启用的安装请备份数据库和原 `PMAIL_SECRET_KEY`：更换密钥后旧 Bot 凭据无法解密，需重新填写。更换/清除 Bot 会使旧私聊绑定过期。免打扰期间消息直接丢弃；队列遇断网会重试，在网络中断或进程退出时可能重复发送。
-- 更新检查可用 `PMAIL_UPDATE_CHECK=0` 关闭。在线更新器默认不启用，并使用发布镜像 `dingding229/pmail-pro-updater:latest`，不再要求源码或本地构建。刷新部署用的 Compose 文件后，在 `.env` 设置至少 32 字符的随机 `PMAIL_UPDATER_TOKEN`，执行 `docker compose --profile updater up -d`。
-- 只下载文件的公网部署需要同一目录的 `docker-compose.yml`、`.env` 和公网覆盖文件；可另存为 `docker-compose.override.yml` 自动加载，也可保留 `docker-compose.public.yml` 并按 README 显式指定两份文件。不要仅使用公网覆盖文件或同时保留内容不一致的覆盖。Sidecar 只读挂载此目录，执行时会保留公网配置；自定义 `-f`、外部环境文件或特殊路径映射仍建议手动更新。
-- 启用前核对 [进阶说明的更新器部分](ADVANCED.md#可选在线更新器) 中的 Docker socket 权限风险。保留状态卷追踪任务；更新器中途重启或任务 ID 丢失时返回失败/结果未知，请核对运行版本后再试，不自动回滚数据库。
 - 写信内嵌图片只接受 PNG/JPEG/GIF/WebP 文件头，单个 10 MiB，每账户最多 50 MiB 临时图片。未被草稿引用、且 24 小时未使用的临时图片会清理；引用不能跨账号。旧邮件和旧草稿无须重写。签名保留允许的格式，将远程图片替换成文本占位，服务器不会自动重复追加已由编辑器插入的签名。
 
 ## C10 / C10R1：出站 TLS 默认值与数据库密码文件

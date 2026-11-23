@@ -8,3 +8,6 @@ var RestartChan = make(chan bool)
 
 // StopChan 控制程序结束
 var StopChan = make(chan bool)
+
+// UpdateExitChan requests a full process exit after draining the current generation.
+var UpdateExitChan = make(chan struct{}, 1)

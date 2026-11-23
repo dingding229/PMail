@@ -1,4 +1,4 @@
-// Package update reads release metadata and talks only to the private updater.
+// Package update checks releases and stages signed PMail self-updates.
 package update
 
 import (
@@ -11,13 +11,13 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Jinnrry/pmail/internal/releasebundle"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -26,10 +26,8 @@ const maxReleaseBytes = 2 << 20
 
 var ErrRate = errors.New("update_check_rate_limited")
 var ErrDisabled = errors.New("updater_disabled")
-var ErrSidecar = errors.New("updater_unavailable")
 var ErrJob = errors.New("update_job_not_found")
 var ErrBusy = errors.New("updater_busy")
-var semver = regexp.MustCompile(`^v0\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$`)
 
 //go:embed changelog.md
 var fallback string
@@ -40,10 +38,12 @@ type Release struct {
 	Notes     string `json:"notes_markdown"`
 	URL       string `json:"url"`
 	Current   bool   `json:"is_current"`
+	assets    map[string]string
 }
 type UpdaterStatus struct {
 	Enabled bool    `json:"enabled"`
 	Kind    *string `json:"kind"`
+	Reason  string  `json:"reason,omitempty"`
 }
 type Info struct {
 	Current   string        `json:"current"`
@@ -54,6 +54,7 @@ type Info struct {
 	Releases  []Release     `json:"releases"`
 	Updater   UpdaterStatus `json:"updater"`
 	Manual    []string      `json:"manual_commands"`
+	Job       *Job          `json:"job,omitempty"`
 }
 type GitHubRelease struct {
 	Tag       string `json:"tag_name"`
@@ -61,6 +62,10 @@ type GitHubRelease struct {
 	Pre       bool   `json:"prerelease"`
 	Published string `json:"published_at"`
 	Body      string `json:"body"`
+	Assets    []struct {
+		Name string `json:"name"`
+		URL  string `json:"browser_download_url"`
+	} `json:"assets"`
 }
 type Checker struct {
 	mu         sync.Mutex
@@ -73,6 +78,7 @@ type Checker struct {
 	problem    *string
 	lastManual time.Time
 	inFlight   bool
+	installer  installer
 }
 
 var checkerMu sync.RWMutex
@@ -89,7 +95,7 @@ func New(version string, tr http.RoundTripper) *Checker {
 }
 
 func newChecker(version string, tr http.RoundTripper, endpoint string) *Checker {
-	return &Checker{version: version, endpoint: endpoint, client: &http.Client{Timeout: 10 * time.Second, Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	return &Checker{version: version, endpoint: endpoint, installer: runtimeInstaller(), client: &http.Client{Timeout: 10 * time.Second, Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
 func releasesEndpoint(raw string) (string, bool) {
@@ -128,24 +134,16 @@ func releasesEndpoint(raw string) (string, bool) {
 	return defaultReleasesURL, false
 }
 func canonicalVersion(v string) string {
-	if semver.MatchString(v) {
+	if rank(v) >= 0 {
 		return v
 	}
 	v = "v" + v
-	if semver.MatchString(v) {
+	if rank(v) >= 0 {
 		return v
 	}
 	return ""
 }
-func rank(v string) int64 {
-	m := semver.FindStringSubmatch(v)
-	if len(m) == 0 {
-		return -1
-	}
-	a, _ := strconv.ParseInt(m[1], 10, 64)
-	b, _ := strconv.ParseInt(m[2], 10, 64)
-	return a*1_000_000_000 + b
-}
+func rank(v string) int64 { return releasebundle.Rank(v) }
 func note(tag string) string {
 	version := strings.TrimPrefix(tag, "v")
 	found := false
@@ -170,12 +168,16 @@ func releaseLink(tag string) string {
 func (c *Checker) Info() Info {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	var last *Job
+	if job, err := c.installer.store.readJob(); err == nil && job.JobID != "" {
+		last = &job
+	}
 	if os.Getenv("PMAIL_UPDATE_CHECK") == "0" {
 		disabled := "update_check_disabled"
-		return Info{Current: c.version, Error: &disabled, Releases: fallbackList(c.version, nil), Updater: sidecarStatus(), Manual: manual()}
+		return Info{Current: c.version, Error: &disabled, Releases: fallbackList(c.version, nil), Updater: c.updater(nil), Manual: manual(), Job: last}
 	}
 	rows := fallbackList(c.version, c.releases)
-	out := Info{Current: c.version, CheckedAt: c.checked, Error: c.problem, Releases: rows, Updater: sidecarStatus(), Manual: manual()}
+	out := Info{Current: c.version, CheckedAt: c.checked, Error: c.problem, Releases: rows, Updater: c.updater(c.releases), Manual: manual(), Job: last}
 	if len(c.releases) > 0 {
 		out.Latest = &c.releases[0].Version
 		cur := rank(canonicalVersion(c.version))
@@ -304,7 +306,18 @@ func (c *Checker) fetch(ctx context.Context, etag string) ([]Release, string, bo
 		if len(notes) > 128<<10 {
 			notes = strings.ToValidUTF8(notes[:128<<10], "")
 		}
-		output = append(output, Release{Version: g.Tag, Published: published, Notes: notes, URL: releaseLink(g.Tag)})
+		assets := make(map[string]string)
+		for _, asset := range g.Assets {
+			switch asset.Name {
+			case releasebundle.Checksums, releasebundle.Signature, releasebundle.Asset("amd64"), releasebundle.Asset("arm64"):
+				if _, exists := assets[asset.Name]; exists {
+					assets[asset.Name] = ""
+				} else {
+					assets[asset.Name] = asset.URL
+				}
+			}
+		}
+		output = append(output, Release{Version: g.Tag, Published: published, Notes: notes, URL: releaseLink(g.Tag), assets: assets})
 	}
 	sortRows(output)
 	return output[:min(20, len(output))], res.Header.Get("ETag"), false, ""

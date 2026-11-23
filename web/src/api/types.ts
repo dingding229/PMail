@@ -287,17 +287,20 @@ export interface AdminUpdateInfo {
   updater: {
     enabled: boolean
     kind: string | null
+    reason?: string
   }
   manual_commands: string[]
+  job?: UpdateJobStatus
 }
 
 export interface UpdateApplyResponse {
   job_id: string
 }
 
-export type UpdateJobState = 'pending' | 'pulling' | 'restarting' | 'done' | 'failed'
+export type UpdateJobState = 'pending' | 'downloading' | 'verifying' | 'staging' | 'restarting' | 'done' | 'failed'
 
-export interface UpdateJobStatus {
+export interface UpdateJobStatus extends UpdateApplyResponse {
+  version: string
   state: UpdateJobState
   message: string | null
 }

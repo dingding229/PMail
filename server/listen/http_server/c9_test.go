@@ -104,3 +104,41 @@ func TestC9MultipartPreviewAndDraftReference(t *testing.T) {
 		t.Fatal("draft left an image reference", err)
 	}
 }
+
+func TestOnlineUpdateRequiresSameOriginAdminAndVersionConfirmation(t *testing.T) {
+	f := newAuthFixture(t)
+	admin := f.login(t, "admin", "initial-password")
+	member := f.login(t, "member", "initial-password")
+	for _, tc := range []struct {
+		name, path, method, contentType, body, origin string
+		client                                        *http.Client
+		status                                        int
+	}{
+		{"anonymous", "/api/admin/update/apply", "POST", "application/json", `{"version":"v0.0.4"}`, f.server.URL, f.server.Client(), 401},
+		{"member", "/api/admin/update/apply", "POST", "application/json", `{"version":"v0.0.4"}`, f.server.URL, member, 403},
+		{"cross-origin", "/api/admin/update/apply", "POST", "application/json", `{"version":"v0.0.4"}`, "https://elsewhere.test", admin, 403},
+		{"unconfirmed", "/api/admin/update/apply", "POST", "application/json", `{}`, f.server.URL, admin, 400},
+		{"job member", "/api/admin/update/apply/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "GET", "", "", f.server.URL, member, 403},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := tc.client
+			req, err := http.NewRequest(tc.method, f.server.URL+tc.path, strings.NewReader(tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Origin", tc.origin)
+			if tc.contentType != "" {
+				req.Header.Set("Content-Type", tc.contentType)
+			}
+			res, err := client.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer res.Body.Close()
+			if res.StatusCode != tc.status {
+				raw, _ := io.ReadAll(res.Body)
+				t.Fatalf("HTTP %d, want %d: %s", res.StatusCode, tc.status, raw)
+			}
+		})
+	}
+}

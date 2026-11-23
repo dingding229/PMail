@@ -1,6 +1,6 @@
 name: PMail Pro Docker image
 
-# Only release tags publish to Docker Hub. DOCKERHUB_TOKEN needs write access to both repositories.
+# Only release tags publish. DOCKERHUB_TOKEN needs write access to pmail-pro.
 # DOCKERHUB_USERNAME is optional (defaults to dingding229).
 on:
   push:
@@ -16,7 +16,6 @@ concurrency:
 
 env:
   IMAGE: dingding229/pmail-pro
-  UPDATER_IMAGE: dingding229/pmail-pro-updater
 
 jobs:
   frontend:
@@ -26,6 +25,7 @@ jobs:
         working-directory: web
     outputs:
       version: ${{ steps.version.outputs.version }}
+      build_time: ${{ steps.version.outputs.build_time }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -46,6 +46,7 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(git show -s --format=%cI HEAD)" >> "$GITHUB_OUTPUT"
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm run lint
@@ -54,8 +55,44 @@ jobs:
         env:
           VITE_MOCK: "0"
 
-  publish:
+  signed-assets:
     needs: frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+      - name: Build the same program and web files as the image
+        env:
+          VERSION: ${{ needs.frontend.outputs.version }}
+          BUILD_TIME: ${{ needs.frontend.outputs.build_time }}
+        run: |
+          docker buildx build --target release-files --platform linux/amd64,linux/arm64 \
+            --build-arg "VERSION=$VERSION" --build-arg "GITHASH=$GITHUB_SHA" --build-arg "BUILD_TIME=$BUILD_TIME" \
+            --output "type=local,dest=$RUNNER_TEMP/pmail-files" .
+          mkdir "$RUNNER_TEMP/pmail-release"
+          for arch in amd64 arm64; do
+            dir="$RUNNER_TEMP/pmail-files/linux_$arch"
+            test -x "$dir/pmail"
+            test -f "$dir/web/index.html"
+            tar -C "$dir" -czf "$RUNNER_TEMP/pmail-release/pmail-linux-$arch.tar.gz" pmail web
+          done
+          python3 deploy/release-notes.py "$VERSION" > "$RUNNER_TEMP/pmail-release/notes.md"
+      - name: Sign release checksums
+        working-directory: server
+        env:
+          PMAIL_RELEASE_SIGNING_KEY: ${{ secrets.PMAIL_RELEASE_SIGNING_KEY }}
+        run: go run ./cmd/pmail-sign "$GITHUB_REF_NAME" "$RUNNER_TEMP/pmail-release"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-release
+          path: ${{ runner.temp }}/pmail-release/
+          if-no-files-found: error
+
+  publish:
+    needs: [frontend, signed-assets]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -81,21 +118,25 @@ jobs:
           build-args: |
             VERSION=${{ needs.frontend.outputs.version }}
             GITHASH=${{ github.sha }}
+            BUILD_TIME=${{ needs.frontend.outputs.build_time }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Publish PMail Pro updater
-        uses: docker/build-push-action@v6
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
         with:
-          context: .
-          file: Dockerfile.updater
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ env.UPDATER_IMAGE }}:latest
-            ${{ env.UPDATER_IMAGE }}:v${{ needs.frontend.outputs.version }}
-          labels: |
-            org.opencontainers.image.version=${{ needs.frontend.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha,scope=pmail-updater
-          cache-to: type=gha,mode=max,scope=pmail-updater
+          name: signed-release
+          path: release
+      - name: Publish the signed GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "$GITHUB_REF_NAME" --notes-file release/notes.md \
+            release/pmail-linux-amd64.tar.gz release/pmail-linux-arm64.tar.gz \
+            release/checksums.txt release/checksums.txt.sig

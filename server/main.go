@@ -1,14 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"net/http"
 	"os"
-	"time"
 
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/migration"
 	"github.com/Jinnrry/pmail/res_init"
+	"github.com/Jinnrry/pmail/services/update"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -47,6 +47,9 @@ func main() {
 		}
 		return
 	}
+	if err := update.Boot(version); err != nil {
+		log.Fatal(err)
+	}
 	if err := config.Init(); err != nil {
 		log.Fatal(err)
 	}
@@ -76,20 +79,5 @@ func healthcheck() error {
 	if err != nil {
 		return err
 	}
-	port := cfg.HttpPort
-	if port == 0 {
-		port = 80
-	}
-	client := &http.Client{Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/ping", port))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health check returned HTTP %d", resp.StatusCode)
-	}
-	return nil
+	return update.Probe(context.Background(), cfg.HttpPort)
 }

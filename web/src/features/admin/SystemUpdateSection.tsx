@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import DOMPurify from 'dompurify'
 import { toast } from 'sonner'
@@ -12,12 +12,11 @@ import {
   ChevronUp,
   Copy,
   ExternalLink,
-  Info,
   Loader2,
   RefreshCw,
   Terminal,
 } from 'lucide-react'
-import { adminUpdateApi, ApiError, type UpdateJobState } from '@/api'
+import { adminUpdateApi, ApiError } from '@/api'
 import { formatMailFullTime } from '@/lib/date'
 import { queryKeys, useAdminUpdateQuery } from '@/hooks/useMailQueries'
 import { Badge } from '@/components/ui/badge'
@@ -117,10 +116,8 @@ export function SystemUpdateSection() {
   const { data: info, isLoading } = useAdminUpdateQuery(true)
 
   const [expandedVersions, setExpandedVersions] = useState<Set<string>>(new Set())
-  const [applyConfirmOpen, setApplyConfirmOpen] = useState(false)
-  const [activeJobId, setActiveJobId] = useState<string | null>(null)
-  const [jobState, setJobState] = useState<UpdateJobState | null>(null)
-  const [jobMessage, setJobMessage] = useState<string | null>(null)
+  const [confirmVersion, setConfirmVersion] = useState<string | null>(null)
+  const [submittedJobId, setSubmittedJobId] = useState<string | null>(null)
   const [copiedManual, setCopiedManual] = useState(false)
 
   // Expand latest release by default once data arrives
@@ -131,43 +128,33 @@ export function SystemUpdateSection() {
     }
   }, [info?.releases])
 
-  // Poll active update job with restart fault-tolerance
+  // Recover a running job or its rollback result after a reload. Poll one
+  // request at a time; a service restart is not itself a failure.
+  const jobId = submittedJobId ?? info?.job?.job_id
+  const jobQuery = useQuery({
+    queryKey: [...queryKeys.adminUpdate, 'job', jobId],
+    queryFn: ({ signal }) => adminUpdateApi.jobStatus(jobId!, AbortSignal.any([signal, AbortSignal.timeout(5000)])),
+    enabled: Boolean(jobId),
+    retry: false,
+    refetchInterval: ({ state }) => {
+      if (state.data?.state === 'done' || state.data?.state === 'failed') return false
+      if (state.error instanceof ApiError && [401, 403, 404].includes(state.error.status)) return false
+      return 2000
+    },
+  })
+  const job = jobQuery.data ?? (info?.job?.job_id === jobId ? info?.job : undefined)
+  const jobPollError = jobQuery.error instanceof ApiError && [401, 403, 404].includes(jobQuery.error.status)
+    ? jobQuery.error.message : null
+  const jobState = job?.state ?? (jobId ? 'pending' : null)
+  const jobMessage = jobPollError ?? job?.message ?? (jobQuery.error ? t('admin.update.reconnecting') : null)
+  const terminal = jobState === 'done' || jobState === 'failed'
+  const isUpdating = Boolean(jobId && !terminal && !jobPollError)
+
   useEffect(() => {
-    if (!activeJobId) return
-    let cancelled = false
-
-    const poll = async () => {
-      try {
-        const res = await adminUpdateApi.jobStatus(activeJobId)
-        if (cancelled) return
-        setJobState(res.state)
-        setJobMessage(res.message)
-        if (res.state === 'done') {
-          setActiveJobId(null)
-          toast.success(t('admin.update.states.done'))
-          void queryClient.invalidateQueries({ queryKey: queryKeys.adminUpdate })
-        } else if (res.state === 'failed') {
-          setActiveJobId(null)
-          toast.error(res.message || t('admin.update.states.failed'))
-        }
-      } catch {
-        // Expected during container/service restart: keep polling and show restarting notice
-        if (!cancelled) {
-          setJobState('restarting')
-        }
-      }
+    if (jobQuery.data?.state === 'done' || jobQuery.data?.state === 'failed') {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.adminUpdate, exact: true })
     }
-
-    void poll()
-    const timer = window.setInterval(() => {
-      void poll()
-    }, 2000)
-
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [activeJobId, queryClient, t])
+  }, [jobQuery.data?.state, queryClient])
 
   const checkMutation = useMutation({
     mutationFn: () => adminUpdateApi.check(),
@@ -191,15 +178,13 @@ export function SystemUpdateSection() {
   })
 
   const applyMutation = useMutation({
-    mutationFn: () => adminUpdateApi.apply(),
+    mutationFn: (version: string) => adminUpdateApi.apply(version),
     onSuccess: (res) => {
-      setApplyConfirmOpen(false)
-      setActiveJobId(res.job_id)
-      setJobState('pending')
-      setJobMessage(null)
+      setConfirmVersion(null)
+      setSubmittedJobId(res.job_id)
     },
     onError: (err) => {
-      setApplyConfirmOpen(false)
+      setConfirmVersion(null)
       toast.error(err instanceof Error ? err.message : t('common.unknownError'))
     },
   })
@@ -224,8 +209,6 @@ export function SystemUpdateSection() {
       toast.error(t('common.copyFailed'))
     }
   }
-
-  const isUpdating = Boolean(activeJobId)
 
   return (
     <div className="space-y-5">
@@ -303,26 +286,28 @@ export function SystemUpdateSection() {
             {/* Update Progress Banner */}
             {jobState && (
               <div
+                role="status"
+                aria-live="polite"
                 className={`flex items-start gap-2.5 rounded-[var(--radius-md)] border px-4 py-3 text-[13px] ${
                   jobState === 'done'
                     ? 'border-[var(--success)]/35 bg-[var(--success-soft)] text-[var(--success)]'
-                    : jobState === 'failed'
+                    : (jobState === 'failed' || jobPollError)
                       ? 'border-[var(--danger)]/35 bg-[var(--danger-soft)] text-[var(--danger)]'
                       : 'border-[var(--accent)]/35 bg-[var(--accent-soft)] text-[var(--accent-ink)]'
                 }`}
               >
                 {jobState === 'done' ? (
                   <CheckCircle2 className="mt-0.5 h-4.5 w-4.5 shrink-0" />
-                ) : jobState === 'failed' ? (
+                ) : (jobState === 'failed' || jobPollError) ? (
                   <AlertTriangle className="mt-0.5 h-4.5 w-4.5 shrink-0" />
                 ) : (
                   <Loader2 className="mt-0.5 h-4.5 w-4.5 shrink-0 animate-spin" />
                 )}
                 <div className="min-w-0 flex-1 space-y-1">
                   <p className="font-semibold">{t('admin.update.progressTitle')}</p>
-                  <p className="text-[12.5px]">{t(`admin.update.states.${jobState}`)}</p>
+                  <p className="text-[12.5px]">{t(`admin.update.states.${jobPollError ? 'failed' : jobState}`)}</p>
                   {jobMessage && (
-                    <p className="font-mono text-[11.5px] opacity-85">{jobMessage}</p>
+                    <p className="text-[12.5px] opacity-85">{jobMessage}</p>
                   )}
                 </div>
               </div>
@@ -368,7 +353,7 @@ export function SystemUpdateSection() {
                     type="button"
                     size="sm"
                     disabled={isUpdating || applyMutation.isPending}
-                    onClick={() => setApplyConfirmOpen(true)}
+                    onClick={() => setConfirmVersion(info.latest)}
                   >
                     <ArrowUpCircle className="h-4 w-4" />
                     {t('admin.update.applyNow')}
@@ -410,22 +395,14 @@ export function SystemUpdateSection() {
                   )}
                 </div>
                 <p className="text-[12.5px] text-[var(--ink-secondary)]">
-                  {t('admin.update.manualDesc')}
+                  {info.updater.reason || t('admin.update.manualDesc')}
                 </p>
                 {info.manual_commands.length > 0 && (
                   <pre className="mail-scroll overflow-x-auto rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--surface-subtle)] p-3 font-mono text-[12px] leading-relaxed text-[var(--ink-primary)] select-all">
                     {info.manual_commands.join('\n')}
                   </pre>
                 )}
-                <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--border-hairline)] bg-[var(--surface-subtle)]/50 px-3 py-2 text-[12px] text-[var(--ink-muted)]">
-                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <div>
-                    <p className="font-medium text-[var(--ink-secondary)]">
-                      {t('admin.update.enableUpdaterHintTitle')}
-                    </p>
-                    <p className="mt-0.5">{t('admin.update.enableUpdaterHintDesc')}</p>
-                  </div>
-                </div>
+
               </div>
             )}
           </>
@@ -511,11 +488,11 @@ export function SystemUpdateSection() {
       )}
 
       {/* Apply Update Confirm Dialog */}
-      <Dialog open={applyConfirmOpen} onOpenChange={setApplyConfirmOpen}>
+      <Dialog open={confirmVersion !== null} onOpenChange={(open) => { if (!open) setConfirmVersion(null) }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {t('admin.update.applyConfirmTitle', { version: info?.latest || '' })}
+              {t('admin.update.applyConfirmTitle', { version: confirmVersion || '' })}
             </DialogTitle>
             <DialogDescription>{t('admin.update.applyConfirmDesc')}</DialogDescription>
           </DialogHeader>
@@ -524,7 +501,7 @@ export function SystemUpdateSection() {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setApplyConfirmOpen(false)}
+              onClick={() => setConfirmVersion(null)}
             >
               {t('common.cancel')}
             </Button>
@@ -532,7 +509,7 @@ export function SystemUpdateSection() {
               type="button"
               size="sm"
               disabled={applyMutation.isPending}
-              onClick={() => applyMutation.mutate()}
+              onClick={() => { if (confirmVersion) applyMutation.mutate(confirmVersion) }}
             >
               {applyMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               {t('admin.update.applyConfirmAction')}

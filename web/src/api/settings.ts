@@ -119,9 +119,9 @@ export const userTelegramApi = {
 export const adminUpdateApi = {
   get: () => apiGet<AdminUpdateInfo>('/api/admin/update'),
   check: () => apiPost<AdminUpdateInfo>('/api/admin/update/check', {}),
-  apply: () => apiPost<UpdateApplyResponse>('/api/admin/update/apply', {}),
-  jobStatus: (jobId: string) =>
-    apiGet<UpdateJobStatus>(`/api/admin/update/apply/${encodeURIComponent(jobId)}`),
+  apply: (version: string) => apiPost<UpdateApplyResponse>('/api/admin/update/apply', { version }),
+  jobStatus: (jobId: string, signal?: AbortSignal) =>
+    apiGet<UpdateJobStatus>(`/api/admin/update/apply/${encodeURIComponent(jobId)}`, { signal, cache: 'no-store', skipAuthRedirect: true }),
 }
 
 export const signaturesApi = {
