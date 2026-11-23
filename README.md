@@ -304,7 +304,7 @@ docker compose down -v
 | `PMAIL_POP3_IDLE_SECONDS` | POP3 空闲断开秒数（1–3600）；断开不提交待删除标记。 |
 | `PMAIL_SMTP_OUTBOUND_ALLOW` | 逗号分隔的显式内网 SMTP 目标 CIDR 或精确 MX 主机名；默认拒绝私有/保留地址。 |
 | `PMAIL_SMTP_TLS_REQUIRED_DOMAINS` | 逗号分隔的精确收件域；必须验证 MX 的 STARTTLS 证书，否则不降级投递。 |
-| `PMAIL_SMTP_ALLOW_UNVERIFIED_TLS` | 默认为 `0`。仅在显式启用时，非强制 TLS 收件域的 STARTTLS 握手失败才允许尝试不验证证书的 TLS／旧明文降级。默认只允许对未宣告 STARTTLS 的此类 MX 明文投递。 |
+| `PMAIL_SMTP_REQUIRE_VERIFIED_TLS` | 默认 `0`：非强制域先尝试带证书验证的 STARTTLS，再尝试不验证证书的 STARTTLS，协商仍失败时可退回明文。设为 `1` 时，已宣告 STARTTLS 的 MX 验证失败不降级；未宣告的 MX 仍可明文。必须使用经验证 TLS 的收件域请配置 `PMAIL_SMTP_TLS_REQUIRED_DOMAINS`。 |
 | `PMAIL_TRUSTED_PROXIES` | 逗号分隔的可信 Web 反代 CIDR，仅信任实际连接的代理。让代理覆盖 `X-Forwarded-Proto`、正确追加/清理 `X-Forwarded-For` 并保留 `Host`。 |
 | `PMAIL_ADMIN_MAIL_ACCESS` | 设为 1 才允许管理员读取、预览、下载或转发他人非草稿邮件，访问会审计。 |
 | `PMAIL_PRINT_REGISTRATION_KEY` | 仅设为 1 才兼容旧版把密钥打印到 stdout；默认只提示受保护文件路径。 |

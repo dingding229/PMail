@@ -66,7 +66,7 @@ func SendPinned(ctx context.Context, conn net.Conn, mx, from, fromDomain string,
 		if err = phase(8 * time.Second); err != nil {
 			return err
 		}
-		tlsConfig := &tls.Config{ServerName: mx, MinVersion: tls.VersionTLS12, InsecureSkipVerify: mode == OpportunisticSTARTTLS} // #nosec G402 -- outbound policy reaches unverified mode only with explicit operator opt-in and never for TLS-required domains.
+		tlsConfig := &tls.Config{ServerName: mx, MinVersion: tls.VersionTLS12, InsecureSkipVerify: mode == OpportunisticSTARTTLS} // #nosec G402 -- default opportunistic SMTP prefers encryption even without peer authentication over cleartext; verified-only policy and TLS-required domains never enter this mode.
 		if err = c.StartTLS(tlsConfig); err != nil {
 			return fmt.Errorf("%w: %v", ErrTLSNegotiation, err)
 		}
