@@ -392,7 +392,8 @@ Vite 在 `http://localhost:5173` 提供页面，将 `/api`（包括附件）代�
 | `PMAIL_TELEGRAM_PROXY` | 可选，优先于管理后台保存的代理，支持 `http`、`https`、`socks5`。 |
 | `PMAIL_TELEGRAM_API_BASE` | 可选可信 Bot API 基址，默认 `https://api.telegram.org`；非回环必须用 HTTPS。 |
 | `PMAIL_PUBLIC_URL` | 可选，构建 “打开邮箱” 链接的公共 Web 地址。 |
-| `PMAIL_UPDATE_CHECK` | 设为 `0` 不对 GitHub 发起更新检查；默认每六小时检查。 |
+| `PMAIL_UPDATE_CHECK` | 设为 `0` 禁用更新检查；默认每六小时检查。 |
+| `PMAIL_UPDATE_RELEASES_URL` | 仅供测试覆盖发布信息源；留空使用官方 GitHub Releases API。只允许 HTTPS，HTTP 仅限 `localhost`、`127.0.0.1`、`[::1]`；非法值启动时记录警告并回退默认值。不跟随重定向，不改变更新镜像来源。 |
 | `PMAIL_UPDATER_ENABLED` / `PMAIL_UPDATER_TOKEN` | 在线更新器开关与内部 HTTP 令牌，默认关闭。 |
 | `PMAIL_UPDATER_IMAGE` | 更新器镜像，默认 `dingding229/pmail-pro-updater:latest`。固定部署时可改为与主镜像一致的 `v0.0.1`。 |
 

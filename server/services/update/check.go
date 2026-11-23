@@ -8,6 +8,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"os"
 	"regexp"
 	"slices"
@@ -15,9 +17,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
-const releasesURL = "https://api.github.com/repos/dingding229/PMail/releases"
+const defaultReleasesURL = "https://api.github.com/repos/dingding229/PMail/releases"
 const maxReleaseBytes = 2 << 20
 
 var ErrRate = errors.New("update_check_rate_limited")
@@ -62,6 +66,7 @@ type Checker struct {
 	mu         sync.Mutex
 	version    string
 	client     *http.Client
+	endpoint   string
 	releases   []Release
 	etag       string
 	checked    *time.Time
@@ -71,11 +76,56 @@ type Checker struct {
 }
 
 var checkerMu sync.RWMutex
-var global = New("dev", nil)
+var global = newChecker("dev", nil, defaultReleasesURL)
 
 func Current() *Checker { checkerMu.RLock(); defer checkerMu.RUnlock(); return global }
 func New(version string, tr http.RoundTripper) *Checker {
-	return &Checker{version: version, client: &http.Client{Timeout: 10 * time.Second, Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	endpoint, ok := releasesEndpoint(os.Getenv("PMAIL_UPDATE_RELEASES_URL"))
+	if !ok {
+		// Don't log the rejected value; a typo may include credentials.
+		log.Warn("invalid PMAIL_UPDATE_RELEASES_URL; using the default GitHub releases endpoint")
+	}
+	return newChecker(version, tr, endpoint)
+}
+
+func newChecker(version string, tr http.RoundTripper, endpoint string) *Checker {
+	return &Checker{version: version, endpoint: endpoint, client: &http.Client{Timeout: 10 * time.Second, Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+}
+
+func releasesEndpoint(raw string) (string, bool) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return defaultReleasesURL, true
+	}
+	u, err := url.Parse(value)
+	if err != nil || u.Opaque != "" || u.User != nil || strings.Contains(value, "#") {
+		return defaultReleasesURL, false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "" || strings.HasSuffix(u.Host, ":") {
+		return defaultReleasesURL, false
+	}
+	if strings.HasPrefix(u.Host, "[") {
+		if ip, err := netip.ParseAddr(host); err != nil || !ip.Is6() {
+			return defaultReleasesURL, false
+		}
+	} else if strings.Contains(host, ":") {
+		return defaultReleasesURL, false
+	}
+	if port := u.Port(); port != "" {
+		if number, err := strconv.ParseUint(port, 10, 16); err != nil || number == 0 {
+			return defaultReleasesURL, false
+		}
+	}
+	switch u.Scheme {
+	case "https":
+		return u.String(), true
+	case "http":
+		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+			return u.String(), true
+		}
+	}
+	return defaultReleasesURL, false
 }
 func canonicalVersion(v string) string {
 	if semver.MatchString(v) {
@@ -208,7 +258,7 @@ func (c *Checker) Refresh(parent context.Context, manual bool) error {
 	return nil
 }
 func (c *Checker) fetch(ctx context.Context, etag string) ([]Release, string, bool, string) {
-	r, err := http.NewRequestWithContext(ctx, http.MethodGet, releasesURL, nil)
+	r, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint, nil)
 	if err != nil {
 		return nil, "", false, "update_check_unavailable"
 	}

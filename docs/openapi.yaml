@@ -3616,6 +3616,12 @@ paths:
   /api/admin/update/check:
     post:
       operationId: c9UpdateCheck
+      description: >-
+        Refresh cached release metadata from the official GitHub Releases API.
+        The server operator can override the source for testing via
+        PMAIL_UPDATE_RELEASES_URL (HTTPS only, except HTTP on localhost, 127.0.0.1,
+        or [::1]); invalid configuration falls back to GitHub. Redirects are not followed.
+        This setting cannot be supplied in the request and does not change the updater image source.
       tags:
       - Updates
       x-permission: admin
