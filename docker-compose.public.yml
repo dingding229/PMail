@@ -1,6 +1,6 @@
 # 可另存为 docker-compose.override.yml，由 Compose 自动加载。
 # !override 需要 Docker Compose 2.24.4 或更新版本。
-# 固定版本：在 .env 设置 PMAIL_IMAGE 和 PMAIL_UPDATER_IMAGE 的 v0.0.1 标签。
+# 固定版本：在 .env 设置 PMAIL_IMAGE 和 PMAIL_UPDATER_IMAGE 的 v0.0.2 标签。
 services:
   init-secrets:
     image: ${PMAIL_IMAGE:-dingding229/pmail-pro:latest}

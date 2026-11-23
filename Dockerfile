@@ -10,7 +10,7 @@ FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine3.24 AS backend
 ARG TARGETOS
 ARG TARGETARCH
 ARG TARGETVARIANT
-ARG VERSION=0.0.1
+ARG VERSION=0.0.2
 ARG GITHASH=unknown
 WORKDIR /build/server
 COPY server/go.mod server/go.sum ./

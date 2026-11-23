@@ -1,6 +1,6 @@
 # PMail Pro
 
-![版本 0.0.1](https://img.shields.io/badge/PMail%20Pro-0.0.1-2563eb)
+![版本 0.0.2](https://img.shields.io/badge/PMail%20Pro-0.0.2-2563eb)
 
 PMail Pro 是 [Jinnrry/PMail](https://github.com/Jinnrry/PMail) 的增强分支，是一套可自托管的邮件服务。发布镜像位于 Docker Hub：`dingding229/pmail-pro`，可选更新器为 `dingding229/pmail-pro-updater`。
 
@@ -37,7 +37,7 @@ sudo apt-get update && sudo apt-get install -y ca-certificates curl openssl dnsu
 
 ### 2. 下载、填写域名并启动
 
-无需克隆源码或生成密码。将 `example.com` 换成你的**主邮件域名**；网页域名自动为 `mail.example.com`。默认镜像是 `dingding229/pmail-pro:latest`。需要固定版本时，在 `.env` 设置 `PMAIL_IMAGE=dingding229/pmail-pro:v0.0.1`，请在对应标签发布后使用。以下命令只用于**全新目录**，不要覆盖已有 `.env`。
+无需克隆源码或生成密码。将 `example.com` 换成你的**主邮件域名**；网页域名自动为 `mail.example.com`。默认镜像是 `dingding229/pmail-pro:latest`。需要固定版本时，在 `.env` 设置 `PMAIL_IMAGE=dingding229/pmail-pro:v0.0.2`，请在对应标签发布后使用。以下命令只用于**全新目录**，不要覆盖已有 `.env`。
 
 ```bash
 mkdir pmail-pro && cd pmail-pro
@@ -287,7 +287,7 @@ docker compose down -v
 
 | 配置项 | 说明 |
 | --- | --- |
-| `PMAIL_IMAGE` | PMail 镜像标签，默认 `dingding229/pmail-pro:latest`（固定版本示例：`dingding229/pmail-pro:v0.0.1`） |
+| `PMAIL_IMAGE` | PMail 镜像标签，默认 `dingding229/pmail-pro:latest`（固定版本示例：`dingding229/pmail-pro:v0.0.2`） |
 | `PMAIL_PROJECT_NAME` | Compose 项目名，默认 `pmail`；决定命名卷所属项目 |
 | `PMAIL_DOMAIN` / `PMAIL_DOMAINS` / `PMAIL_WEB_DOMAIN` | 主邮件域名（必填）、逗号分隔的附加收信域名、网页域名（默认 `mail.<主域名>`） |
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | 数据库、账号默认 `pmail`；密码默认随机生成到 `secrets` 卷，已有部署可保留显式值 |
@@ -397,7 +397,7 @@ Vite 在 `http://localhost:5173` 提供页面，将 `/api`（包括附件）代�
 | `PMAIL_UPDATE_CHECK` | 设为 `0` 禁用更新检查；默认每六小时检查。 |
 | `PMAIL_UPDATE_RELEASES_URL` | 仅供测试覆盖发布信息源；留空使用官方 GitHub Releases API。只允许 HTTPS，HTTP 仅限 `localhost`、`127.0.0.1`、`[::1]`；非法值启动时记录警告并回退默认值。不跟随重定向，不改变更新镜像来源。 |
 | `PMAIL_UPDATER_ENABLED` / `PMAIL_UPDATER_TOKEN` | 在线更新器开关与内部 HTTP 令牌，默认关闭。 |
-| `PMAIL_UPDATER_IMAGE` | 更新器镜像，默认 `dingding229/pmail-pro-updater:latest`。固定部署时可改为与主镜像一致的 `v0.0.1`。 |
+| `PMAIL_UPDATER_IMAGE` | 更新器镜像，默认 `dingding229/pmail-pro-updater:latest`。固定部署时可改为与主镜像一致的 `v0.0.2`。 |
 
 ### 可选在线更新器
 

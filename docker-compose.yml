@@ -1,7 +1,7 @@
 name: ${PMAIL_PROJECT_NAME:-pmail}
 
 # 同一镜像用于运行服务及初始化数据库密码。
-# 固定版本：在 .env 设置 PMAIL_IMAGE=dingding229/pmail-pro:v0.0.1。
+# 固定版本：在 .env 设置 PMAIL_IMAGE=dingding229/pmail-pro:v0.0.2。
 x-pmail-image: &pmail-image ${PMAIL_IMAGE:-dingding229/pmail-pro:latest}
 
 services:
@@ -112,7 +112,7 @@ services:
       - "${PMAIL_WEB_BIND:-172.17.0.1}:${PMAIL_HOST_HTTPS_PORT:-8443}:${PMAIL_HTTPS_PORT:-443}"
   updater:
     profiles: ["updater"]
-    # 固定发行版：在 .env 设置 PMAIL_UPDATER_IMAGE=dingding229/pmail-pro-updater:v0.0.1。
+    # 固定发行版：在 .env 设置 PMAIL_UPDATER_IMAGE=dingding229/pmail-pro-updater:v0.0.2。
     image: ${PMAIL_UPDATER_IMAGE:-dingding229/pmail-pro-updater:latest}
     restart: unless-stopped
     environment:
