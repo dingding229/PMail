@@ -43,6 +43,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: Verify fresh and existing Compose configurations
+        run: python3 deploy/test-compose-config.py
       - name: Build production updater image without publishing
         run: docker build --platform linux/amd64 -f Dockerfile.updater -t pmail-c11-updater:ci .
       - name: Verify authenticated job route in the image
@@ -132,6 +134,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run i18n:check
+      - run: npm test
       - run: npm run build
         env:
           VITE_MOCK: "0"

@@ -73,7 +73,7 @@ docker compose down -v
 | --- | --- |
 | `PMAIL_DOMAIN` / `PMAIL_DOMAINS` / `PMAIL_WEB_DOMAIN` | 可选。主邮件域名（不填则在首次设置网页上填写）、逗号分隔的附加收信域名、网页域名（默认 `mail.<主域名>`） |
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | 数据库、账号默认 `pmail`；密码默认随机生成到 `secrets` 卷，已有部署可保留显式值 |
-| `PMAIL_DB_TYPE` / `PMAIL_DB_DSN` | 基础 Compose 固定使用 PostgreSQL；显式连接串优先，默认使用 `PMAIL_DB_PASSWORD_FILE` 指向的凭据文件连接项目内的 `postgres:5432` |
+| `PMAIL_DB_TYPE` / `PMAIL_DB_DSN` | 基础 Compose 默认使用 PostgreSQL；显式连接串优先，默认使用 `PMAIL_DB_PASSWORD_FILE` 指向的凭据文件连接项目内的 `postgres:5432` |
 | `PMAIL_ADMIN_ACCOUNT` / `PMAIL_ADMIN_PASSWORD` | 仅当数据库没有用户且显式设置密码时直接创建管理员（账号默认 `admin`）；未设置密码则使用首次注册密钥，已有用户不受影响 |
 | `PMAIL_SECRET_KEY` | 外部邮箱凭据的加密密钥、SRS 密钥等；留空时生成 `pmail_config` 卷内的 `secret.key`，必须与数据一并保留 |
 | `PMAIL_WEB_MODE` | `proxy` 默认仅提供网页 HTTP；公网直连使用覆盖文件选择 `public`。两种模式都默认 HTTP-01 申请邮件证书 |
@@ -88,12 +88,12 @@ docker compose down -v
 | `PMAIL_SMTP_OUTBOUND_ALLOW` | 逗号分隔的显式内网 SMTP 目标 CIDR 或精确 MX 主机名；默认拒绝私有/保留地址。 |
 | `PMAIL_SMTP_TLS_REQUIRED_DOMAINS` | 逗号分隔的精确收件域；必须验证 MX 的 STARTTLS 证书，否则不降级投递。 |
 | `PMAIL_SMTP_REQUIRE_VERIFIED_TLS` | 默认 `0`：非强制域先尝试带证书验证的 STARTTLS，再尝试不验证证书的 STARTTLS，协商仍失败时可退回明文。设为 `1` 时，已宣告 STARTTLS 的 MX 验证失败不降级；未宣告的 MX 仍可明文。必须使用经验证 TLS 的收件域请配置 `PMAIL_SMTP_TLS_REQUIRED_DOMAINS`。 |
-| `PMAIL_TRUSTED_PROXIES` | 逗号分隔的可信 Web 反代 CIDR，仅信任实际连接的代理。让代理覆盖 `X-Forwarded-Proto`、正确追加/清理 `X-Forwarded-For` 并保留 `Host`。反代部署默认 `172.16.0.0/12,192.168.0.0/16`（网页端口只绑定在 Docker 网桥），直连公网覆盖文件默认为空。 |
+| `PMAIL_TRUSTED_PROXIES` | 逗号分隔的可信 Web 反代 CIDR，仅信任实际连接的代理。让代理覆盖 `X-Forwarded-Proto`、正确追加/清理 `X-Forwarded-For` 并保留 `Host`。默认为空，包括 Docker 和公网覆盖；仅为实际反代设置其 `/32` 或 `/128`，避免信任带转发头的直连客户端。 |
 | `PMAIL_ADMIN_MAIL_ACCESS` | 设为 1 才允许管理员读取、预览、下载或转发他人非草稿邮件，访问会审计。 |
 | `PMAIL_PRINT_REGISTRATION_KEY` | 仅设为 1 才兼容旧版把密钥打印到 stdout；默认只提示受保护文件路径。 |
 | `PMAIL_DEFAULT_LANG` | 引导接口提供的前端默认语言，默认 `zh-CN` |
 | `PMAIL_PUBLIC_IPV4` / `PMAIL_PUBLIC_IPV6` | 可选，DNS 向导使用的邮件服务器公网地址；未设置时分别从 IPv4/IPv6 出站接口探测并缓存一小时（默认 HTTPS 查询 ipify） |
-| `PMAIL_DNS_RESOLVER` | 可选，DNS 向导检测所用解析器的 `IP:端口`，IPv6 用方括号；省略时用系统解析器 |
+| `PMAIL_DNS_RESOLVER` | 可选，DNS 向导及证书名称检测所用解析器的 `IP:端口`，IPv6 用方括号；省略时用系统解析器 |
 | `PMAIL_HTTP_PORT` / `PMAIL_HTTPS_PORT` | 容器内网页监听端口，默认 `80/443` |
 | `PMAIL_SSL_TYPE` | 显式设置优先于网页模式：`0` ACME HTTP-01、`1` 自有证书、`2` ACME DNS-01、`3` 禁用 PMail TLS（包括加密邮件端口） |
 | `PMAIL_HTTPS_ENABLED` | 显式设置优先于网页模式：`0/1` 启用 PMail 网页 HTTPS，`2` 仅网页 HTTP；模式 `3` 强制仅网页 HTTP |
@@ -101,12 +101,14 @@ docker compose down -v
 | `PMAIL_SPAM_FILTER_LEVEL` | **只作用于 catch-all（未知收件人）分支**，已知收件人不受此设置影响。`0` 关闭过滤，`1` 在 SPF 与 DKIM 均失败时过滤，`2` 在 SPF 失败时过滤，`3` 在 DKIM 失败时过滤。 |
 | `PMAIL_SPAM_KEYWORDS` | 可选，逗号分隔，覆盖新入站引擎的内置中英文垃圾关键词；显式空值只关闭关键词评分。与 catch-all 前置筛查无关。 |
 | `PMAIL_CATCH_ALL` / `PMAIL_ALLOW_USER_ALIAS` | 未知本地收件人是否允许回退到管理员；是否允许普通用户自助创建别名。关闭 catch-all 后，未知收件人不再进入管理员投递分支。 |
-| `PMAIL_QUEUE_WORKERS` / `PMAIL_FETCH_WORKERS` | 外发队列和外部邮箱收取并发数；基础 Compose 不透传，需在自定义覆盖文件中传入容器环境 |
-| `PMAIL_FETCH_ALLOW_PRIVATE` | 允许外部邮箱连接私网，仅用于受控环境；基础 Compose 不透传 |
+| `PMAIL_QUEUE_WORKERS` / `PMAIL_FETCH_WORKERS` | 外发队列和外部邮箱收取并发数 |
+| `PMAIL_FETCH_ALLOW_PRIVATE` | 允许外部邮箱连接私网，仅用于受控环境 |
 
 ### DNS 向导
 
 管理员从域名管理选择记录检测或下载 BIND 记录片段。邮件主机沿用每个域名的 `smtp.<domain>`，无需新增主机名变量；`PMAIL_WEB_DOMAIN` 只指定网页入口，反代模式下网页 A 记录应指向反代。合并导出片段时保留现有 SOA/NS，若已有 SPF 请编辑原记录而非新增。`imap`/`pop` 建议别名用于沿用现有协议和证书主机名；使用 PMail 自动 HTTP-01 邮件证书时，按上文把这些主机也解析到正确的服务。PTR 在公网 IP 服务商处修改。
+
+HTTP-01 邮件证书要求公网 80 端口的 `/.well-known/acme-challenge/` 通到 PMail。发布的 A 和 AAAA 都须正确；容器若无法发现宿主机的公网地址，可用 `PMAIL_PUBLIC_IPV4` / `PMAIL_PUBLIC_IPV6` 显式指定。TLS 日志会提示不匹配或暂时无法判定的名称。
 
 ## 用宿主机 Nginx 做反向代理
 

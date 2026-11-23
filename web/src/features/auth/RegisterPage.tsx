@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -14,9 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { AuthLayout } from './AuthLayout'
-import { DOMAIN_PATTERN, guessMailDomain } from './mailDomain'
-
-const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
+import { DOMAIN_PATTERN, guessMailDomain, waitForDomainSetup } from './mailDomain'
 
 function scorePassword(pwd: string): 0 | 1 | 2 | 3 | 4 {
   if (!pwd) return 0
@@ -35,6 +33,7 @@ export function RegisterPage() {
   const { data: bootstrap } = useBootstrapQuery()
   const needDomain = bootstrap?.need_domain === true
   const [applyingDomain, setApplyingDomain] = useState(false)
+  const domainSaved = useRef(false)
 
   const [showPwd, setShowPwd] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
@@ -124,25 +123,19 @@ export function RegisterPage() {
     setServerError(null)
     try {
       if (needDomain) {
-        await authApi.setupDomain({
-          registration_key: values.registration_key,
-          domain: values.mail_domain,
-        })
-        // PMail now finishes starting with the new domain; wait until it is back.
-        setApplyingDomain(true)
-        let ready = false
-        for (let i = 0; i < 60 && !ready; i++) {
-          await sleep(1000)
-          try {
-            const next = await authApi.bootstrap()
-            ready = next.need_domain !== true
-            if (ready) queryClient.setQueryData(queryKeys.bootstrap, next)
-          } catch {
-            // The server is restarting its listeners.
-          }
+        if (!domainSaved.current) {
+          await authApi.setupDomain({
+            registration_key: values.registration_key,
+            domain: values.mail_domain,
+          })
+          domainSaved.current = true
         }
+        setApplyingDomain(true)
+        const next = await waitForDomainSetup(authApi.bootstrap)
         setApplyingDomain(false)
-        if (!ready) throw new Error(t('auth.errors.domainSetupTimeout'))
+        if (!next) throw new Error(t('auth.errors.domainSetupTimeout'))
+        queryClient.setQueryData(queryKeys.bootstrap, next)
+        if (!next.need_register) return
       }
       await authApi.register({
         registration_key: values.registration_key,

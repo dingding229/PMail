@@ -9,6 +9,7 @@ import (
 	"github.com/Jinnrry/pmail/utils/securefile"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -119,11 +120,16 @@ func certificateDomains(cfg *config.Config) []string {
 	domains := make([]string, 0, 1+3*len(cfg.Domains))
 	// With web HTTPS disabled in HTTP-01 mode, the reverse proxy owns the
 	// web certificate and may handle its challenge path itself.
-	if cfg.SSLType != config.SSLTypeAutoHTTP || cfg.HttpsEnabled != 2 {
+	if cfg.WebDomain != "" && (cfg.SSLType != config.SSLTypeAutoHTTP || cfg.HttpsEnabled != 2) {
 		domains = append(domains, cfg.WebDomain)
 	}
 	for _, domain := range cfg.Domains {
-		domains = append(domains, "smtp."+domain, "pop."+domain, "imap."+domain)
+		for _, prefix := range []string{"smtp.", "pop.", "imap."} {
+			name := prefix + domain
+			if !slices.Contains(domains, name) {
+				domains = append(domains, name)
+			}
+		}
 	}
 	return domains
 }
@@ -176,14 +182,22 @@ func coversDomains(cfg *config.Config, cert *tls.Certificate) bool {
 	return true
 }
 
-// NeedsRenewal reports expiry within 30 days, or a name that can now be
-// requested (its DNS points here) but is missing from the certificate.
-func NeedsRenewal(ctx context.Context, cfg *config.Config, cert *tls.Certificate) bool {
-	return time.Until(cert.Leaf.NotAfter) < 30*24*time.Hour || !coversRequested(ctx, cfg, cert.Leaf)
+// MaintainCertificate obtains or renews automatic TLS material when warranted.
+// It never starts or restarts listeners. A nil cert requests initial issuance.
+func MaintainCertificate(ctx context.Context, cfg *config.Config, cert *tls.Certificate) (bool, error) {
+	var leaf *x509.Certificate
+	if cert != nil {
+		leaf = cert.Leaf
+	}
+	names, err := renewalDomains(ctx, cfg, leaf)
+	if err != nil || len(names) == 0 {
+		return false, err
+	}
+	err = obtainCertificate(ctx, cfg, names)
+	return err == nil, err
 }
 
-// ObtainCertificate acquires or renews automatic TLS material. It never starts or restarts listeners.
-func ObtainCertificate(ctx context.Context, cfg *config.Config) error {
+func obtainCertificate(ctx context.Context, cfg *config.Config, domains []string) error {
 	select {
 	case issuanceGate <- struct{}{}:
 		defer func() { <-issuanceGate }()
@@ -226,11 +240,6 @@ func ObtainCertificate(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 
-	domains, skipped := requestDomains(ctx, cfg)
-	logSkipped(skipped)
-	if len(domains) == 0 {
-		return errors.New("no certificate name points to this server yet; point smtp/imap/pop hosts at this server (DNS only, no CDN proxy)")
-	}
 	log.Infof("Requesting ACME certificate for %s", strings.Join(domains, ", "))
 	certs, err := client.Certificate.Obtain(certificate.ObtainRequest{Domains: domains, Bundle: true})
 	if err != nil {

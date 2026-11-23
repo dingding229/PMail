@@ -169,6 +169,7 @@ func CORSOrigins() []string { return strings.Split(os.Getenv("PMAIL_CORS_ORIGINS
 
 // DefaultDBPasswordFile is where the bundled Compose file shares the
 // generated PostgreSQL password; used when PMAIL_DB_PASSWORD_FILE is unset.
+// #nosec G101 -- Filesystem path to the mounted secret; it contains no credential value.
 const DefaultDBPasswordFile = "/run/pmail-secrets/db_password"
 
 func dbPasswordFile() string {

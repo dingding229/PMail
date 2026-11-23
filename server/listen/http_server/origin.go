@@ -82,5 +82,5 @@ func noteOriginRejection(r *http.Request) {
 		return
 	}
 	proxyHint.last = time.Now()
-	log.Warnf("Rejected a cross-origin write (origin_forbidden): the request came through a reverse proxy at %s that is not trusted, so X-Forwarded-Proto was ignored. If this is your proxy (NPM/Nginx), add it to PMAIL_TRUSTED_PROXIES (e.g. %s or 172.16.0.0/12) and restart PMail; otherwise logout, sending and other writes from the browser fail with HTTP 403.", addr, addr)
+	log.Warnf("Rejected a cross-origin write (origin_forbidden): the request came through a reverse proxy at %s that is not trusted, so X-Forwarded-Proto was ignored. If this is your proxy (NPM/Nginx), add its exact address as a /32 (IPv4) or /128 (IPv6) to PMAIL_TRUSTED_PROXIES and restart PMail; otherwise logout, sending and other writes from the browser fail with HTTP 403.", addr)
 }

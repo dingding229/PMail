@@ -28,31 +28,8 @@ func trusted(addr netip.Addr, proxies []netip.Prefix) bool {
 }
 
 func proxies() []netip.Prefix {
-	values, _ := config.CIDRs(TrustedProxies())
+	values, _ := config.CIDRs(os.Getenv("PMAIL_TRUSTED_PROXIES"))
 	return values // configuration is also validated at startup
-}
-
-// DockerProxyRanges are Docker's default private address pools. In the
-// bundled Compose file the web port is bound only to the Docker bridge, so
-// any peer is a local reverse proxy (NPM, host Nginx) on one of these ranges.
-const DockerProxyRanges = "172.16.0.0/12,192.168.0.0/16"
-
-// TrustedProxies returns PMAIL_TRUSTED_PROXIES. When it is unset, PMail runs
-// in a container and the web mode is not "public", Docker's private ranges
-// are trusted so a reverse proxy works without any configuration.
-func TrustedProxies() string {
-	if value, ok := os.LookupEnv("PMAIL_TRUSTED_PROXIES"); ok {
-		return value
-	}
-	if os.Getenv("PMAIL_WEB_MODE") == "public" || !inContainer() {
-		return ""
-	}
-	return DockerProxyRanges
-}
-
-var inContainer = func() bool {
-	_, err := os.Stat("/.dockerenv")
-	return err == nil
 }
 
 // Source trusts only hops listed by the operator. Starting from the socket

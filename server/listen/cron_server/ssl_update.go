@@ -56,9 +56,10 @@ func certificateMaintenance(ctx context.Context, cfg *config.Config, active *tls
 			requestCertificateReload(ctx)
 			return
 		}
-		if ssl.Automatic(cfg) && (err != nil || ssl.NeedsRenewal(ctx, &current, cert)) {
-			err = ssl.ObtainCertificate(ctx, &current)
-			if err == nil {
+		if ssl.Automatic(cfg) {
+			var replaced bool
+			replaced, err = ssl.MaintainCertificate(ctx, &current, cert)
+			if replaced {
 				cert, err = ssl.LoadCertificate(&current)
 				if err == nil && certificateChanged(active, cert) {
 					requestCertificateReload(ctx)

@@ -23,27 +23,21 @@ func TestUntrustedForwarder(t *testing.T) {
 	}
 }
 
-func TestTrustedProxiesDefault(t *testing.T) {
-	old := inContainer
-	t.Cleanup(func() { inContainer = old })
-	inContainer = func() bool { return true }
-	t.Setenv("PMAIL_WEB_MODE", "")
-	os.Unsetenv("PMAIL_TRUSTED_PROXIES")
-	if got := TrustedProxies(); got != DockerProxyRanges {
-		t.Fatalf("container proxy default: %q", got)
-	}
-	t.Setenv("PMAIL_WEB_MODE", "public")
-	if got := TrustedProxies(); got != "" {
-		t.Fatalf("public mode must not trust by default: %q", got)
-	}
-	t.Setenv("PMAIL_WEB_MODE", "")
+func TestPrivatePeersRequireExplicitTrust(t *testing.T) {
 	t.Setenv("PMAIL_TRUSTED_PROXIES", "")
-	if got := TrustedProxies(); got != "" {
-		t.Fatalf("explicit empty must win: %q", got)
+	if err := os.Unsetenv("PMAIL_TRUSTED_PROXIES"); err != nil {
+		t.Fatal(err)
 	}
-	os.Unsetenv("PMAIL_TRUSTED_PROXIES")
-	inContainer = func() bool { return false }
-	if got := TrustedProxies(); got != "" {
-		t.Fatalf("outside a container: %q", got)
+	for _, mode := range []string{"", "proxy", "public"} {
+		t.Setenv("PMAIL_WEB_MODE", mode)
+		r := httptest.NewRequest("POST", "/api/register", nil)
+		r.Header.Set("X-Forwarded-For", "198.51.100.1")
+		r.Header.Set("X-Forwarded-Proto", "https")
+		for _, addr := range []string{"172.18.0.1", "192.168.1.1"} {
+			r.RemoteAddr = addr + ":5555"
+			if got := Source(r); got != addr || HTTPS(r) {
+				t.Fatalf("mode %q trusted an unconfigured private peer: %s", mode, got)
+			}
+		}
 	}
 }

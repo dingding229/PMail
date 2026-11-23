@@ -169,6 +169,13 @@ func TestMXAliasAndForeignHostsAndProxiedMailHost(t *testing.T) {
 		t.Fatalf("single MX alias pointing here: %+v", mx)
 	}
 
+	fake.mx = []*net.MX{{Host: "smtp.example.com.", Pref: 10}}
+	mx = getRecord(t, guide, "mx")
+	checkGuideRecord(context.Background(), fake, &mx, domain, guide.MailHost, ip, netip.Addr{}, true)
+	if mx.Status != "mismatch" || mx.hint != "dns_guide_mx_foreign" {
+		t.Fatalf("recommended MX name with a known foreign address: %+v", mx)
+	}
+
 	a := getRecord(t, guide, "mail_a")
 	checkGuideRecord(context.Background(), fake, &a, domain, guide.MailHost, ip, netip.Addr{}, true)
 	if a.Status != "mismatch" || a.hint != "dns_guide_mail_proxied" {

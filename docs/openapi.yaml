@@ -55,7 +55,8 @@ paths:
       summary: Discover UI initialization state
       x-permission: public
       description: No login is required. The configured primary mail domain is public; a valid cookie or API token
-        is required to see the full domain list. Uses the same pending state as POST /api/register.
+        is required to see the full domain list. The first-run listener also returns need_domain while waiting
+        for POST /api/setup/domain.
       security:
       - {}
       - {Session: []}
@@ -197,6 +198,50 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
+  /api/setup/domain:
+    post:
+      operationId: setupMailDomain
+      tags: [Bootstrap]
+      summary: Persist the primary mail domain on the first-run listener
+      x-permission: public
+      description: Available only before a primary mail domain is set. Requires the local registration key, which remains
+        valid for first-admin registration. Browser origins must be same-origin. Successful submissions return before
+        the listener handoff; poll GET /api/bootstrap until the normal server is ready.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [registration_key, domain]
+              properties:
+                registration_key: {type: string}
+                domain: {type: string, examples: [example.com]}
+      x-error-codes: {'400': [100], '403': [405], '409': [100], '415': [100], '429': [429], '500': [500]}
+      responses:
+        '200':
+          description: Domain saved. The registration key was not consumed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {const: ''}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          description: A concurrent request has already saved the domain.
+        '415': {$ref: '#/components/responses/JSONMediaTypeRequired'}
+        '429':
+          description: Too many setup or registration attempts.
+          headers:
+            Retry-After:
+              schema: {type: integer}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/register:
     post:
       operationId: register
@@ -5603,10 +5648,13 @@ components:
           type: string
           examples: [dev]
           description: Server build version injected by ldflags; dev if unset.
+        need_domain:
+          type: boolean
+          description: True on the first-run domain setup listener only; omitted on the normal server.
         need_register:
           type: boolean
-          description: True only while configured, with zero users and no explicit PMAIL_ADMIN_PASSWORD. Disabled users
-            count as existing users. False on the legacy configuration listener before registration is ready.
+          description: True during first-run domain setup, or after setup with zero users and no explicit
+            PMAIL_ADMIN_PASSWORD. Disabled users count as existing users.
         logged_in: {type: boolean}
         default_lang: {type: string, default: zh-CN}
         web_domain: {type: string, description: Hostname of the web interface.}

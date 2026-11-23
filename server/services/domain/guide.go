@@ -308,15 +308,11 @@ func checkGuideRecord(ctx context.Context, r guideResolver, rec *GuideRecord, do
 		foreign := false
 		for _, mx := range found {
 			rec.Actual = append(rec.Actual, fmt.Sprintf("%d %s", mx.Pref, mx.Host))
-			if *rec.Priority == mx.Pref && fqdn(mx.Host) == rec.Value {
-				match = true
-				continue
-			}
 			// Any host name is fine as long as it resolves to this server
 			// (e.g. a provider-generated alias); hosts elsewhere can receive
 			// mail instead of PMail when this server is briefly unreachable.
 			here, known := mxPointsHere(ctx, r, mx.Host, v4, v6)
-			match = match || here
+			match = match || here || (!known && fqdn(mx.Host) == rec.Value)
 			foreign = foreign || (known && !here)
 		}
 		if foreign {

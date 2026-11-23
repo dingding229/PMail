@@ -2,6 +2,13 @@
 
 已有 PMail Pro 的日常升级见 [README](../README.md#升级)，备份与回滚见 [进阶说明](ADVANCED.md)。本页针对旧 SQLite/MySQL 安装。
 
+## 从 v0.0.2 / v0.0.3 升级
+
+- 若 v0.0.2 使用 `PMAIL_PROJECT_NAME` 或 `COMPOSE_PROJECT_NAME`，保留原值；如果已用 v0.0.3，把当前正在使用的项目名设为 `.env` 中的 `COMPOSE_PROJECT_NAME`，避免遗留变量切换到另一套同名逻辑卷。用 `docker compose config` 的 `volumes.*.name` 和 `docker volume ls` 核对现有卷，勿用 `down -v`。
+- 旧 `.env` 的发布端口/绑定地址、镜像标签、`POSTGRES_USER` 与 `POSTGRES_DB` 均可继续使用。保留已初始化的 `secrets` 卷，修改 `.env` 中的 `POSTGRES_PASSWORD` 不会轮换现有数据库密码。更新器应使用相同项目名；若使用临时 `-p`、`-f` 或外部环境文件，优先手动更新，避免 sidecar 无法复现宿主机上的配置。
+- 从 v0.0.3 的隐式 Docker 私网代理信任升级时，先在 `.env` 明确设置反代实际地址（`PMAIL_TRUSTED_PROXIES`）。若此前依赖浏览器地址自动设置网页主机名，而新部署使用非默认名称，请显式配置 `PMAIL_WEB_DOMAIN`；已有保存值会保留。
+- 已有数据库域名表时不需要 `PMAIL_DOMAIN` 才能启动，应用继续使用数据库的默认域名。若迁移的旧库已有用户但没有域名记录，先用 `PMAIL_DOMAIN` 指定原来收信的主域名。`PMAIL_DOMAINS` 仅在域名表为空时用于导入附加域名，不能在线重写现有域名，也不代替主域名。
+
 ## 不兼容变更
 
 1. **默认数据库改为 PostgreSQL 17。** SQLite/MySQL 单文件部署需要导入数据库，不能把旧文件直接挂载成 PostgreSQL 数据卷。

@@ -108,6 +108,9 @@ const zhCN = {
     errors: {
       registrationKeyInvalid: '注册密钥不正确，请检查后重试',
       domainInvalid: '邮件域名格式不正确',
+      invalidSetupRequest: '设置请求格式不正确',
+      domainAlreadyConfigured: '邮件域名已设置，请刷新页面后继续',
+      registrationRateLimit: '注册尝试次数过多，请 10 分钟后重试',
       domainSetupTimeout: '服务启动超时，请稍后刷新页面重试',
     },
 

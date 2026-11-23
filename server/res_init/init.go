@@ -3,6 +3,7 @@ package res_init
 import (
 	stdcontext "context"
 	"crypto/tls"
+	"errors"
 	"net/textproto"
 	"slices"
 	"time"
@@ -57,7 +58,9 @@ func Init(serverVersion string) {
 		if err := db.InitStartup(serverVersion, true); err != nil {
 			panic(err)
 		}
-		if err := ensureMailDomain(serverVersion); err != nil {
+		if err := ensureMailDomain(func() error {
+			return http_server.DomainSetup(serverVersion, saveMailDomain)
+		}); err != nil {
 			panic(err)
 		}
 		if !config.IsInit {
@@ -242,7 +245,7 @@ func startTLSListeners(cert tls.Certificate) {
 // ensureMailDomain lets PMail start without PMAIL_DOMAIN. An existing
 // database keeps its default domain; a fresh install waits on the first-run
 // page until an administrator with the registration key enters the domain.
-func ensureMailDomain(serverVersion string) error {
+func ensureMailDomain(interactive func() error) error {
 	if config.Instance.Domain != "" {
 		return nil
 	}
@@ -252,7 +255,14 @@ func ensureMailDomain(serverVersion string) error {
 		return err
 	}
 	if !found {
-		if err := http_server.DomainSetup(serverVersion, saveMailDomain); err != nil {
+		hasUsers, err := db.Instance.Exist(&models.User{})
+		if err != nil {
+			return err
+		}
+		if hasUsers {
+			return errors.New("existing users but no mail domains: configure the original domain with PMAIL_DOMAIN before upgrading")
+		}
+		if err := interactive(); err != nil {
 			return err
 		}
 		return config.Init()
@@ -268,12 +278,14 @@ func ensureMailDomain(serverVersion string) error {
 	return nil
 }
 
-func saveMailDomain(mailDomain, webDomain string) error {
+func saveMailDomain(mailDomain string) error {
 	stored, err := config.ReadConfig()
 	if err != nil {
 		return err
 	}
 	stored.Domain = mailDomain
-	stored.WebDomain = webDomain
+	// Fresh configurations start in proxy mode without a PMAIL_WEB_MODE
+	// override. Keep that default once the persisted domain is no longer blank.
+	stored.HttpsEnabled = 2
 	return config.WriteConfig(stored)
 }

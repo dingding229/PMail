@@ -13,7 +13,7 @@ const result = await build({
       import { RegisterPage } from './src/features/auth/RegisterPage'
       import { queryKeys } from './src/hooks/useMailQueries'
       import { ThemeProvider } from './src/lib/ThemeProvider'
-      export { guessMailDomain, DOMAIN_PATTERN } from './src/features/auth/mailDomain'
+      export { guessMailDomain, DOMAIN_PATTERN, waitForDomainSetup } from './src/features/auth/mailDomain'
 
       export function renderRegistration(bootstrap) {
         const client = new QueryClient()
@@ -40,7 +40,7 @@ const result = await build({
   banner: { js: `import { createRequire } from 'node:module'; const require = createRequire(${JSON.stringify(import.meta.url)});` },
   write: false,
 })
-const { renderRegistration, guessMailDomain, DOMAIN_PATTERN } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`)
+const { renderRegistration, guessMailDomain, DOMAIN_PATTERN, waitForDomainSetup } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`)
 const anonymous = {
   version: 'dev',
   need_register: true,
@@ -78,4 +78,31 @@ test('mail domain is guessed from the address bar', () => {
   assert.ok(DOMAIN_PATTERN.test('xn--fiqs8s.xn--fiqs8s'))
   assert.ok(!DOMAIN_PATTERN.test('mail'))
   assert.ok(!DOMAIN_PATTERN.test('http://x.cc'))
+  assert.ok(!DOMAIN_PATTERN.test('x.a-'))
+})
+
+
+test('first-run polling requires a normal bootstrap and tolerates the listener handoff', async () => {
+  const ready = { ...anonymous, need_register: false, primary_domain: 'example.test' }
+  let calls = 0
+  const result = await waitForDomainSetup(async () => {
+    switch (++calls) {
+      case 1: throw new Error('listener unavailable')
+      case 2: return '<html>Proxy welcome page</html>'
+      case 3: return null
+      case 4: return { ...anonymous, need_domain: true }
+      default: return ready
+    }
+  }, { intervalMs: 0 })
+  assert.equal(result, ready)
+  assert.equal(calls, 5)
+})
+
+test('first-run polling aborts an unresponsive bootstrap and times out', async () => {
+  let aborts = 0
+  const result = await waitForDomainSetup((signal) => new Promise((resolve, reject) => {
+    signal.addEventListener('abort', () => { aborts++; reject(signal.reason) }, { once: true })
+  }), { timeoutMs: 150, intervalMs: 500, requestMs: 5 })
+  assert.equal(result, undefined)
+  assert.equal(aborts, 1)
 })

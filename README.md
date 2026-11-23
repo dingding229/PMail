@@ -2,7 +2,7 @@
 
 ![版本 0.0.3](https://img.shields.io/badge/PMail%20Pro-0.0.3-2563eb)
 
-PMail Pro 是一套可以自己部署的邮件服务，基于 [Jinnrry/PMail](https://github.com/Jinnrry/PMail)。一个 Docker Compose 文件就能跑起来，不需要填写任何配置。
+PMail Pro 是一套可以自己部署的邮件服务，基于 [Jinnrry/PMail](https://github.com/Jinnrry/PMail)。一个 Docker Compose 文件就能启动，邮件域名可在首次打开网页时设置。
 
 ## 功能
 
@@ -32,11 +32,12 @@ curl -fsSLO https://raw.githubusercontent.com/dingding229/PMail/master/docker-co
 docker compose up -d
 ```
 
-不用改文件，也不用写 `.env`。
+启动容器不需要 `.env`；在 HTTPS 反代之后访问网页时，按下一步配置可信代理。
 
 ### 3. 打开网页完成设置
 
 1. **配置反向代理。** 在 Nginx Proxy Manager（NPM）中新建代理主机 `mail.example.com`，转发到 `http://172.17.0.1:8080`，并申请 SSL 证书。不用 NPM 的话，见 [不用反向代理](#不用反向代理)。
+   在 `.env` 设置 `PMAIL_TRUSTED_PROXIES` 为 PMail 实际看到的反代地址（IPv4 用 `/32`，IPv6 用 `/128`），然后运行 `docker compose up -d`。不要信任整段 Docker 私网或对公网开放反代上游端口。自定义网页主机名（不是 `mail.<邮件域名>`）时，也请设置 `PMAIL_WEB_DOMAIN`；服务不会根据请求 `Host` 自动保存网页主机名。
 2. **读取注册密钥：**
 
    ```bash
@@ -88,7 +89,7 @@ docker compose up -d
 
 > ⚠️ 不要执行 `docker compose down -v`。它会删除所有邮件、账号和 DKIM 密钥。
 
-备份、回滚和网页一键更新，见 [进阶说明](docs/ADVANCED.md)。
+备份、回滚和网页一键更新，见 [进阶说明](docs/ADVANCED.md)。替换旧 Compose 文件前，核对项目名和已有卷，见 [升级说明](docs/UPGRADE.md#从-v002--v003-升级)。
 
 ## 不用反向代理
 
@@ -98,6 +99,8 @@ docker compose up -d
 curl -fsSL https://raw.githubusercontent.com/dingding229/PMail/master/docker-compose.public.yml -o docker-compose.override.yml
 docker compose up -d
 ```
+
+公网覆盖文件需要 Compose 2.24.4 或更新版本。直连无需配置可信代理；请不要通过公网明文 HTTP 提交注册密钥或管理员密码。可先在 `.env` 填写 `PMAIL_DOMAIN`，设置 DNS 并等 PMail 的 HTTPS 证书就绪，再访问网页注册。
 
 ## 常见问题
 
@@ -111,7 +114,7 @@ docker compose up -d
 `smtp`、`imap`、`pop` 的 DNS 要直接指向服务器。执行 `docker compose logs pmail | grep -i certificate`，日志会说明哪个名字没有指向本机。
 
 **点退出登录没反应，或者操作时提示“请求来源被拒绝”**
-反向代理不在本机 Docker 上时，需要在 `.env` 里写上 `PMAIL_TRUSTED_PROXIES=<反代的 IP>`，再执行 `docker compose up -d`。
+即使反代在同一台 Docker 主机上，也要显式配置 `PMAIL_TRUSTED_PROXIES`；反代需保留 `Host` 并覆盖 `X-Forwarded-Proto`。检查 `docker compose logs pmail` 中的实际代理对端地址，设置其 `/32` 或 `/128`，再执行 `docker compose up -d`。
 
 **发出的信进了垃圾箱**
 用 DNS 向导检查 SPF、DKIM、DMARC 是否都已生效，并设置 PTR。

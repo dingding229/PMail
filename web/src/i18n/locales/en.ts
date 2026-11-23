@@ -108,6 +108,9 @@ const en = {
     errors: {
       registrationKeyInvalid: 'Incorrect registration key. Please check it and try again',
       domainInvalid: 'Invalid mail domain',
+      invalidSetupRequest: 'Invalid setup request',
+      domainAlreadyConfigured: 'The mail domain was already set. Refresh the page to continue',
+      registrationRateLimit: 'Too many registration attempts. Try again in 10 minutes',
       domainSetupTimeout: 'Services took too long to start. Refresh the page and try again',
     },
 
