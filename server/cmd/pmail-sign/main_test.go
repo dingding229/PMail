@@ -30,6 +30,16 @@ func TestSignWithPairedEphemeralKey(t *testing.T) {
 	if err := sign("v0.0.4", dir, "not a seed", public); err == nil {
 		t.Fatal("invalid secret accepted")
 	}
+	mismatched := append(ed25519.PublicKey(nil), public...)
+	mismatched[0] ^= 1
+	if err := sign("v0.0.4", dir, seed, mismatched); err == nil {
+		t.Fatal("mismatched signing key accepted")
+	}
+	for _, name := range []string{releasebundle.Checksums, releasebundle.Signature} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("rejected signing attempt must not create %s: %v", name, err)
+		}
+	}
 	if err := sign("v0.0.4", dir, seed, public); err != nil {
 		t.Fatal(err)
 	}

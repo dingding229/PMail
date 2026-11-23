@@ -13,9 +13,8 @@ import (
 	"strings"
 )
 
-// PublicKeyBase64 is provisioned by the release maintainer before tagging.
-// An empty value disables self-update and prevents publishing signed releases.
-const PublicKeyBase64 = ""
+// PublicKeyBase64 contains the public Ed25519 key used to verify PMail releases.
+const PublicKeyBase64 = "lMoV5lIfRnex/cjimFqsdWN9f/LtLsk+GPBMKIC8Bik="
 
 const Checksums = "checksums.txt"
 const Signature = "checksums.txt.sig"
