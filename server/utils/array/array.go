@@ -25,7 +25,7 @@ func Unique[T comparable](slice []T) []T {
 		mp[v] = true
 	}
 	ret := []T{}
-	for t, _ := range mp {
+	for t := range mp {
 		ret = append(ret, t)
 	}
 	return ret
@@ -36,13 +36,8 @@ func Merge[T any](slice1, slice2 []T) []T {
 	s1Len := len(slice1)
 
 	slice3 := make([]T, s1Len+len(slice2))
-	for i, t := range slice1 {
-		slice3[i] = t
-	}
-
-	for i, t := range slice2 {
-		slice3[s1Len+i] = t
-	}
+	copy(slice3, slice1)
+	copy(slice3[s1Len:], slice2)
 
 	return slice3
 }

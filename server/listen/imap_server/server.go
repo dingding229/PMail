@@ -5,7 +5,6 @@ import (
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/id"
 	"github.com/emersion/go-imap/v2"
-	"sync"
 	"time"
 
 	"github.com/emersion/go-imap/v2/imapserver"
@@ -15,7 +14,6 @@ import (
 //
 // A server contains a list of users.
 type Server struct {
-	mutex sync.Mutex
 }
 
 // NewServer creates a new server.

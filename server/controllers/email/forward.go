@@ -114,37 +114,9 @@ func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request
 		return
 	}
 	e.MessageId = int64(modelEmail.Id)
-	deliveryErr, results := send.Send(ctx, e)
-	status := consts.EmailStatusSent
-	statusText := "sent"
-	out := make([]map[string]any, 0, len(append(append([]*parsemail.User{}, to...), cc...)))
-	delivered, queued := 0, 0
-	for _, recipient := range append(append([]*parsemail.User{}, to...), cc...) {
-		err, ok := results[recipient.EmailAddress]
-		item := map[string]any{"address": recipient.EmailAddress, "status": "delivered", "error": ""}
-		if ok && stderrors.Is(err, queue.ErrQueued) {
-			item["status"] = "queued"
-			queued++
-		} else if ok && err != nil {
-			item["status"] = "failed"
-			item["error"] = i18n.Delivery(ctx, "delivery_detail", err.Error())
-		} else {
-			delivered++
-		}
-		out = append(out, item)
-	}
-	if queued > 0 {
-		status = consts.EmailStatusDeliveryPending
-		statusText = "queued"
-	}
-	if delivered+queued == 0 || deliveryErr != nil && delivered+queued == 0 {
-		status = consts.EmailStatusFail
-		statusText = "failed"
-	}
-	if _, err := db.Instance.Table(&models.Email{}).ID(modelEmail.Id).Cols("status", "error").Update(map[string]any{"status": status, "error": errorString(deliveryErr)}); err != nil {
-		log.Errorf("update forwarded email %d failed: %v", modelEmail.Id, err)
-	}
-	if errorText := errorString(deliveryErr); errorText != "" {
+	results, deliveryErr := send.Send(ctx, e)
+	result := summarizeDelivery(ctx, append(append([]*parsemail.User{}, to...), cc...), results, deliveryErr)
+	if errorText := errorString(result.firstFailure); errorText != "" {
 		if _, err := db.Instance.Table(&models.Email{}).ID(modelEmail.Id).Cols("error").Update(map[string]any{"error": errorText}); err != nil {
 			log.Errorf("update forwarded email %d error failed: %v", modelEmail.Id, err)
 		}
@@ -152,8 +124,7 @@ func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request
 	if err := queue.ReconcileParent(modelEmail.Id, ctx.UserID); err != nil {
 		log.Errorf("reconcile forwarded parent %d failed: %v", modelEmail.Id, err)
 	}
-	result := map[string]any{"status": statusText, "recipients": out}
-	if delivered+queued == 0 {
+	if result.Status == "failed" {
 		response.NewErrorResponse(response.ServerError, i18n.T(ctx, "forward_failed"), result).FPrint(w)
 		return
 	}

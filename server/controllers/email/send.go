@@ -234,48 +234,10 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	e.MessageId = cast.ToInt64(modelEmail.Id)
 	e.MsgID = modelEmail.MsgID
 
-	deliveryErr, deliveryResults := send.Send(ctx, e)
-	allRecipients := append(append(append([]*parsemail.User{}, e.To...), e.Cc...), e.Bcc...)
-	recipientsResult := make([]map[string]any, 0, len(allRecipients))
-	delivered, queued, failed := 0, 0, 0
-	var firstFailure error
-	for _, recipient := range allRecipients {
-		deliveryResult, exists := deliveryResults[recipient.EmailAddress]
-		status := "delivered"
-		errorText := ""
-		switch {
-		case exists && stderrors.Is(deliveryResult, queue.ErrQueued):
-			status = "queued"
-			queued++
-		case exists && deliveryResult != nil:
-			status = "failed"
-			errorText = deliveryResult.Error()
-			failed++
-			if firstFailure == nil {
-				firstFailure = deliveryResult
-			}
-		default:
-			delivered++
-		}
-		recipientsResult = append(recipientsResult, map[string]any{"address": recipient.EmailAddress, "status": status, "error": i18n.Delivery(ctx, "delivery_detail", errorText)})
-	}
-	if deliveryErr != nil && firstFailure == nil {
-		firstFailure = deliveryErr
-	}
-	if delivered+queued == 0 {
-		failed = len(allRecipients)
-	}
-	statusText := "sent"
-	if queued > 0 && delivered+queued > 0 {
-		statusText = "queued"
-	}
-	if delivered+queued == 0 {
-		statusText = "failed"
-	}
-	errorValue := ""
-	if firstFailure != nil {
-		errorValue = firstFailure.Error()
-	}
+	deliveryResults, deliveryErr := send.Send(ctx, e)
+	recipients := append(append(append([]*parsemail.User{}, e.To...), e.Cc...), e.Bcc...)
+	result := summarizeDelivery(ctx, recipients, deliveryResults, deliveryErr)
+	errorValue := errorString(result.firstFailure)
 	if errorValue != "" {
 		if _, err := db.Instance.Table(&models.Email{}).ID(modelEmail.Id).Cols("error").Update(map[string]any{"error": errorValue}); err != nil {
 			log.WithContext(ctx).Errorf("sql Error :%+v", err)
@@ -284,8 +246,7 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	if err := queue.ReconcileParent(modelEmail.Id, ctx.UserID); err != nil {
 		log.WithContext(ctx).Errorf("reconcile parent failed: %v", err)
 	}
-	result := map[string]any{"status": statusText, "recipients": recipientsResult}
-	if delivered+queued == 0 {
+	if result.Status == "failed" {
 		response.NewErrorResponse(response.ServerError, i18n.T(ctx, "send_fail"), result).FPrint(w)
 		return
 	}

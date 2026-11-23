@@ -58,9 +58,9 @@ func (as *Async) Wait() {
 
 // HandleErrRecover panic恢复处理
 func (as *Async) HandleErrRecover(err interface{}) (returnErr error) {
-	switch err.(type) {
+	switch err := err.(type) {
 	case error:
-		returnErr = err.(error)
+		returnErr = err
 	default:
 		returnErr = errors.New(cast.ToString(err))
 	}

@@ -74,7 +74,7 @@ func Init(serverVersion string) {
 		parsemail.Init()
 		send.SetLocalDelivery(smtp_server.LocalDelivery)
 		queue.SetExternalDelivery(func(deliveryCtx *context.Context, mailFrom string, raw []byte, recipient string) error {
-			err, errorsByDomain := send.External(deliveryCtx, domain.DefaultName(), mailFrom, raw, []*parsemail.User{{EmailAddress: recipient}})
+			errorsByDomain, err := send.External(deliveryCtx, domain.DefaultName(), mailFrom, raw, []*parsemail.User{{EmailAddress: recipient}})
 			if err != nil {
 				for _, deliveryErr := range errorsByDomain {
 					if deliveryErr != nil {
@@ -88,7 +88,7 @@ func Init(serverVersion string) {
 			if recipient == nil {
 				return address.ErrInvalid
 			}
-			localErr, _ := smtp_server.LocalDelivery(deliveryCtx, email, []*parsemail.User{recipient})
+			_, localErr := smtp_server.LocalDelivery(deliveryCtx, email, []*parsemail.User{recipient})
 			return localErr
 		})
 		queue.SetBounceHandler(func(deliveryCtx *context.Context, row models.OutboundQueue) {

@@ -155,11 +155,11 @@ func ImportExternal(ctx *context.Context, raw []byte, recipient string, targetGr
 
 // LocalDelivery is shared by SMTP submission and Web send to keep local mail
 // on the same persistence/rule/hook path as SMTP 25 receive.
-func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*parsemail.User) (error, map[string]error) {
+func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*parsemail.User) (map[string]error, error) {
 	var first error
 	errs := map[string]error{}
 	if len(recipients) == 0 {
-		return nil, errs
+		return errs, nil
 	}
 	accepted := 0
 	raw := email.RawData
@@ -167,7 +167,7 @@ func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*p
 		var err error
 		raw, err = email.BuildBytes(ctx, false)
 		if err != nil {
-			return err, errs
+			return errs, err
 		}
 	}
 	// Web/authenticated local submission persists one row per recipient for
@@ -224,9 +224,9 @@ func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*p
 	// local delivery remains accepted and is reported through the per-address
 	// error map instead of making accepted recipients retry.
 	if accepted > 0 {
-		return nil, errs
+		return errs, nil
 	}
-	return first, errs
+	return errs, first
 }
 
 func processIncomingDelivery(ctx *context.Context, email *parsemail.Email, dbEmail *models.Email, users []*models.User, emailData []byte, delivery ...*inboundDelivery) {
@@ -311,7 +311,7 @@ func (s *Session) Data(r io.Reader) error {
 		}
 		if !ctx.IsAdmin {
 			if _, err := address.SendAddress(ctx.UserID, email.From.EmailAddress); err != nil {
-				return oerrors.New("No Auth")
+				return oerrors.New("sender address is not authorized")
 			}
 		}
 

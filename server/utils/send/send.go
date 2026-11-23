@@ -19,7 +19,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type LocalDeliveryFunc func(*context.Context, *parsemail.Email, []*parsemail.User) (error, map[string]error)
+type LocalDeliveryFunc func(*context.Context, *parsemail.Email, []*parsemail.User) (map[string]error, error)
 
 var localDelivery LocalDeliveryFunc
 
@@ -55,7 +55,7 @@ func ForwardRaw(ctx *context.Context, e *parsemail.Email, rawEmailData []byte, f
 	return forward.EnqueueForUser(ctx, user.ID, e, rawEmailData, forwardAddress)
 }
 
-func Send(ctx *context.Context, e *parsemail.Email) (error, map[string]error) {
+func Send(ctx *context.Context, e *parsemail.Email) (map[string]error, error) {
 	// Capture the sender's audit row before local delivery. saveEmail assigns a
 	// new MessageId to each local copy, so queue rows must never derive their
 	// parent id from the mutable delivery email after local persistence.
@@ -64,7 +64,7 @@ func Send(ctx *context.Context, e *parsemail.Email) (error, map[string]error) {
 	// the authoritative size for local quota accounting and persisted records.
 	data, err := e.BuildBytes(ctx, true)
 	if err != nil {
-		return err, nil
+		return nil, err
 	}
 	e.Size = len(data)
 	all := append(append(append([]*parsemail.User{}, e.To...), e.Cc...), e.Bcc...)
@@ -83,15 +83,15 @@ func Send(ctx *context.Context, e *parsemail.Email) (error, map[string]error) {
 		var err error
 		var localErrors map[string]error
 		if localDelivery == nil {
-			return errors.New("local delivery handler is unavailable"), deliveryErrors
+			return deliveryErrors, errors.New("local delivery handler is unavailable")
 		}
 		localEmail := *e
-		err, localErrors = localDelivery(ctx, &localEmail, local)
+		localErrors, err = localDelivery(ctx, &localEmail, local)
 		for _, recipient := range local {
 			if deliveryErr, failed := localErrors[recipient.EmailAddress]; failed {
 				deliveryErrors[recipient.EmailAddress] = deliveryErr
 			} else {
-				deliveryErrors[recipient.EmailAddress] = nil
+				deliveryErrors[recipient.EmailAddress] = err
 			}
 		}
 		if err != nil {
@@ -109,17 +109,17 @@ func Send(ctx *context.Context, e *parsemail.Email) (error, map[string]error) {
 		}
 		deliveryErrors[recipient.EmailAddress] = queue.ErrQueued
 	}
-	return first, deliveryErrors
+	return deliveryErrors, first
 }
 
-func External(ctx *context.Context, fromDomain, envelope string, raw []byte, recipients []*parsemail.User) (error, map[string]error) {
+func External(ctx *context.Context, fromDomain, envelope string, raw []byte, recipients []*parsemail.User) (map[string]error, error) {
 	return doSend(ctx, fromDomain, raw, recipients, envelope)
 }
 
-func doSend(ctx *context.Context, fromDomain string, data []byte, to []*parsemail.User, from string) (error, map[string]error) {
+func doSend(ctx *context.Context, fromDomain string, data []byte, to []*parsemail.User, from string) (map[string]error, error) {
 	p, err := outboundPolicy()
 	if err != nil {
-		return err, map[string]error{"policy": err}
+		return map[string]error{"policy": err}, err
 	}
 	base := stdctx.Background()
 	if ctx != nil && ctx.Context != nil {
@@ -151,9 +151,9 @@ func doSend(ctx *context.Context, fromDomain string, data []byte, to []*parsemai
 		}
 	}
 	if len(failures) > 0 {
-		return fmt.Errorf("delivery failed for %s", array.Join(failAddrs, ",")), failures
+		return failures, fmt.Errorf("delivery failed for %s", array.Join(failAddrs, ","))
 	}
-	return nil, failures
+	return failures, nil
 }
 
 func isPermanentSMTPResponse(err error) bool {

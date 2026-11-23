@@ -8,7 +8,7 @@ import (
 
 func New(text string) error {
 	_, file, line, _ := runtime.Caller(1)
-	return oe.New(fmt.Sprintf("%s at %s:%d", text, file, line))
+	return fmt.Errorf("%s at %s:%d", text, file, line)
 }
 
 func Wrap(err error) error {

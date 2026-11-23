@@ -12,7 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"strings"
 )
-import . "xorm.io/builder"
+import "xorm.io/builder"
 
 func GetEmailList(ctx *context.Context, tagInfo dto.SearchTag, keyword string, pop3List bool, offset, limit int) (emailList []*response.EmailResponseData, total int64) {
 	return getList(ctx, tagInfo, keyword, pop3List, offset, limit)
@@ -247,7 +247,7 @@ func getEmailListByUidList(ctx *context.Context, groupName string, req ImapListR
 		emailIds = append(emailIds, email.EmailID)
 	}
 
-	_ = db.Instance.Table("email").Select("*").Where(Eq{"id": emailIds}).Find(&ret)
+	_ = db.Instance.Table("email").Select("*").Where(builder.Eq{"id": emailIds}).Find(&ret)
 	for i, data := range ret {
 		ret[i].IsRead = ueMap[data.Id].IsRead
 		ret[i].IsStarred = ueMap[data.Id].IsStarred
@@ -313,7 +313,7 @@ func GetEmailListByGroup(ctx *context.Context, groupName string, req ImapListReq
 		emailIds = append(emailIds, email.EmailID)
 	}
 
-	_ = db.Instance.Table("email").Select("*").Where(Eq{"id": emailIds}).Find(&ret)
+	_ = db.Instance.Table("email").Select("*").Where(builder.Eq{"id": emailIds}).Find(&ret)
 	for i, data := range ret {
 		ret[i].IsRead = ueMap[data.Id].IsRead
 		ret[i].IsStarred = ueMap[data.Id].IsStarred

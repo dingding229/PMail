@@ -163,15 +163,14 @@ func TestDraftRemainsAfterFailureAndIsRemovedAfterAcceptedSend(t *testing.T) {
 	id, _ := json.Marshal(saved.ID)
 	body := `{"draft_id":` + string(id) + `,"to":[{"email":"owner@example.test"}],"subject":"send draft","text":"content"}`
 	failed := true
-	send.SetLocalDelivery(func(_ *context.Context, email *parsemail.Email, _ []*parsemail.User) (error, map[string]error) {
+	send.SetLocalDelivery(func(_ *context.Context, email *parsemail.Email, _ []*parsemail.User) (map[string]error, error) {
 		if len(email.Attachments) != 1 || email.Attachments[0].Filename != "a.py" {
 			t.Error("saved draft attachment missing")
 		}
 		if failed {
-			err := errors.New("fixture rejected message")
-			return err, map[string]error{"owner@example.test": err}
+			return nil, errors.New("fixture transport unavailable")
 		}
-		return nil, map[string]error{"owner@example.test": nil}
+		return map[string]error{"owner@example.test": nil}, nil
 	})
 	t.Cleanup(func() { send.SetLocalDelivery(nil) })
 	if _, code, _ := callCompose(t, Send, owner, body); code == 0 {

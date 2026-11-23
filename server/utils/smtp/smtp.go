@@ -33,8 +33,7 @@ import (
 	"time"
 )
 
-var NoSupportSTARTTLSError = errors.New("smtp: server doesn't support STARTTLS")
-var EOFError = errors.New("EOF")
+var ErrSTARTTLSUnsupported = errors.New("smtp: server doesn't support STARTTLS")
 
 const outboundSMTPQuitWriteTimeout = 250 * time.Millisecond
 
@@ -445,7 +444,7 @@ func SendMail(domain string, addr string, a smtp.Auth, from string, fromDomain s
 		return err
 	}
 	if ok, _ := c.Extension("STARTTLS"); !ok {
-		return NoSupportSTARTTLSError
+		return ErrSTARTTLSUnsupported
 	}
 
 	var config *tls.Config

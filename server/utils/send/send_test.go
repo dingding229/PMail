@@ -122,9 +122,9 @@ func TestSendMixedDeliveryKeepsOutboundQueueParentID(t *testing.T) {
 
 	oldDelivery := localDelivery
 	defer func() { localDelivery = oldDelivery }()
-	localDelivery = func(_ *pcontext.Context, email *parsemail.Email, _ []*parsemail.User) (error, map[string]error) {
+	localDelivery = func(_ *pcontext.Context, email *parsemail.Email, _ []*parsemail.User) (map[string]error, error) {
 		email.MessageId = 999999
-		return nil, map[string]error{}
+		return map[string]error{}, nil
 	}
 	mail := &parsemail.Email{
 		MessageId: int64(parent.Id),
@@ -137,7 +137,7 @@ func TestSendMixedDeliveryKeepsOutboundQueueParentID(t *testing.T) {
 		Text:    []byte("body"),
 	}
 	ctx := &pcontext.Context{Context: stdcontext.Background(), UserID: user.ID}
-	if _, results := Send(ctx, mail); results["remote@example.net"] == nil {
+	if results, _ := Send(ctx, mail); results["remote@example.net"] == nil {
 		t.Fatal("external recipient was not queued")
 	}
 	var row models.OutboundQueue

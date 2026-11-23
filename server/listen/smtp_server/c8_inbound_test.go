@@ -74,7 +74,7 @@ func TestSMTPAndExternalPersistSharedAndOwnerAnalysis(t *testing.T) {
 		t.Fatal(err)
 	}
 	local.RawData = []byte(wire)
-	if err, perAddress := LocalDelivery(&context.Context{Context: ctx, UserID: a.ID}, local, []*parsemail.User{{EmailAddress: "b@example.test"}}); err != nil || len(perAddress) > 0 {
+	if perAddress, err := LocalDelivery(&context.Context{Context: ctx, UserID: a.ID}, local, []*parsemail.User{{EmailAddress: "b@example.test"}}); err != nil || len(perAddress) > 0 {
 		t.Fatalf("local: %v %v", err, perAddress)
 	}
 	var last models.Email

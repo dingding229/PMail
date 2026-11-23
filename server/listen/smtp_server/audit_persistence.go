@@ -1,13 +1,10 @@
 package smtp_server
 
 import (
-	"database/sql"
 	"encoding/json"
 	stderrors "errors"
-	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/consts"
@@ -29,7 +26,7 @@ import (
 
 const deliveryPendingError = "delivery result pending; outcome unknown after interruption"
 
-type outgoingSender func(*context.Context, *parsemail.Email) (error, map[string]error)
+type outgoingSender func(*context.Context, *parsemail.Email) (map[string]error, error)
 
 func (s *Session) deliverOutgoingEmail(email *parsemail.Email, sender outgoingSender) error {
 	ctx := s.Ctx
@@ -50,7 +47,7 @@ func (s *Session) deliverOutgoingEmail(email *parsemail.Email, sender outgoingSe
 		return localPersistenceSMTPError()
 	}
 
-	deliveryErr, domainErrors := sender(ctx, email)
+	domainErrors, deliveryErr := sender(ctx, email)
 
 	var errorText string
 	if deliveryErr != nil {
@@ -76,50 +73,6 @@ func (s *Session) deliverOutgoingEmail(email *parsemail.Email, sender outgoingSe
 	// duplicate delivery. The persistence failure is retained as pending state
 	// and a CRITICAL log; the SMTP result must still reflect the remote result.
 	return downstreamDeliverySMTPError(deliveryErr, domainErrors)
-}
-
-func hasQueuedRecipients(results map[string]error) bool {
-	for _, err := range results {
-		if stderrors.Is(err, queue.ErrQueued) {
-			return true
-		}
-	}
-	return false
-}
-
-func persistDeliveryResult(ctx *context.Context, emailID int, status int8, errorText any) error {
-	if text, ok := errorText.(string); ok && strings.TrimSpace(text) == "" {
-		errorText = nil
-	}
-	return db.Transaction(db.Instance, func(session *xorm.Session) error {
-		result, err := session.Exec(db.WithContext(ctx, `update email
-			set status=?, error=?, update_time=?
-			where id=?`), status, errorText, time.Now(), emailID)
-		if err != nil {
-			return err
-		}
-		if err = requireOneAffected(result, "update email delivery result"); err != nil {
-			return err
-		}
-
-		result, err = session.Exec(db.WithContext(ctx, `update user_email
-			set status=? where email_id=?`), status, emailID)
-		if err != nil {
-			return err
-		}
-		return requireOneAffected(result, "update user_email delivery result")
-	})
-}
-
-func requireOneAffected(result sql.Result, operation string) error {
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("%s: read affected rows: %w", operation, err)
-	}
-	if affected != 1 {
-		return fmt.Errorf("%s: affected %d rows, want 1", operation, affected)
-	}
-	return nil
 }
 
 func quotaSMTPError() error {

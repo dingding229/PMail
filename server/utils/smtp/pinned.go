@@ -71,7 +71,7 @@ func SendPinned(ctx context.Context, conn net.Conn, mx, from, fromDomain string,
 			return fmt.Errorf("%w: %v", ErrTLSNegotiation, err)
 		}
 	} else if mode == VerifySTARTTLS {
-		return fmt.Errorf("%w: %v", ErrTLSNegotiation, NoSupportSTARTTLSError)
+		return fmt.Errorf("%w: %v", ErrTLSNegotiation, ErrSTARTTLSUnsupported)
 	}
 	if err = phase(5 * time.Second); err != nil {
 		return err

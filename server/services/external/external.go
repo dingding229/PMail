@@ -351,7 +351,7 @@ func syncIMAP(ctx context.Context, account models.ExternalAccount, password stri
 		if folder == "" {
 			continue
 		}
-		selected, err := client.Select(folder, &imap.SelectOptions{ReadOnly: account.DeleteRemote == false}).Wait()
+		selected, err := client.Select(folder, &imap.SelectOptions{ReadOnly: !account.DeleteRemote}).Wait()
 		if err != nil {
 			return err
 		}
@@ -580,12 +580,6 @@ func seen(accountID int, folder string, uidValidity, uid uint64, uidl string) bo
 	return ok
 }
 
-func seenMessage(accountID int, messageID string) bool {
-	var row models.ExternalSeen
-	ok, _ := db.Instance.Where("account_id=? AND message_id=? AND status=?", accountID, messageID, "done").Get(&row)
-	return ok
-}
-
 func beginSeen(accountID int, folder string, uidValidity, uid uint64, uidl, mid string) (bool, error) {
 	var row models.ExternalSeen
 	found, err := db.Instance.Where("account_id=? AND folder=? AND uidvalidity=? AND uid=? AND uidl=?", accountID, folder, int64(uidValidity), int64(uid), uidl).Get(&row)
@@ -602,11 +596,6 @@ func beginSeen(accountID int, folder string, uidValidity, uid uint64, uidl, mid 
 	}
 	_, err = db.Instance.Insert(&models.ExternalSeen{AccountID: accountID, Folder: folder, UIDValidity: int64(uidValidity), UID: int64(uid), UIDL: uidl, MessageID: mid, Status: "pending", Created: time.Now()})
 	return false, err
-}
-
-func finishSeen(accountID int, folder string, uidValidity, uid uint64, uidl, mid string) error {
-	_, err := db.Instance.Table(&models.ExternalSeen{}).Where("account_id=? AND folder=? AND uidvalidity=? AND uid=? AND uidl=?", accountID, folder, int64(uidValidity), int64(uid), uidl).Cols("status", "message_id").Update(map[string]any{"status": "done", "message_id": mid})
-	return err
 }
 
 func deleteSeen(accountID int, folder string, uidValidity, uid uint64, uidl string) error {
@@ -894,8 +883,7 @@ func syncErrOrDB(original, dbErr error) error {
 	}
 	return original
 }
-func ptrTime(t time.Time) *time.Time { return &t }
-func getenv(key string) string       { return os.Getenv(key) }
+func getenv(key string) string { return os.Getenv(key) }
 
 func readIMAPMail(msg *imapclient.FetchMessageData) (imap.UID, []byte, error) {
 	var uid imap.UID

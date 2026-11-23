@@ -11,7 +11,6 @@ import (
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/group"
-	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/services/rule/match"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
@@ -122,29 +121,6 @@ func doForward(ctx *context.Context, email *parsemail.Email, forwardAddress stri
 		}
 	}
 	return nil
-}
-
-func forwardToLocalUser(ctx *context.Context, email *parsemail.Email, account, forwardAddress string) error {
-	if email.MessageId <= 0 {
-		return fmt.Errorf("email has not been saved before local forwarding")
-	}
-
-	var user models.User
-	has, err := db.Instance.Table(&models.User{}).
-		Where("LOWER(account)=LOWER(?) and disabled=0", account).
-		Get(&user)
-	if err != nil {
-		return err
-	}
-	if !has {
-		return fmt.Errorf("local forward user not found: %s", forwardAddress)
-	}
-
-	return quota.EnsureLink(user.ID, int(email.MessageId), int8(email.Status))
-}
-
-func isLocalDomain(domainName string) bool {
-	return domain.IsLocal(domainName)
 }
 
 func doMove(ctx *context.Context, r *dto.Rule, email *parsemail.Email, user *models.User) {

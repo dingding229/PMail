@@ -244,12 +244,6 @@ func GetGroupList(ctx *context.Context) []*models.Group {
 	return ret
 }
 
-func hasChildren(ctx *context.Context, id int) bool {
-	var parent []*models.Group
-	db.Instance.Table("group").Where("parent_id=?", id).Find(&parent)
-	return len(parent) > 0
-}
-
 func IsDefaultBox(box string) bool {
 	return array.InArray(box, []string{"INBOX", "Sent Messages", "Drafts", "Deleted Messages", "Junk"})
 }

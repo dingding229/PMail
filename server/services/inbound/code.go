@@ -178,7 +178,7 @@ func subjectOnlyCode(subject, body string) (codeHit, bool) {
 	var matches []string
 	for line := range strings.SplitSeq(body, "\n") {
 		found := subjectFallbackLine.FindStringSubmatch(line)
-		if len(found) < 2 || yearToken.MatchString(found[1]) || strings.IndexAny(found[1], "0123456789") < 0 {
+		if len(found) < 2 || yearToken.MatchString(found[1]) || !strings.ContainsAny(found[1], "0123456789") {
 			continue
 		}
 		matches = append(matches, found[1])

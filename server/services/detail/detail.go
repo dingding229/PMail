@@ -15,7 +15,7 @@ import (
 	"os"
 	"strings"
 )
-import . "xorm.io/builder"
+import "xorm.io/builder"
 
 func GetEmailDetail(ctx *context.Context, id int, markRead bool) (*response.EmailResponseData, error) {
 	return getDetail(ctx, id, markRead, false)
@@ -112,7 +112,7 @@ func SetFlags(ctx *context.Context, ids []int, read, starred *bool) error {
 func FindUE(ctx *context.Context, groupName string, req list.ImapListReq, uid bool) []models.UserEmail {
 	var ue []models.UserEmail
 	if uid {
-		err := db.Instance.Where(Eq{"id": req.UidList}).Find(&ue)
+		err := db.Instance.Where(builder.Eq{"id": req.UidList}).Find(&ue)
 		if err != nil {
 			log.WithContext(ctx).Errorf("SQL error:%+v", err)
 		}
