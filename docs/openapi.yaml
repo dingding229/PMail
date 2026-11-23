@@ -54,8 +54,8 @@ paths:
       tags: [Bootstrap]
       summary: Discover UI initialization state
       x-permission: public
-      description: No login is required. A valid cookie or API token supplies the login state and domain names. Uses the
-        same pending state as POST /api/register.
+      description: No login is required. The configured primary mail domain is public; a valid cookie or API token
+        is required to see the full domain list. Uses the same pending state as POST /api/register.
       security:
       - {}
       - {Session: []}
@@ -81,8 +81,7 @@ paths:
     head:
       tags: [Bootstrap]
       x-permission: public
-      description: No login is required. A valid cookie or API token supplies the login state and domain names. Uses the
-        same pending state as POST /api/register.
+      description: No login is required. Returns headers for GET /api/bootstrap without a response body.
       security:
       - {}
       - {Session: []}
@@ -96,7 +95,7 @@ paths:
       summary: Discover UI initialization state (headers only)
       responses:
         '200':
-          description: Unwrapped JSON object on success; a legacy JSON error envelope may still be returned.
+          description: Success (no body).
           headers:
             Cache-Control:
               schema: {const: no-store}
@@ -5598,7 +5597,7 @@ components:
           items: {type: string}
     Bootstrap:
       type: object
-      required: [version, need_register, logged_in, default_lang, web_domain, domains, features]
+      required: [version, need_register, logged_in, default_lang, web_domain, primary_domain, domains, features]
       properties:
         version:
           type: string
@@ -5610,7 +5609,10 @@ components:
             count as existing users. False on the legacy configuration listener before registration is ready.
         logged_in: {type: boolean}
         default_lang: {type: string, default: zh-CN}
-        web_domain: {type: string}
+        web_domain: {type: string, description: Hostname of the web interface.}
+        primary_domain:
+          type: string
+          description: Configured primary mail domain (PMAIL_DOMAIN), available even without a session.
         domains:
           type: array
           items: {type: string}

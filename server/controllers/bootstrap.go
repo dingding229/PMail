@@ -16,13 +16,14 @@ type bootstrapFeatures struct {
 }
 
 type bootstrapResponse struct {
-	Version      string            `json:"version"`
-	NeedRegister bool              `json:"need_register"`
-	LoggedIn     bool              `json:"logged_in"`
-	DefaultLang  string            `json:"default_lang"`
-	WebDomain    string            `json:"web_domain"`
-	Domains      []string          `json:"domains"`
-	Features     bootstrapFeatures `json:"features"`
+	Version       string            `json:"version"`
+	NeedRegister  bool              `json:"need_register"`
+	LoggedIn      bool              `json:"logged_in"`
+	DefaultLang   string            `json:"default_lang"`
+	WebDomain     string            `json:"web_domain"`
+	PrimaryDomain string            `json:"primary_domain"`
+	Domains       []string          `json:"domains"`
+	Features      bootstrapFeatures `json:"features"`
 }
 
 func Bootstrap(version string) HandlerFunc {
@@ -36,17 +37,27 @@ func Bootstrap(version string) HandlerFunc {
 			return
 		}
 		result := bootstrapResponse{
-			Version:      version,
-			NeedRegister: pending,
-			LoggedIn:     ctx.UserID > 0,
-			DefaultLang:  i18n.Default(),
-			WebDomain:    config.Instance.WebDomain,
-			Domains:      []string{},
-			Features:     bootstrapFeatures{RegisterKey: true},
+			Version:       version,
+			NeedRegister:  pending,
+			LoggedIn:      ctx.UserID > 0,
+			DefaultLang:   i18n.Default(),
+			WebDomain:     config.Instance.WebDomain,
+			PrimaryDomain: primaryDomain(),
+			Domains:       []string{},
+			Features:      bootstrapFeatures{RegisterKey: true},
 		}
 		if result.LoggedIn {
 			result.Domains = domain.Names()
 		}
 		_ = json.NewEncoder(w).Encode(result)
 	}
+}
+
+// primaryDomain is the current default mail domain (admins can change it),
+// falling back to the configured PMAIL_DOMAIN before domains are loaded.
+func primaryDomain() string {
+	if name := domain.DefaultName(); name != "" {
+		return name
+	}
+	return config.Instance.Domain
 }

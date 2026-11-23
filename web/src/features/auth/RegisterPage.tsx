@@ -89,7 +89,7 @@ export function RegisterPage() {
 
   const pwdValue = watch('password')
   const pwdScore = scorePassword(pwdValue)
-  const primaryDomain = bootstrap?.domains?.[0] || bootstrap?.web_domain || ''
+  const primaryDomain = bootstrap?.primary_domain
 
   const commandText = t('auth.registerKeyCommand')
 

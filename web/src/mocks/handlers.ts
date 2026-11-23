@@ -6,6 +6,7 @@ import {
   type AdminTelegramStatus,
   type AdminUpdateInfo,
   type ApiTokenItem,
+  type BootstrapResponse,
   type DomainDnsResponse,
   type ExternalAccount,
   type ExternalPreset,
@@ -482,11 +483,12 @@ let mockQueue: QueueItem[] = [
 ]
 
 /* ==================== Domains & DNS Store ==================== */
+const mockPrimaryDomain = 'pmail.dev'
 let nextDomainId = 10
 let mockDomains: MailDomain[] = [
   {
     id: 1,
-    name: 'pmail.dev',
+    name: mockPrimaryDomain,
     is_default: true,
     dkim_selector: 'default',
     created: '2026-09-01T08:00:00Z',
@@ -854,12 +856,13 @@ export const handlers = [
   /** GET /api/bootstrap returns raw unwrapped JSON per docs/openapi.yaml */
   http.get('/api/bootstrap', async () => {
     await delay(35)
-    return HttpResponse.json({
+    return HttpResponse.json<BootstrapResponse>({
       version: mockBuildVersion,
       need_register: needRegister,
       logged_in: loggedIn,
       default_lang: 'zh-CN',
-      web_domain: 'mail.pmail.dev',
+      web_domain: `mail.${mockPrimaryDomain}`,
+      primary_domain: mockPrimaryDomain,
       domains: loggedIn ? mockDomains.map((d) => d.name) : [],
       features: { register_key: true },
     })

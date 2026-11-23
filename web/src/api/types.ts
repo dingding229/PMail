@@ -11,6 +11,7 @@ export interface BootstrapResponse {
   logged_in: boolean
   default_lang: string
   web_domain: string
+  primary_domain: string
   domains: string[]
   features: {
     register_key?: boolean
