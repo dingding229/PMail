@@ -38,6 +38,40 @@ jobs:
         working-directory: server
         run: go test ./...
 
+  static-analysis:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    env:
+      GOTOOLCHAIN: go1.27.4
+      STATICCHECK_VERSION: v0.8.2
+      GOSEC_VERSION: v2.30.0
+      GOVULNCHECK_VERSION: v1.10.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+      - name: Install pinned analyzers
+        run: |
+          # go/packages also invokes Go with GO111MODULE=off for stdlib
+          # ReleaseTags. Use the actual requested toolchain, not a launcher.
+          go_bin="$(go env GOROOT)/bin"
+          export PATH="$go_bin:$PATH"
+          export GOBIN="$RUNNER_TEMP/pmail-analysis-bin"
+          mkdir -p "$GOBIN"
+          printf '%s\n' "$go_bin" "$GOBIN" >> "$GITHUB_PATH"
+          go install "honnef.co/go/tools/cmd/staticcheck@$STATICCHECK_VERSION"
+          go install "github.com/securego/gosec/v2/cmd/gosec@$GOSEC_VERSION"
+          go install "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION"
+      - name: Staticcheck
+        run: staticcheck ./...
+      - name: Gosec (HIGH and MEDIUM)
+        run: gosec -exclude-generated -severity medium ./...
+      - name: Govulncheck
+        run: govulncheck ./...
+
   go-integration:
     runs-on: ubuntu-latest
     container:
