@@ -40,7 +40,7 @@ func Verify(stored, value string) (valid, upgrade bool) {
 		if _, err := hex.DecodeString(stored); err != nil {
 			return false, false
 		}
-		valid = subtle.ConstantTimeCompare([]byte(strings.ToLower(stored)), []byte(Encode(value))) == 1
+		valid = subtle.ConstantTimeCompare([]byte(strings.ToLower(stored)), []byte(legacyHash(value))) == 1
 		return valid, valid
 	}
 	input := []byte(value)

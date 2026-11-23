@@ -1,18 +1,15 @@
 package password
 
 import (
-	"crypto/md5"
+	"crypto/md5" // #nosec G501 -- read-only compatibility for verifying historical PMail hashes; no new credentials use MD5.
 	"encoding/hex"
 )
 
-// Encode 对密码两次md5加盐
-func Encode(password string) string {
-	encodePwd := Md5Encode(Md5Encode(password+"pmail") + "pmail2023")
-	return encodePwd
+// legacyHash reproduces the original double-MD5 format for Verify only.
+func legacyHash(password string) string {
+	return md5Hex(md5Hex(password+"pmail") + "pmail2023")
 }
-
-func Md5Encode(str string) string {
-	h := md5.New()
-	h.Write([]byte(str))
-	return hex.EncodeToString(h.Sum(nil))
+func md5Hex(value string) string {
+	digest := md5.Sum([]byte(value)) // #nosec G401 -- legacy password comparison only; successful auth upgrades the row to bcrypt before returning.
+	return hex.EncodeToString(digest[:])
 }

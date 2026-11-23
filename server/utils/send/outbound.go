@@ -24,8 +24,9 @@ type MXResolver interface {
 }
 
 type Outbound struct {
-	Resolver MXResolver
-	Dial     func(stdctx.Context, string, string) (net.Conn, error)
+	Resolver           MXResolver
+	Dial               func(stdctx.Context, string, string) (net.Conn, error)
+	AllowUnverifiedTLS bool
 	// TLSRequired contains DNS names (matches exact domains, not suffixes).
 	TLSRequired  map[string]bool
 	AllowedHosts map[string]bool
@@ -56,7 +57,7 @@ func hostKey(value string) string {
 
 func outboundPolicy() (Outbound, error) {
 	d := &net.Dialer{Timeout: 5 * time.Second}
-	p := Outbound{Resolver: net.DefaultResolver, Dial: d.DialContext, TLSRequired: map[string]bool{}, AllowedHosts: map[string]bool{}}
+	p := Outbound{AllowUnverifiedTLS: config.Flag("PMAIL_SMTP_ALLOW_UNVERIFIED_TLS"), Resolver: net.DefaultResolver, Dial: d.DialContext, TLSRequired: map[string]bool{}, AllowedHosts: map[string]bool{}}
 	for _, item := range strings.Split(os.Getenv("PMAIL_SMTP_TLS_REQUIRED_DOMAINS"), ",") {
 		if strings.TrimSpace(item) == "" {
 			continue
@@ -224,17 +225,26 @@ func (p Outbound) deliver(ctx stdctx.Context, recipientDomain, from, fromDomain 
 			if p.TLSRequired[recipientDomain] {
 				continue
 			}
-			log.WithContext(ctx).Warnf("audit_event=smtp_tls_downgrade recipient_domain=%q mx=%q ip=%s", recipientDomain, host, ip)
-			last = try("25", smtp.OpportunisticSTARTTLS)
-			if last == nil || isPermanentSMTPResponse(last) {
-				return last
-			}
-			if errors.Is(last, smtp.ErrTLSNegotiation) {
-				log.WithContext(ctx).Warnf("audit_event=smtp_cleartext_fallback recipient_domain=%q mx=%q ip=%s", recipientDomain, host, ip)
-				last = try("25", smtp.CleartextFallback)
+			if !errors.Is(last, smtp.ErrSTARTTLSUnsupported) {
+				// Preserve unauthenticated MX compatibility only when STARTTLS is not
+				// advertised. A peer offering TLS with a failed handshake must not
+				// silently turn into cleartext unless the operator enables legacy mode.
+				if !p.AllowUnverifiedTLS {
+					continue
+				}
+				log.WithContext(ctx).Warnf("audit_event=smtp_tls_downgrade recipient_domain=%q mx=%q ip=%s", recipientDomain, host, ip)
+				last = try("25", smtp.OpportunisticSTARTTLS)
 				if last == nil || isPermanentSMTPResponse(last) {
 					return last
 				}
+				if !errors.Is(last, smtp.ErrTLSNegotiation) {
+					continue
+				}
+			}
+			log.WithContext(ctx).Warnf("audit_event=smtp_cleartext_fallback recipient_domain=%q mx=%q ip=%s", recipientDomain, host, ip)
+			last = try("25", smtp.CleartextFallback)
+			if last == nil || isPermanentSMTPResponse(last) {
+				return last
 			}
 		}
 	}

@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -65,7 +66,15 @@ func (s *service) save(id, state, message string) error {
 }
 func (s *service) read(id string) (job, error) {
 	var j job
-	b, err := os.ReadFile(filepath.Join(s.stateDir, id+".json"))
+	if !idRE.MatchString(id) {
+		return j, os.ErrNotExist
+	}
+	root, err := os.OpenRoot(s.stateDir)
+	if err != nil {
+		return j, err
+	}
+	defer root.Close()
+	b, err := root.ReadFile(id + ".json")
 	if err != nil {
 		return j, err
 	}
@@ -192,11 +201,15 @@ func composeConfigArgs(root, project string, public bool) ([]string, error) {
 		return base, nil
 	}
 
-	publicFile := filepath.Join(root, "docker-compose.public.yml")
+	folder, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer folder.Close()
 	var selected string
 	var selectedContent []byte
-	for _, file := range []string{override, publicFile} {
-		content, err := os.ReadFile(file)
+	for _, file := range []string{"docker-compose.override.yml", "docker-compose.public.yml"} {
+		content, err := folder.ReadFile(file)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
@@ -204,7 +217,7 @@ func composeConfigArgs(root, project string, public bool) ([]string, error) {
 			return nil, err
 		}
 		if selected == "" {
-			selected, selectedContent = file, content
+			selected, selectedContent = filepath.Join(root, file), content
 		} else if !bytes.Equal(selectedContent, content) {
 			return nil, errors.New("conflicting public Compose overrides; keep only the active file")
 		}
@@ -215,15 +228,22 @@ func composeConfigArgs(root, project string, public bool) ([]string, error) {
 	return append(base, "-f", selected), nil
 }
 
+func allowedComposeCommand(args []string) bool {
+	return slices.Equal(args, []string{"pull", "--policy", "always", "pmail"}) || slices.Equal(args, []string{"up", "-d", "--no-deps", "--no-build", "--wait", "--wait-timeout", "120", "pmail"})
+}
+
 func composeRunner(project string, public bool) func(context.Context, ...string) error {
 	return func(ctx context.Context, args ...string) error {
+		if !projectRE.MatchString(project) || !allowedComposeCommand(args) {
+			return errors.New("invalid updater Compose command")
+		}
 		const root = "/project"
 		base, err := composeConfigArgs(root, project, public)
 		if err != nil {
 			log.Printf("updater Compose configuration unavailable: %v", err)
 			return err
 		}
-		cmd := exec.CommandContext(ctx, "docker", append(base, args...)...)
+		cmd := exec.CommandContext(ctx, "/usr/local/bin/docker", append(base, args...)...) // #nosec G204,G702 -- absolute Docker CLI, validated project name, fixed mounted config files and exactly two allowlisted argv sequences; no shell or HTTP input.
 		cmd.Dir = root
 		cmd.Stdout = io.Discard
 		cmd.Stderr = io.Discard

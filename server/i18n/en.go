@@ -1,5 +1,6 @@
 package i18n
 
+// #nosec G101 -- user-facing translations contain labels and errors about passwords/tokens, not credential values.
 var en = map[string]string{
 	"telegram_not_configured":             "The administrator has not configured a Telegram bot",
 	"telegram_not_bound":                  "Telegram is not linked or the bot was blocked",

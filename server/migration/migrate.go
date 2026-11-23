@@ -117,7 +117,7 @@ func Run(args []string) error {
 		}
 	}
 	// Attachment bytes and POP octets are derived from retained legacy mail.
-	if _, err := tx.Exec("UPDATE " + qualified("email") + " SET projection_ready=false, pop_octets=0 WHERE projection_ready OR pop_octets<>0"); err != nil {
+	if _, err := tx.Exec("UPDATE " + qualified("email") + " SET projection_ready=false, pop_octets=0 WHERE projection_ready OR pop_octets<>0"); err != nil { // #nosec G202 -- fixed email table and PostgreSQL-quoted schema from the operator DSN.
 		return err
 	}
 	for _, table := range tables {
@@ -185,6 +185,9 @@ func requireEmpty(target rowQuerier, table string) error {
 }
 
 func copyTable(source, target *sql.Tx, driver, name, dest string) error {
+	if !slices.Contains(tables, name) {
+		return fmt.Errorf("unsupported migration table %q", name)
+	}
 	quoteSource := pq.QuoteIdentifier
 	if driver == config.DBTypeMySQL {
 		quoteSource = func(s string) string { return "`" + strings.ReplaceAll(s, "`", "``") + "`" }
@@ -226,7 +229,7 @@ func copyTable(source, target *sql.Tx, driver, name, dest string) error {
 	}
 	defer insert.Close()
 
-	selectSQL := "SELECT " + strings.Join(sourceNames, ", ") + " FROM " + from
+	selectSQL := "SELECT " + strings.Join(sourceNames, ", ") + " FROM " + from // #nosec G202 -- the table is allowlisted; columns must exist in both schemas and every identifier is quoted for its dialect.
 	if idColumn == "" {
 		// Composite/hashed keys: stream rows between independent database
 		// transactions. Do not put the full training vocabulary in memory.
@@ -267,7 +270,7 @@ func copyTable(source, target *sql.Tx, driver, name, dest string) error {
 }
 
 func columns(tx *sql.Tx, table string) ([]string, error) {
-	rows, err := tx.Query("SELECT * FROM " + table + " WHERE 1 = 0")
+	rows, err := tx.Query("SELECT * FROM " + table + " WHERE 1 = 0") // #nosec G202 -- only called with dialect-quoted identifiers from the offline migration table allowlist.
 	if err != nil {
 		return nil, err
 	}

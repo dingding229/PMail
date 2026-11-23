@@ -152,3 +152,20 @@ func TestC7bIDLECoalescesNotices(t *testing.T) {
 		t.Fatal(errors.New("IDLE queue not coalesced or leaked across owners"))
 	}
 }
+
+func TestIMAPRejectsOutOfRangePersistedUID(t *testing.T) {
+	e, s, _ := imapFixture(t)
+	addFixtureLink(t, e, s.ctx.UserID, 101, 0, false)
+	if _, err := s.Select("INBOX", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Table(&models.IMAPMailboxUID{}).Where("uid=?", 1).Update(map[string]any{"uid": int64(math.MaxUint32) + 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Select("INBOX", nil); err == nil {
+		t.Fatal("corrupt UID accepted by SELECT")
+	}
+	if _, err := s.searchSnapshot(); err == nil {
+		t.Fatal("corrupt UID accepted by SEARCH")
+	}
+}

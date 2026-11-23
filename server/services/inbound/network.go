@@ -18,6 +18,7 @@ import (
 
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/dto/parsemail"
+	"github.com/Jinnrry/pmail/utils/intbounds"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -259,7 +260,11 @@ func scanClamd(ctx context.Context, addr string, data []byte) (string, error) {
 	var size [4]byte
 	for start := 0; start < len(data); start += 32768 {
 		part := data[start:min(start+32768, len(data))]
-		binary.BigEndian.PutUint32(size[:], uint32(len(part)))
+		chunkSize, ok := intbounds.Uint32(int64(len(part)))
+		if !ok {
+			return "", errors.New("clamd chunk length invalid")
+		}
+		binary.BigEndian.PutUint32(size[:], chunkSize)
 		if _, err = conn.Write(size[:]); err != nil {
 			return "", err
 		}

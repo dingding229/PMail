@@ -248,10 +248,10 @@ func ObtainCertificate(ctx context.Context, cfg *config.Config) error {
 	if err := securefile.Write(cfg.SSLPrivateKeyPath, certs.PrivateKey, false); err != nil {
 		return err
 	}
-	if err := os.WriteFile(cfg.SSLPublicKeyPath, certs.Certificate, 0644); err != nil {
+	if err := os.WriteFile(cfg.SSLPublicKeyPath, certs.Certificate, 0644); err != nil { // #nosec G306 -- public leaf certificate; private key is separately written by securefile.Write with 0600.
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(filepath.Dir(cfg.SSLPublicKeyPath), "issuerCert.crt"), certs.IssuerCertificate, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(filepath.Dir(cfg.SSLPublicKeyPath), "issuerCert.crt"), certs.IssuerCertificate, 0644); err != nil { // #nosec G306 -- public issuer certificate chain, no private material.
 		log.Warnf("Could not save ACME issuer certificate: %v", err)
 	}
 	return nil

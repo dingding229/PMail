@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
+
 	"net/mail"
 	"strings"
 	"time"
@@ -183,6 +185,9 @@ func EnqueueForUser(ctx *pcontext.Context, userID int, email *parsemail.Email, r
 			user, found, resolveErr := address.Resolve(target)
 			if resolveErr != nil || !found {
 				return address.ErrNotFound
+			}
+			if email.Status < 0 || email.Status > math.MaxInt8 {
+				return errors.New("invalid forwarded mail status")
 			}
 			return quota.EnsureLink(user.ID, int(forwarded.MessageId), int8(email.Status))
 		}

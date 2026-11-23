@@ -19,7 +19,8 @@ func AcmeChallenge(w http.ResponseWriter, r *http.Request) {
 	instance := ssl.GetHttpChallengeInstance()
 	if auth, exist := instance.Lookup(r.PathValue("token")); exist {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte(auth))
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		_, _ = w.Write([]byte(auth)) // #nosec G705 -- the path only selects a server-generated ACME proof; response is text/plain with nosniff.
 	} else {
 		http.Error(w, i18n.T(i18n.ForRequest(r), "not_found"), http.StatusNotFound)
 	}

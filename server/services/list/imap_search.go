@@ -1,6 +1,7 @@
 package list
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/intbounds"
 	"github.com/emersion/go-imap/v2"
 	"xorm.io/xorm"
 )
@@ -25,8 +27,13 @@ func SearchRows(ctx *context.Context, rows []*response.UserEmailUIDData, c *imap
 	}
 	var maxUID, maxSeq uint32
 	for _, row := range rows {
-		maxUID = max(maxUID, uint32(row.ID))
-		maxSeq = max(maxSeq, uint32(row.SerialNumber))
+		u, ok1 := intbounds.Uint32(int64(row.ID))
+		n, ok2 := intbounds.Uint32(int64(row.SerialNumber))
+		if !ok1 || !ok2 || u == 0 || n == 0 {
+			return nil, errors.New("invalid search snapshot identifiers")
+		}
+		maxUID = max(maxUID, u)
+		maxSeq = max(maxSeq, n)
 	}
 	return SearchSnapshot(ctx, rows, c, maxUID, maxSeq)
 }
@@ -203,15 +210,20 @@ func boundedRange(n, start, stop, highest uint32) bool {
 }
 
 func matchLink(row *response.UserEmailUIDData, c *imap.SearchCriteria, maxUID, maxSeq uint32) bool {
+	uid, ok1 := intbounds.Uint32(int64(row.ID))
+	seq, ok2 := intbounds.Uint32(int64(row.SerialNumber))
+	if !ok1 || !ok2 || uid == 0 || seq == 0 {
+		return false
+	}
 	for _, set := range c.UID {
 		if !slices.ContainsFunc(set, func(r imap.UIDRange) bool {
-			return boundedRange(uint32(row.ID), uint32(r.Start), uint32(r.Stop), maxUID)
+			return boundedRange(uid, uint32(r.Start), uint32(r.Stop), maxUID)
 		}) {
 			return false
 		}
 	}
 	for _, set := range c.SeqNum {
-		if !slices.ContainsFunc(set, func(r imap.SeqRange) bool { return boundedRange(uint32(row.SerialNumber), r.Start, r.Stop, maxSeq) }) {
+		if !slices.ContainsFunc(set, func(r imap.SeqRange) bool { return boundedRange(seq, r.Start, r.Stop, maxSeq) }) {
 			return false
 		}
 	}

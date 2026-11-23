@@ -23,6 +23,7 @@ import (
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/quota"
 	pcontext "github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/intbounds"
 	"github.com/Jinnrry/pmail/utils/mailbudget"
 	"github.com/Jinnrry/pmail/utils/wiretext"
 	"github.com/emersion/go-imap/v2"
@@ -364,13 +365,21 @@ func syncIMAP(ctx context.Context, account models.ExternalAccount, password stri
 		if cursor.UIDValidity != validity {
 			cursor.LastUID = 0
 		}
+		if _, ok := intbounds.Uint32(cursor.LastUID); !ok {
+			return errors.New("invalid external IMAP cursor UID")
+		}
 		start := max(1, cursor.LastUID+1)
 		high := int64(selected.UIDNext) - 1
 		if high < start {
 			continue
 		}
 		stop := min(high, start+199)
-		set := imap.UIDSet{imap.UIDRange{Start: imap.UID(start), Stop: imap.UID(stop)}}
+		first, ok1 := intbounds.Uint32(start)
+		last, ok2 := intbounds.Uint32(stop)
+		if !ok1 || !ok2 {
+			return errors.New("external IMAP UID range out of bounds")
+		}
+		set := imap.UIDSet{{Start: imap.UID(first), Stop: imap.UID(last)}}
 		if cursor.LastUID == 0 && account.InitialDays > 0 {
 			search, err := client.UIDSearch(&imap.SearchCriteria{Since: time.Now().Add(-time.Duration(account.InitialDays) * 24 * time.Hour)}, nil).Wait()
 			if err != nil {
@@ -488,6 +497,10 @@ func syncPOP3(ctx context.Context, account models.ExternalAccount, password stri
 }
 
 func importMessage(ctx context.Context, account models.ExternalAccount, folder string, uidValidity, uid uint64, uidl string, raw []byte) error {
+	validitySQL, uidSQL, err := externalUIDs(uidValidity, uid)
+	if err != nil {
+		return err
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -509,7 +522,7 @@ func importMessage(ctx context.Context, account models.ExternalAccount, folder s
 		if !ok {
 			return false, ErrNotFound
 		}
-		rec := models.ExternalSeen{AccountID: account.ID, Folder: folder, UIDValidity: int64(uidValidity), UID: int64(uid), UIDL: uidl, MessageID: messageID(raw), Status: "done"}
+		rec := models.ExternalSeen{AccountID: account.ID, Folder: folder, UIDValidity: validitySQL, UID: uidSQL, UIDL: uidl, MessageID: messageID(raw), Status: "done"}
 		var previous models.ExternalSeen
 		found, err := tx.Where("account_id=? AND folder=? AND uidvalidity=? AND uid=? AND uidl=?", rec.AccountID, rec.Folder, rec.UIDValidity, rec.UID, rec.UIDL).Get(&previous)
 		if err != nil {
@@ -574,15 +587,32 @@ func messageID(raw []byte) string {
 	return strings.TrimSpace(msg.Header.Get("Message-Id"))
 }
 
+func externalUIDs(validity, uid uint64) (int64, int64, error) {
+	v, ok1 := intbounds.Int64(validity)
+	u, ok2 := intbounds.Int64(uid)
+	if !ok1 || !ok2 {
+		return 0, 0, errors.New("external message identifier exceeds database range")
+	}
+	return v, u, nil
+}
+
 func seen(accountID int, folder string, uidValidity, uid uint64, uidl string) bool {
+	validitySQL, uidSQL, err := externalUIDs(uidValidity, uid)
+	if err != nil {
+		return false
+	}
 	var row models.ExternalSeen
-	ok, _ := db.Instance.Where("account_id=? AND folder=? AND uidvalidity=? AND uid=? AND uidl=? AND status=?", accountID, folder, int64(uidValidity), int64(uid), uidl, "done").Get(&row)
+	ok, _ := db.Instance.Where("account_id=? AND folder=? AND uidvalidity=? AND uid=? AND uidl=? AND status=?", accountID, folder, validitySQL, uidSQL, uidl, "done").Get(&row)
 	return ok
 }
 
 func beginSeen(accountID int, folder string, uidValidity, uid uint64, uidl, mid string) (bool, error) {
+	validitySQL, uidSQL, err := externalUIDs(uidValidity, uid)
+	if err != nil {
+		return false, err
+	}
 	var row models.ExternalSeen
-	found, err := db.Instance.Where("account_id=? AND folder=? AND uidvalidity=? AND uid=? AND uidl=?", accountID, folder, int64(uidValidity), int64(uid), uidl).Get(&row)
+	found, err := db.Instance.Where("account_id=? AND folder=? AND uidvalidity=? AND uid=? AND uidl=?", accountID, folder, validitySQL, uidSQL, uidl).Get(&row)
 	if err != nil {
 		return false, err
 	}
@@ -594,12 +624,16 @@ func beginSeen(accountID int, folder string, uidValidity, uid uint64, uidl, mid 
 			return false, err
 		}
 	}
-	_, err = db.Instance.Insert(&models.ExternalSeen{AccountID: accountID, Folder: folder, UIDValidity: int64(uidValidity), UID: int64(uid), UIDL: uidl, MessageID: mid, Status: "pending", Created: time.Now()})
+	_, err = db.Instance.Insert(&models.ExternalSeen{AccountID: accountID, Folder: folder, UIDValidity: validitySQL, UID: uidSQL, UIDL: uidl, MessageID: mid, Status: "pending", Created: time.Now()})
 	return false, err
 }
 
 func deleteSeen(accountID int, folder string, uidValidity, uid uint64, uidl string) error {
-	_, err := db.Instance.Table(&models.ExternalSeen{}).Where("account_id=? AND folder=? AND uidvalidity=? AND uid=? AND uidl=?", accountID, folder, int64(uidValidity), int64(uid), uidl).Delete(&models.ExternalSeen{})
+	validitySQL, uidSQL, err := externalUIDs(uidValidity, uid)
+	if err != nil {
+		return err
+	}
+	_, err = db.Instance.Table(&models.ExternalSeen{}).Where("account_id=? AND folder=? AND uidvalidity=? AND uid=? AND uidl=?", accountID, folder, validitySQL, uidSQL, uidl).Delete(&models.ExternalSeen{})
 	return err
 }
 
@@ -677,6 +711,12 @@ func abortFetch(client *externalIMAP, command *imapclient.FetchCommand) {
 	_ = command.Close()
 }
 
+// The persisted option defaults to false and can only be enabled explicitly
+// by the mailbox owner (endpoint changes require re-entering the password).
+func externalTLSConfig(a models.ExternalAccount) *tls.Config {
+	return &tls.Config{ServerName: a.Host, MinVersion: tls.VersionTLS12, InsecureSkipVerify: a.InsecureSkipVerify} // #nosec G402 -- explicit per-account opt-in for self-signed servers; model/database default is false.
+}
+
 func dialIMAP(ctx context.Context, a models.ExternalAccount) (*externalIMAP, error) {
 	addresses, err := safeAddresses(ctx, a.Host, a.Port)
 	if err != nil {
@@ -695,7 +735,7 @@ func dialIMAP(ctx context.Context, a models.ExternalAccount) (*externalIMAP, err
 			last = err
 			continue
 		}
-		tlsConfig := &tls.Config{ServerName: a.Host, InsecureSkipVerify: a.InsecureSkipVerify}
+		tlsConfig := externalTLSConfig(a)
 		opts := &imapclient.Options{TLSConfig: tlsConfig}
 		var client *imapclient.Client
 		switch a.TLSMode {
@@ -742,7 +782,7 @@ func dialPOP3(ctx context.Context, a models.ExternalAccount) (net.Conn, error) {
 			continue
 		}
 		if a.TLSMode == "tls" {
-			tlsConn := tls.Client(conn, &tls.Config{ServerName: a.Host, InsecureSkipVerify: a.InsecureSkipVerify})
+			tlsConn := tls.Client(conn, externalTLSConfig(a))
 			if err = tlsConn.HandshakeContext(ctx); err != nil {
 				_ = conn.Close()
 				last = err
@@ -959,7 +999,7 @@ func connectPOP(ctx context.Context, a models.ExternalAccount) (net.Conn, *bufio
 			_ = c.Close()
 			return nil, nil, errors.New("unexpected bytes before POP3 TLS negotiation")
 		}
-		tlsConn := tls.Client(c, &tls.Config{ServerName: a.Host, InsecureSkipVerify: a.InsecureSkipVerify})
+		tlsConn := tls.Client(c, externalTLSConfig(a))
 		if err = tlsConn.HandshakeContext(ctx); err != nil {
 			_ = c.Close()
 			return nil, nil, err

@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Jinnrry/pmail/dto/parsemail"
+	"github.com/Jinnrry/pmail/utils/intbounds"
 )
 
 const maxTextAttachment = 1 << 20
@@ -256,9 +257,12 @@ func inspectZIP(b []byte) (macro, encrypted, uninspected bool) {
 		return false, false, true
 	}
 	entries := int(binary.LittleEndian.Uint16(b[end+10:]))
-	size := int(binary.LittleEndian.Uint32(b[end+12:]))
-	pos := int(binary.LittleEndian.Uint32(b[end+16:]))
-	if entries > 1024 || size > 512<<10 || pos > end || size > end-pos || binary.LittleEndian.Uint32(b[end+4:]) != 0 {
+	pos, posOK := intbounds.SliceIndex(uint64(binary.LittleEndian.Uint32(b[end+16:])), end)
+	if !posOK {
+		return false, false, true
+	}
+	size, sizeOK := intbounds.SliceIndex(uint64(binary.LittleEndian.Uint32(b[end+12:])), end-pos)
+	if entries > 1024 || !sizeOK || size > 512<<10 || binary.LittleEndian.Uint32(b[end+4:]) != 0 {
 		return false, false, true
 	}
 	limit := pos + size
@@ -302,10 +306,11 @@ func rar4Encrypted(b []byte) bool {
 		if flags&0x8000 != 0 && size >= 11 {
 			extra = uint64(binary.LittleEndian.Uint32(b[i+7:]))
 		}
-		if extra > uint64(len(b)-i-size) {
+		next, ok := intbounds.SliceIndex(extra, len(b)-i-size)
+		if !ok {
 			return false
 		}
-		i += size + int(extra)
+		i += size + next
 	}
 	return false
 }
@@ -360,11 +365,15 @@ func rar5Encrypted(b []byte) bool {
 	for pos, blocks := 8, 0; pos+5 <= len(b) && blocks < 1024; blocks++ {
 		p := pos + 4
 		size, n := binary.Uvarint(b[p:])
-		if n <= 0 || n > 3 || size > uint64(len(b)-p-n) {
+		if n <= 0 || n > 3 {
 			return false
 		}
 		p += n
-		end := p + int(size)
+		headerSize, ok := intbounds.SliceIndex(size, len(b)-p)
+		if !ok {
+			return false
+		}
+		end := p + headerSize
 		header := b[p:end]
 		get := func() (uint64, bool) {
 			v, n := binary.Uvarint(header)
@@ -390,34 +399,40 @@ func rar5Encrypted(b []byte) bool {
 		}
 		var extra, data uint64
 		if flags&1 != 0 {
-			if extra, ok = get(); !ok || extra > uint64(len(header)) {
+			if extra, ok = get(); !ok {
 				return false
 			}
 		}
 		if flags&2 != 0 {
-			if data, ok = get(); !ok || data > uint64(len(b)-end) {
+			if data, ok = get(); !ok {
 				return false
 			}
 		}
-		if extra > uint64(len(header)) {
+		extraSize, ok1 := intbounds.SliceIndex(extra, len(header))
+		dataSize, ok2 := intbounds.SliceIndex(data, len(b)-end)
+		if !ok1 || !ok2 {
 			return false
 		}
 		if (kind == 2 || kind == 3) && extra > 0 {
-			records := header[len(header)-int(extra):]
+			records := header[len(header)-extraSize:]
 			for num := 0; len(records) > 0 && num < 256; num++ {
 				count, cn := binary.Uvarint(records)
-				if cn <= 0 || count == 0 || count > uint64(len(records)-cn) {
+				if cn <= 0 || count == 0 {
 					break
 				}
 				records = records[cn:]
-				typ, tn := binary.Uvarint(records[:count])
+				recordSize, ok := intbounds.SliceIndex(count, len(records))
+				if !ok {
+					break
+				}
+				typ, tn := binary.Uvarint(records[:recordSize])
 				if tn > 0 && typ == 1 {
 					return true
 				}
-				records = records[count:]
+				records = records[recordSize:]
 			}
 		}
-		pos = end + int(data)
+		pos = end + dataSize
 	}
 	return false
 }
@@ -433,10 +448,15 @@ func inspect7z(b []byte) (encrypted, unknown bool) {
 	}
 	offset := binary.LittleEndian.Uint64(b[12:20])
 	size := binary.LittleEndian.Uint64(b[20:28])
-	if offset > uint64(len(b)-32) || size == 0 || size > 512<<10 || size > uint64(len(b)-32)-offset {
+	start, ok := intbounds.SliceIndex(offset, len(b)-32)
+	if !ok || size == 0 || size > 512<<10 {
 		return false, true
 	}
-	h := b[32+offset : 32+offset+size]
+	end, ok := intbounds.SliceIndex(size, len(b)-32-start)
+	if !ok {
+		return false, true
+	}
+	h := b[32+start : 32+start+end]
 	if crc32.ChecksumIEEE(h) != binary.LittleEndian.Uint32(b[28:32]) {
 		return false, true
 	}

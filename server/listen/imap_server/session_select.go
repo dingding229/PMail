@@ -14,5 +14,5 @@ func (s *serverSession) Select(mailbox string, options *imap.SelectOptions) (*im
 	s.readOnly = options != nil && options.ReadOnly
 	s.announced = uids(state.items)
 	flags := []imap.Flag{imap.FlagSeen, imap.FlagFlagged, imap.FlagDeleted}
-	return &imap.SelectData{Flags: flags, PermanentFlags: flags, NumMessages: uint32(len(state.items)), UIDNext: state.next, UIDValidity: state.validity}, nil
+	return &imap.SelectData{Flags: flags, PermanentFlags: flags, NumMessages: state.count, UIDNext: state.next, UIDValidity: state.validity}, nil
 }

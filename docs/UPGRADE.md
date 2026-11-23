@@ -113,3 +113,8 @@ docker compose pull && docker compose up -d --wait postgres
 - 只下载文件的公网部署需要同一目录的 `docker-compose.yml`、`.env` 和公网覆盖文件；可另存为 `docker-compose.override.yml` 自动加载，也可保留 `docker-compose.public.yml` 并按 README 显式指定两份文件。不要仅使用公网覆盖文件或同时保留内容不一致的覆盖。Sidecar 只读挂载此目录，执行时会保留公网配置；自定义 `-f`、外部环境文件或特殊路径映射仍建议手动更新。
 - 启用前核对 [README 的更新器说明](../README.md#可选在线更新器) 中的 Docker socket 权限风险。保留状态卷追踪任务；更新器中途重启或任务 ID 丢失时返回失败/结果未知，请核对运行版本后再试，不自动回滚数据库。
 - 写信内嵌图片只接受 PNG/JPEG/GIF/WebP 文件头，单个 10 MiB，每账户最多 50 MiB 临时图片。未被草稿引用、且 24 小时未使用的临时图片会清理；引用不能跨账号。旧邮件和旧草稿无须重写。签名保留允许的格式，将远程图片替换成文本占位，服务器不会自动重复追加已由编辑器插入的签名。
+
+## C10：出站 TLS 默认值与数据库密码文件
+
+- 非强制 TLS 域仍可向未宣告 STARTTLS 的 MX 发送明文，但已宣告 STARTTLS 的 MX 若握手或证书验证失败，不再默认重试未验证 TLS 或明文。只有显式设置 `PMAIL_SMTP_ALLOW_UNVERIFIED_TLS=1` 才恢复该非强制域的兼容降级，存在中间人风险；`PMAIL_SMTP_TLS_REQUIRED_DOMAINS` 中的精确收件域始终验证且不降级。外部邮箱仅在账户显式勾选“跳过证书验证”时关闭验证，默认不开启。
+- 数据库密码文件必须是常规文件且不超过 64 KiB。若部署用了跨目录的符号链接，请把实际文件直接挂载到 `PMAIL_DB_PASSWORD_FILE` 指向的位置，或用同目录可解析的相对链接。初始化仍以 0600 保存密码，容器共享目录只授予 PostgreSQL 穿越权限。

@@ -29,7 +29,11 @@ func (s *serverSession) Poll(w *imapserver.UpdateWriter, allowExpunge bool) erro
 	var removals []mailboxEntry
 	for i, uid := range s.announced {
 		if !live[uid] {
-			removals = append(removals, mailboxEntry{seq: uint32(i + 1), uid: uid})
+			seq, err := protocolNumber(int64(i) + 1)
+			if err != nil {
+				return protocolNO(err)
+			}
+			removals = append(removals, mailboxEntry{seq: seq, uid: uid})
 		}
 	}
 	if len(removals) > 0 && !allowExpunge {
@@ -39,7 +43,7 @@ func (s *serverSession) Poll(w *imapserver.UpdateWriter, allowExpunge bool) erro
 		return err
 	}
 	if len(current) != len(s.announced) {
-		if err := w.WriteNumMessages(uint32(len(current))); err != nil {
+		if err := w.WriteNumMessages(state.count); err != nil {
 			return err
 		}
 	}

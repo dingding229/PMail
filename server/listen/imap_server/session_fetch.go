@@ -226,10 +226,18 @@ func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*respons
 				return &imap.Error{Type: imap.StatusResponseTypeNo, Text: "could not encode mailbox message"}
 			}
 		}
-		writer := w.CreateMessage(cast.ToUint32(email.SerialNumber))
+		seq, err := protocolNumber(int64(email.SerialNumber))
+		if err != nil || seq == 0 {
+			return protocolNO(errMailboxNumber)
+		}
+		writer := w.CreateMessage(seq)
 
 		if options.UID {
-			writer.WriteUID(imap.UID(email.UeId))
+			uid, err := protocolNumber(int64(email.UeId))
+			if err != nil || uid == 0 {
+				return protocolNO(errMailboxNumber)
+			}
+			writer.WriteUID(imap.UID(uid))
 		}
 		if options.Envelope {
 			env := buildEnvelope(email, traEmail)
@@ -238,11 +246,19 @@ func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*respons
 		if options.BodyStructure != nil {
 			var html, text *imap.BodyStructureSinglePart
 			if len(traEmail.HTML) > 0 {
-				html = bsTextHTML(uint32(len(traEmail.HTML)), int64(bytes.Count(traEmail.HTML, []byte("\n"))+1))
+				size, err := protocolNumber(int64(len(traEmail.HTML)))
+				if err != nil {
+					return protocolNO(err)
+				}
+				html = bsTextHTML(size, int64(bytes.Count(traEmail.HTML, []byte("\n"))+1))
 			}
 
 			if len(traEmail.Text) > 0 {
-				text = bsTextPlain(uint32(len(traEmail.Text)), int64(bytes.Count(traEmail.Text, []byte("\n"))+1))
+				size, err := protocolNumber(int64(len(traEmail.Text)))
+				if err != nil {
+					return protocolNO(err)
+				}
+				text = bsTextPlain(size, int64(bytes.Count(traEmail.Text, []byte("\n"))+1))
 			}
 
 			alt := bsAlternative(text, html)
@@ -250,7 +266,11 @@ func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*respons
 			var attrs []imap.BodyStructure
 			for _, attachment := range traEmail.Attachments {
 				if attachment != nil {
-					attrs = append(attrs, bsAttachment(attachment.Filename, attachment.ContentType, uint32(len(attachment.Content)), "base64"))
+					size, err := protocolNumber(int64(len(attachment.Content)))
+					if err != nil {
+						return protocolNO(err)
+					}
+					attrs = append(attrs, bsAttachment(attachment.Filename, attachment.ContentType, size, "base64"))
 				}
 			}
 			bs := bsMixedWithAttachments(alt, options.BodyStructure.Extended, attrs...) // 最终的 BodyStructure（接口值）

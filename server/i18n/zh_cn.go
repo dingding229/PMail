@@ -1,5 +1,6 @@
 package i18n
 
+// #nosec G101 -- user-facing translations contain labels and errors about passwords/tokens, not credential values.
 var cn = map[string]string{
 	"telegram_not_configured":             "管理员尚未配置 Telegram 机器人",
 	"telegram_not_bound":                  "尚未绑定 Telegram，或机器人已被屏蔽",

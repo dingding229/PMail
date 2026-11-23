@@ -20,7 +20,11 @@ import (
 
 func TestSMTPAuthenticationRequiresTLS(t *testing.T) {
 	engine, _ := newAuditTestEngine(t)
-	if _, err := engine.Insert(&models.User{Account: "tls-user", Password: password.Encode("test-password")}); err != nil {
+	hash, err := password.Hash("test-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Insert(&models.User{Account: "tls-user", Password: hash}); err != nil {
 		t.Fatal(err)
 	}
 	// Reuse Go's self-signed test certificate without production certificate files.
@@ -90,7 +94,10 @@ func TestSMTPAuthenticationDoesNotLogCredentials(t *testing.T) {
 	engine, _ := newAuditTestEngine(t)
 	const good = "successful-login-secret"
 	const bad = "failed-login-secret"
-	encoded := password.Encode(good)
+	encoded, err := password.Hash(good)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := engine.Insert(&models.User{Account: "log-user", Password: encoded}); err != nil {
 		t.Fatal(err)
 	}

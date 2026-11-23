@@ -53,7 +53,7 @@ func canonicalPath(path string) (string, error) {
 	if !os.IsNotExist(err) || abs == filepath.Dir(abs) {
 		return "", err
 	}
-	if info, statErr := os.Lstat(abs); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+	if info, statErr := os.Lstat(abs); statErr == nil && info.Mode()&os.ModeSymlink != 0 { // #nosec G703 -- abs is a cleaned admin startup path; Lstat detects dangling links without opening file data.
 		return "", err
 	}
 	dir, err := canonicalPath(filepath.Dir(abs))

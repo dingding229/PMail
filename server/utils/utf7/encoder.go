@@ -1,6 +1,7 @@
 package utf7
 
 import (
+	"encoding/binary"
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -49,11 +50,10 @@ func encode(s []byte) []byte {
 			r, size = utf8.RuneError, 1 // Bug fix (issue 3785)
 		}
 		s = s[size:]
-		if r1, r2 := utf16.EncodeRune(r); r1 != utf8.RuneError {
-			b = append(b, byte(r1>>8), byte(r1))
-			r = r2
+		var units [2]uint16
+		for _, u := range utf16.AppendRune(units[:0], r) {
+			b = binary.BigEndian.AppendUint16(b, u)
 		}
-		b = append(b, byte(r>>8), byte(r))
 	}
 
 	// Encode as base64

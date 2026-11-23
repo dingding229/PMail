@@ -55,3 +55,14 @@ func TestC7ExternalEndpointEditRequiresOwnerAndPassword(t *testing.T) {
 		t.Fatal("unsafe POP3 message number was accepted")
 	}
 }
+
+func TestExternalTLSVerificationRequiresAccountOptIn(t *testing.T) {
+	a := models.ExternalAccount{Host: "mail.example.test"}
+	if got := externalTLSConfig(a); got.InsecureSkipVerify || got.ServerName != a.Host {
+		t.Fatal("default TLS verification disabled")
+	}
+	a.InsecureSkipVerify = true
+	if got := externalTLSConfig(a); !got.InsecureSkipVerify {
+		t.Fatal("explicit account opt-in ignored")
+	}
+}

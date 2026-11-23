@@ -187,3 +187,14 @@ func TestC7bIMAPAbortsOversizedLiteralWithoutDrainingNetwork(t *testing.T) {
 		t.Fatal("oversized response blocked on remote literal")
 	}
 }
+
+func TestExternalMessageIDsCannotWrapDatabaseKeys(t *testing.T) {
+	for _, ids := range [][2]uint64{{0, 1 << 63}, {1 << 63, 0}, {^uint64(0), ^uint64(0)}} {
+		if _, _, err := externalUIDs(ids[0], ids[1]); err == nil {
+			t.Fatalf("wrapped database keys: %v", ids)
+		}
+	}
+	if v, u, err := externalUIDs(0, 1<<32-1); err != nil || v != 0 || u != 1<<32-1 {
+		t.Fatalf("valid IMAP UID rejected: %d %d %v", v, u, err)
+	}
+}

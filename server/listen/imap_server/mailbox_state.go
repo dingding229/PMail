@@ -12,6 +12,7 @@ import (
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/utils/intbounds"
 	"github.com/emersion/go-imap/v2"
 	"xorm.io/xorm"
 )
@@ -28,8 +29,19 @@ type mailboxEntry struct {
 }
 type mailboxState struct {
 	validity uint32
+	count    uint32
 	next     imap.UID
 	items    []mailboxEntry
+}
+
+var errMailboxNumber = errors.New("mailbox number exceeds IMAP range")
+
+func protocolNumber(value int64) (uint32, error) {
+	n, ok := intbounds.Uint32(value)
+	if !ok {
+		return 0, errMailboxNumber
+	}
+	return n, nil
 }
 
 var errMailboxMissing = errors.New("mailbox does not exist")
@@ -127,6 +139,10 @@ func syncMailbox(tx *xorm.Session, b mailboxRef) (mailboxState, error) {
 	if err = b.scope(tx).Asc("id").Find(&links); err != nil {
 		return mailboxState{}, err
 	}
+	count, err := protocolNumber(int64(len(links)))
+	if err != nil {
+		return mailboxState{}, err
+	}
 	var known []models.IMAPMailboxUID
 	if err = tx.Where("box_id=?", state.ID).Find(&known); err != nil {
 		return mailboxState{}, err
@@ -136,7 +152,11 @@ func syncMailbox(tx *xorm.Session, b mailboxRef) (mailboxState, error) {
 		ids[m.LinkID] = m.UID
 	}
 	initial := state.NextUID
-	result := mailboxState{validity: uint32(state.ID) | 0x80000000, items: make([]mailboxEntry, 0, len(links))}
+	uidValidity, err := protocolNumber(int64(state.ID))
+	if err != nil {
+		return mailboxState{}, err
+	}
+	result := mailboxState{count: count, validity: uidValidity | 0x80000000, items: make([]mailboxEntry, 0, len(links))}
 	for _, link := range links {
 		uid, ok := ids[link.ID]
 		if !ok {
@@ -150,7 +170,11 @@ func syncMailbox(tx *xorm.Session, b mailboxRef) (mailboxState, error) {
 			}
 		}
 		delete(ids, link.ID)
-		result.items = append(result.items, mailboxEntry{row: link, uid: imap.UID(uid)})
+		wireUID, err := protocolNumber(uid)
+		if err != nil || wireUID == 0 || uid >= state.NextUID {
+			return mailboxState{}, errors.New("invalid persisted IMAP UID")
+		}
+		result.items = append(result.items, mailboxEntry{row: link, uid: imap.UID(wireUID)})
 	}
 	stale := make([]int, 0, len(ids))
 	for id := range ids {
@@ -175,10 +199,17 @@ func syncMailbox(tx *xorm.Session, b mailboxRef) (mailboxState, error) {
 		}
 		return 0
 	})
-	for i := range result.items {
-		result.items[i].seq = uint32(i + 1)
+	for i, seq := 0, uint32(1); i < len(result.items); i++ {
+		result.items[i].seq = seq
+		if seq < count {
+			seq++
+		}
 	}
-	result.next = imap.UID(state.NextUID)
+	next, err := protocolNumber(state.NextUID)
+	if err != nil || next == 0 {
+		return mailboxState{}, errors.New("invalid persisted IMAP UIDNEXT")
+	}
+	result.next = imap.UID(next)
 	return result, nil
 }
 
@@ -217,7 +248,11 @@ func (s *serverSession) visible(items []mailboxEntry) []mailboxEntry {
 	out := make([]mailboxEntry, 0, len(items))
 	for i, uid := range s.announced {
 		if item, ok := byUID[uid]; ok {
-			item.seq = uint32(i + 1)
+			seq, err := protocolNumber(int64(i) + 1)
+			if err != nil {
+				return nil
+			}
+			item.seq = seq
 			out = append(out, item)
 		}
 	}
@@ -225,12 +260,19 @@ func (s *serverSession) visible(items []mailboxEntry) []mailboxEntry {
 }
 
 func (s *serverSession) selectSet(items []mailboxEntry, set imap.NumSet) []mailboxEntry {
-	seqMax, uidMax := uint32(len(s.announced)), uint32(0)
+	seqMax, err := protocolNumber(int64(len(s.announced)))
+	if err != nil {
+		return nil
+	}
+	uidMax := uint32(0)
 	if len(s.announced) > 0 {
 		uidMax = uint32(s.announced[len(s.announced)-1])
 	}
 	if s.announced == nil && len(items) > 0 {
-		seqMax = uint32(len(items))
+		seqMax, err = protocolNumber(int64(len(items)))
+		if err != nil {
+			return nil
+		}
 		uidMax = uint32(items[len(items)-1].uid)
 	}
 	selected := []mailboxEntry{}
@@ -300,7 +342,11 @@ func (s *serverSession) searchSnapshot() ([]*response.UserEmailUIDData, error) {
 	// Both sets are UID ordered. Match them linearly and preserve the session's
 	// sequence numbers when a concurrent expunge has not been announced yet.
 	for i, j := 0, 0; i < len(links) && j < len(s.announced); {
-		uid := imap.UID(links[i].ID)
+		u, err := protocolNumber(int64(links[i].ID))
+		if err != nil || u == 0 {
+			return nil, errors.New("invalid persisted IMAP UID")
+		}
+		uid := imap.UID(u)
 		switch {
 		case uid < s.announced[j]:
 			i++

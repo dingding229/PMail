@@ -3,7 +3,7 @@ package forward
 import (
 	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505 -- verifies historical SRS0 only, and an exact existing queue row is required; new bounce tags use HMAC-SHA256.
 	"crypto/sha256"
 	"encoding/base32"
 	"net"

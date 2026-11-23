@@ -1,11 +1,13 @@
 package password
 
-import (
-	"fmt"
-	"testing"
-)
+import "testing"
 
-func TestEncode(t *testing.T) {
-	fmt.Println(Encode("user2"))
-	fmt.Println(Encode("user2New"))
+func TestLegacyVerificationRequiresUpgrade(t *testing.T) {
+	stored := legacyHash("fixture-password")
+	if valid, upgrade := Verify(stored, "fixture-password"); !valid || !upgrade {
+		t.Fatal("legacy value must require migration")
+	}
+	if valid, upgrade := Verify(stored, "wrong"); valid || upgrade {
+		t.Fatal("invalid password accepted")
+	}
 }

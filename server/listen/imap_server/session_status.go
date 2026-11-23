@@ -10,7 +10,7 @@ func (s *serverSession) Status(mailbox string, options *imap.StatusOptions) (*im
 	if err != nil {
 		return nil, protocolNO(err)
 	}
-	count := uint32(len(state.items))
+	count := state.count
 	var unseen uint32
 	for _, item := range state.items {
 		if item.row.IsRead == 0 {

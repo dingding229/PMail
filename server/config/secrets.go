@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/Jinnrry/pmail/utils/securefile"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -37,7 +38,7 @@ func InitDatabasePassword(path, password string) error {
 	if password != "" && value != password {
 		return fmt.Errorf("POSTGRES_PASSWORD differs from the persisted password in %s; restore the matching credential (the database password was not changed)", path)
 	}
-	file, err := os.Open(path)
+	file, err := openDBSecret(path)
 	if err != nil {
 		return err
 	}
@@ -61,7 +62,8 @@ func postgresSecretID(name string) (int, error) {
 }
 
 func ensureSearchableSecretDir(dir string) error {
-	if err := os.MkdirAll(dir, 0711); err != nil {
+	err := os.MkdirAll(dir, 0711) // #nosec G301 -- PostgreSQL UID needs traverse only; others cannot list/write the directory or read the 0600 password.
+	if err != nil {
 		return err
 	}
 	info, err := os.Stat(dir)
@@ -136,8 +138,49 @@ func RemoveRegistrationKey() error {
 	return err
 }
 
+// Secret paths originate from an operator's *_FILE setting or the local
+// init-secrets command. The descriptor is confined to its configured parent.
+func openDBSecret(path string) (*os.File, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	dir, err := os.OpenRoot(filepath.Dir(abs))
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+	name := filepath.Base(abs)
+	info, err := dir.Stat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("database secret must be a regular file")
+	}
+	f, err := dir.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	current, err := f.Stat()
+	if err != nil || !current.Mode().IsRegular() || !os.SameFile(info, current) {
+		f.Close()
+		return nil, fmt.Errorf("database secret changed while opening")
+	}
+	return f, nil
+}
+
 func readSecret(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	f, err := openDBSecret(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	const maxDBSecret = 64 << 10
+	data, err := io.ReadAll(io.LimitReader(f, maxDBSecret+1))
+	if err == nil && len(data) > maxDBSecret {
+		return "", fmt.Errorf("database secret exceeds size limit")
+	}
 	if err != nil {
 		return "", err
 	}

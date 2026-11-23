@@ -164,3 +164,25 @@ func TestInitDatabasePasswordRepairsExistingPermissions(t *testing.T) {
 		t.Fatalf("permission repair must not change the existing password: %v", err)
 	}
 }
+
+func TestDatabaseSecretRejectsEscapingSymlinkAndOversizedFile(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "password")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readSecret(link); err == nil {
+		t.Fatal("database file escaped configured directory")
+	}
+	oversized := filepath.Join(root, "large")
+	if err := os.WriteFile(oversized, make([]byte, 64<<10+1), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readSecret(oversized); err == nil {
+		t.Fatal("oversized database secret accepted")
+	}
+}

@@ -7,7 +7,6 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cast"
 )
 
 // Search implements the IMAP SEARCH command with full criteria support
@@ -26,7 +25,11 @@ func (s *serverSession) Search(kind imapserver.NumKind, criteria *imap.SearchCri
 	}
 	var retList []*response.UserEmailUIDData
 	if len(s.announced) > 0 {
-		retList, err = list.SearchSnapshot(s.ctx, rows, criteria, uint32(s.announced[len(s.announced)-1]), uint32(len(s.announced)))
+		count, countErr := protocolNumber(int64(len(s.announced)))
+		if countErr != nil {
+			return nil, protocolNO(countErr)
+		}
+		retList, err = list.SearchSnapshot(s.ctx, rows, criteria, uint32(s.announced[len(s.announced)-1]), count)
 	} else {
 		retList, err = list.SearchRows(s.ctx, rows, criteria)
 	}
@@ -35,70 +38,38 @@ func (s *serverSession) Search(kind imapserver.NumKind, criteria *imap.SearchCri
 		return nil, protocolNO(errors.New("mailbox search failed"))
 	}
 
-	ret := &imap.SearchData{}
-
+	count, err := protocolNumber(int64(len(retList)))
+	if err != nil {
+		return nil, protocolNO(err)
+	}
+	ret := &imap.SearchData{Count: count}
+	var sequences imap.SeqSet
+	var uids imap.UIDSet
+	for _, row := range retList {
+		number := row.ID
+		if kind == imapserver.NumKindSeq {
+			number = row.SerialNumber
+		}
+		n, err := protocolNumber(int64(number))
+		if err != nil || n == 0 {
+			return nil, protocolNO(errMailboxNumber)
+		}
+		if kind == imapserver.NumKindSeq {
+			sequences = append(sequences, imap.SeqRange{Start: n, Stop: n})
+		} else {
+			uids = append(uids, imap.UIDRange{Start: imap.UID(n), Stop: imap.UID(n)})
+		}
+		if options != nil && options.ReturnMin && (ret.Min == 0 || n < ret.Min) {
+			ret.Min = n
+		}
+		if options != nil && options.ReturnMax {
+			ret.Max = max(ret.Max, n)
+		}
+	}
 	if kind == imapserver.NumKindSeq {
-		// Return sequence numbers
-		idList := imap.SeqSet{}
-		for _, data := range retList {
-			idList = append(idList, imap.SeqRange{
-				Start: cast.ToUint32(data.SerialNumber),
-				Stop:  cast.ToUint32(data.SerialNumber),
-			})
-		}
-		ret.All = idList
-		ret.Count = uint32(len(retList))
-
-		// Handle ESEARCH options
-		if options != nil {
-			if options.ReturnMin && len(retList) > 0 {
-				ret.Min = cast.ToUint32(retList[0].SerialNumber)
-				for _, data := range retList {
-					if cast.ToUint32(data.SerialNumber) < ret.Min {
-						ret.Min = cast.ToUint32(data.SerialNumber)
-					}
-				}
-			}
-			if options.ReturnMax && len(retList) > 0 {
-				ret.Max = cast.ToUint32(retList[0].SerialNumber)
-				for _, data := range retList {
-					if cast.ToUint32(data.SerialNumber) > ret.Max {
-						ret.Max = cast.ToUint32(data.SerialNumber)
-					}
-				}
-			}
-		}
+		ret.All = sequences
 	} else {
-		// Return UIDs
-		idList := imap.UIDSet{}
-		for _, data := range retList {
-			idList = append(idList, imap.UIDRange{
-				Start: imap.UID(data.ID),
-				Stop:  imap.UID(data.ID),
-			})
-		}
-		ret.All = idList
-		ret.Count = uint32(len(retList))
-
-		// Handle ESEARCH options
-		if options != nil {
-			if options.ReturnMin && len(retList) > 0 {
-				ret.Min = cast.ToUint32(retList[0].ID)
-				for _, data := range retList {
-					if cast.ToUint32(data.ID) < ret.Min {
-						ret.Min = cast.ToUint32(data.ID)
-					}
-				}
-			}
-			if options.ReturnMax && len(retList) > 0 {
-				ret.Max = cast.ToUint32(retList[0].ID)
-				for _, data := range retList {
-					if cast.ToUint32(data.ID) > ret.Max {
-						ret.Max = cast.ToUint32(data.ID)
-					}
-				}
-			}
-		}
+		ret.All = uids
 	}
 
 	log.WithContext(s.ctx).Debugf("IMAP SEARCH result: count=%d", ret.Count)

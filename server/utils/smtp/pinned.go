@@ -66,12 +66,12 @@ func SendPinned(ctx context.Context, conn net.Conn, mx, from, fromDomain string,
 		if err = phase(8 * time.Second); err != nil {
 			return err
 		}
-		tlsConfig := &tls.Config{ServerName: mx, MinVersion: tls.VersionTLS12, InsecureSkipVerify: mode == OpportunisticSTARTTLS}
+		tlsConfig := &tls.Config{ServerName: mx, MinVersion: tls.VersionTLS12, InsecureSkipVerify: mode == OpportunisticSTARTTLS} // #nosec G402 -- outbound policy reaches unverified mode only with explicit operator opt-in and never for TLS-required domains.
 		if err = c.StartTLS(tlsConfig); err != nil {
 			return fmt.Errorf("%w: %v", ErrTLSNegotiation, err)
 		}
-	} else if mode == VerifySTARTTLS {
-		return fmt.Errorf("%w: %v", ErrTLSNegotiation, ErrSTARTTLSUnsupported)
+	} else if mode != CleartextFallback {
+		return fmt.Errorf("%w: %w", ErrTLSNegotiation, ErrSTARTTLSUnsupported)
 	}
 	if err = phase(5 * time.Second); err != nil {
 		return err
