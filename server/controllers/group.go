@@ -1,7 +1,9 @@
 package controllers
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -11,6 +13,8 @@ import (
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/group"
+	"github.com/Jinnrry/pmail/services/list"
+	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
@@ -29,6 +33,33 @@ func GetUserGroupList(ctx *context.Context, w http.ResponseWriter, req *http.Req
 }
 
 func GetUserGroup(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
+
+	var body struct {
+		Address json.RawMessage `json:"address"`
+	}
+	if req.Method == http.MethodPost {
+		d := json.NewDecoder(http.MaxBytesReader(w, req.Body, 8<<10))
+		if err := d.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			response.Localized(ctx, response.ParamsError, "mail_address_invalid").FPrintStatus(w, http.StatusBadRequest)
+			return
+		}
+	}
+	value, err := mailaddress.Value(req.URL.Query().Get("address"), body.Address)
+	var selected mailaddress.Filter
+	if err == nil {
+		selected, err = mailaddress.Validate(ctx.UserID, value)
+	}
+	switch {
+	case errors.Is(err, mailaddress.ErrForbidden):
+		response.Localized(ctx, response.NoAccessPrivileges, "mail_address_forbidden").FPrintStatus(w, http.StatusForbidden)
+		return
+	case errors.Is(err, mailaddress.ErrInvalid):
+		response.Localized(ctx, response.ParamsError, "mail_address_invalid").FPrintStatus(w, http.StatusBadRequest)
+		return
+	case err != nil:
+		response.Localized(ctx, response.ServerError, "internal_error").FPrintStatus(w, http.StatusInternalServerError)
+		return
+	}
 
 	retData := []*group.GroupItem{
 		{
@@ -58,6 +89,29 @@ func GetUserGroup(ctx *context.Context, w http.ResponseWriter, req *http.Request
 	}
 
 	retData = array.Merge(retData, group.GetGroupInfoList(ctx))
+
+	var fill func([]*group.GroupItem) error
+	fill = func(items []*group.GroupItem) error {
+		for _, item := range items {
+			var tag dto.SearchTag
+			if err := json.Unmarshal([]byte(item.Tag), &tag); err != nil {
+				return err
+			}
+			var err error
+			item.Total, item.Unread, err = list.FolderCount(ctx, tag, selected)
+			if err != nil {
+				return err
+			}
+			if err := fill(item.Children); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := fill(retData); err != nil {
+		response.Localized(ctx, response.ServerError, "internal_error").FPrintStatus(w, http.StatusInternalServerError)
+		return
+	}
 
 	response.NewSuccessResponse(retData).FPrint(w)
 }

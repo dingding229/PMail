@@ -1,3 +1,4 @@
+import { composeFrom } from './addressViews'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useEditor, EditorContent } from '@tiptap/react'
@@ -107,6 +108,7 @@ interface UploadedAttachment extends SendEmailAttachment {
 }
 
 interface ComposeModalProps {
+  addressView?: import('@/api').AddressFilter
   context: ComposeContext
   sendableAddresses: MailboxAddress[]
   userDisplayName: string
@@ -213,6 +215,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 export function ComposeModal({
   context,
   sendableAddresses,
+  addressView = 'all',
   userDisplayName,
   suggestions,
   isMobile,
@@ -224,10 +227,10 @@ export function ComposeModal({
 }: ComposeModalProps) {
   const { t, i18n } = useTranslation()
 
-  const defaultFrom = useMemo(() => {
-    const primary = sendableAddresses.find((a) => a.is_primary)
-    return primary?.address || sendableAddresses[0]?.address || ''
-  }, [sendableAddresses])
+  const reply = context.mode === 'reply' || context.mode === 'replyAll' || context.mode === 'forward'
+  const defaultFrom = useMemo(() => composeFrom(sendableAddresses, addressView,
+    reply ? (context.sourceEmail?.mailbox_addresses ?? []) : undefined),
+  [sendableAddresses, addressView, reply, context.sourceEmail?.mailbox_addresses])
 
   const initialFields = useMemo(() => {
     if (context.mode === 'draft' && context.draft) {
@@ -838,6 +841,8 @@ export function ComposeModal({
           attrs: attachments.map(({ name, data }) => ({ name, data })),
           ...(cidRefs.length > 0 ? { inline_images: cidRefs } : {}),
           ...(serverDraftIdRef.current ? { draft_id: serverDraftIdRef.current } : {}),
+          ...((context.mode === 'reply' || context.mode === 'replyAll') && context.sourceEmail
+            ? { reply_to_email_id: context.sourceEmail.id } : {}),
         })
       }
 

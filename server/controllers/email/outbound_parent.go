@@ -4,6 +4,7 @@ import (
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/services/quota"
 	"xorm.io/xorm"
@@ -23,8 +24,11 @@ func persistOutboundParent(modelEmail *models.Email, userID int) error {
 		if err := mailstore.WriteParts(tx, modelEmail, false); err != nil {
 			return err
 		}
-		_, err := tx.Insert(&models.UserEmail{UserID: userID, EmailID: modelEmail.Id, Status: consts.EmailStatusDeliveryPending, IsRead: 1})
-		if err != nil {
+		link := models.UserEmail{UserID: userID, EmailID: modelEmail.Id, Status: consts.EmailStatusDeliveryPending, IsRead: 1, AddressAttributed: true}
+		if _, err := tx.Insert(&link); err != nil {
+			return err
+		}
+		if err := mailaddress.Add(tx, []models.UserEmail{link}, []string{modelEmail.FromAddress}); err != nil {
 			return err
 		}
 		return quota.Adjust(tx, userID, int64(modelEmail.Size))

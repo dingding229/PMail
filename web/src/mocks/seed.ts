@@ -11,6 +11,8 @@ import type {
 } from '@/api'
 
 export interface MockEmailRecord {
+  mailbox_address_ids?: number[]
+  catch_all_addresses?: string[]
   id: number
   type: number // 0 received, 1 sent
   status: number // 0 inbox, 1 sent, 3 deleted, 4 draft, 5 junk

@@ -13,6 +13,7 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/detail"
 	"github.com/Jinnrry/pmail/services/inbound"
+	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/services/token"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
@@ -61,6 +62,9 @@ func EmailDetail(ctx *context.Context, w http.ResponseWriter, req *http.Request)
 	}
 	for key, value := range analysisFields {
 		view[key] = value
+	}
+	if matches, err := mailaddress.ForMessage(ctx.UserID, retData.ID); err == nil {
+		view["mailbox_addresses"], _ = json.Marshal(matches)
 	}
 	response.NewSuccessResponse(view).FPrint(w)
 }

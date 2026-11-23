@@ -17,6 +17,8 @@ import (
 )
 
 type GroupItem struct {
+	Unread   int          `json:"unread"`
+	Total    int          `json:"total"`
 	Id       int          `json:"id"`
 	Label    string       `json:"label"`
 	Tag      string       `json:"tag"`

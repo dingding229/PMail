@@ -40,6 +40,7 @@ interface EmailListPaneProps {
   emails: EmailListItemModel[]
   totalCount?: number
   localDrafts: LocalDraft[]
+  showAddressLabels?: boolean
   activeEmailId: number | null
   checkedIds: Set<number>
   searchQuery: string
@@ -81,6 +82,7 @@ export function EmailListPane({
   emails,
   totalCount,
   localDrafts,
+  showAddressLabels,
   activeEmailId,
   checkedIds,
   searchQuery,
@@ -552,6 +554,7 @@ export function EmailListPane({
                   ) : email ? (
                     <EmailListItem
                       email={email}
+                      showAddressLabels={showAddressLabels}
                       isActive={activeEmailId === email.id}
                       isChecked={checkedIds.has(email.id)}
                       isStarred={Boolean(email.is_starred)}

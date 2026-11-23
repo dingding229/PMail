@@ -19,6 +19,7 @@ import (
 	"github.com/Jinnrry/pmail/services/address"
 	svccompose "github.com/Jinnrry/pmail/services/compose"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -155,7 +156,11 @@ func persistDraft(draft *models.Email, keepAttachments bool, inline ...[]svccomp
 			if err := mailstore.WriteParts(tx, draft, false); err != nil {
 				return err
 			}
-			if _, err := tx.Insert(&models.UserEmail{UserID: draft.SendUserID, EmailID: draft.Id, Status: consts.EmailStatusDrafts, IsRead: 1}); err != nil {
+			link := models.UserEmail{UserID: draft.SendUserID, EmailID: draft.Id, Status: consts.EmailStatusDrafts, IsRead: 1, AddressAttributed: true}
+			if _, err := tx.Insert(&link); err != nil {
+				return err
+			}
+			if err := mailaddress.Add(tx, []models.UserEmail{link}, []string{draft.FromAddress}); err != nil {
 				return err
 			}
 			if err := quota.Adjust(tx, draft.SendUserID, int64(draft.Size)); err != nil {
@@ -187,6 +192,11 @@ func persistDraft(draft *models.Email, keepAttachments bool, inline ...[]svccomp
 		}
 		if !keepAttachments || !stored.ProjectionReady {
 			if err := mailstore.WriteParts(tx, draft, true); err != nil {
+				return err
+			}
+		}
+		if draft.FromAddress != stored.FromAddress {
+			if err := mailaddress.ReplaceDraft(tx, draft.SendUserID, draft.Id, draft.FromAddress); err != nil {
 				return err
 			}
 		}
@@ -246,8 +256,15 @@ func removeDrafts(owner int, ids []int) error {
 			if err != nil {
 				return err
 			}
+			var links []int
+			if err := tx.Table(&models.UserEmail{}).Where("user_id=? AND email_id=? AND status=?", owner, id, consts.EmailStatusDrafts).Cols("id").Find(&links); err != nil {
+				return err
+			}
 			removed, err := tx.Where("user_id=? AND email_id=? AND status=?", owner, id, consts.EmailStatusDrafts).Delete(new(models.UserEmail))
 			if err != nil {
+				return err
+			}
+			if err := mailaddress.DeleteLinks(tx, links); err != nil {
 				return err
 			}
 			if removed == 0 {

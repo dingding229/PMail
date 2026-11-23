@@ -15,6 +15,7 @@ import {
 import {
   SYSTEM_GROUP_IDS,
   userApi,
+  type AddressFilter,
   type EmailDetail,
   type EmailListItem,
 } from '@/api'
@@ -26,6 +27,7 @@ import { useViewportBreakpoint } from '@/hooks/useMediaQuery'
 import {
   queryKeys,
   useAddressesQuery,
+  useAddressCountsQuery,
   useCreateGroupMutation,
   useDeleteEmailsMutation,
   useDeleteGroupMutation,
@@ -53,6 +55,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { MailSidebar } from './MailSidebar'
+import { availableAddressFilter, draftsInAddressView, folderURL, readAddressFilter, showAddressPicker } from './addressViews'
 import { EmailListPane } from './EmailListPane'
 import { ReadingPane } from './ReadingPane'
 import { ShortcutsDialog } from './ShortcutsDialog'
@@ -83,7 +86,7 @@ export function MailWorkspace() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { folder: folderParam } = useParams<{ folder?: string }>()
-  const [urlSearch] = useSearchParams()
+  const [urlSearch, setUrlSearch] = useSearchParams()
   const requestedMail = urlSearch.get('mail') ?? ''
   const linkedMailId = /^[1-9]\d{0,14}$/.test(requestedMail) && Number.isSafeInteger(Number(requestedMail))
     ? Number(requestedMail)
@@ -126,7 +129,12 @@ export function MailWorkspace() {
   // Queries
   const { data: user } = useUserMeQuery(true)
   const { data: addresses = [] } = useAddressesQuery(true)
-  const { data: sidebarGroups = [] } = useSidebarGroupsQuery(true)
+  const { data: addressCounts, isPending: isAddressCountsPending } = useAddressCountsQuery()
+  const requestedAddress = readAddressFilter(urlSearch.get('address'))
+  const addressView = availableAddressFilter(requestedAddress, addressCounts)
+  const addressReady = requestedAddress === 'all' || !isAddressCountsPending
+  const pickerVisible = showAddressPicker(addressCounts)
+  const { data: sidebarGroups = [] } = useSidebarGroupsQuery(addressReady, addressView)
   const { data: groupOptions = [] } = useGroupOptionsQuery(true)
 
   const customGroups = useMemo(
@@ -154,12 +162,24 @@ export function MailWorkspace() {
     isError: isListError,
     fetchNextPage,
     refetch: refetchList,
-  } = useEmailInfiniteList(activeFolder, debouncedSearch)
+  } = useEmailInfiniteList(activeFolder, debouncedSearch, addressView, addressReady)
 
   const { data: activeEmailDetail } = useEmailDetailQuery(activeEmailId)
   const { prefetch: prefetchEmail, cancel: cancelPrefetch } = usePrefetchEmailDetail()
 
   const { drafts: localDrafts, upsertDraft, removeDraft } = useLocalDrafts()
+  const visibleLocalDrafts = useMemo(() => draftsInAddressView(localDrafts, addressView, addressCounts, debouncedSearch),
+    [localDrafts, addressView, addressCounts, debouncedSearch])
+
+  useEffect(() => {
+    if (addressCounts && requestedAddress !== addressView) {
+      setUrlSearch((prior) => {
+        const next = new URLSearchParams(prior)
+        next.delete('address')
+        return next
+      }, { replace: true })
+    }
+  }, [addressCounts, requestedAddress, addressView, setUrlSearch])
 
   const starMutation = useStarEmailsMutation()
   const markReadMutation = useMarkReadMutation()
@@ -223,10 +243,10 @@ export function MailWorkspace() {
     setCheckedIds(new Set())
     if (linkedMailId !== null) {
       setActiveEmailId(linkedMailId)
-    } else if (isMobile) {
+    } else {
       setActiveEmailId(null)
     }
-  }, [folderParam, isMobile, linkedMailId])
+  }, [folderParam, linkedMailId, addressView])
 
   // Compute unread counts from sidebarGroups + inbox items
   const unreadCounts = useMemo<Partial<Record<SystemFolderKey, number>>>(() => {
@@ -238,7 +258,7 @@ export function MailWorkspace() {
       } else if (g.tag.includes('"type":0') && g.tag.includes('"group_id":0')) {
         counts.inbox = g.unread
       } else if (g.tag.includes('"status":4')) {
-        counts.drafts = g.unread
+        counts.drafts = g.total ?? g.unread
       } else if (g.tag.includes('"status":5')) {
         counts.junk = g.unread
       } else if (g.tag.includes('"status":3')) {
@@ -315,12 +335,25 @@ export function MailWorkspace() {
   const handleSelectFolder = useCallback(
     (folder: FolderSelection) => {
       const seg = folderToRouteSegment(folder)
-      navigate(`/mail/${seg}`)
+      navigate(folderURL(seg, addressView))
       setActiveEmailId(null)
       setDrawerOpen(false)
     },
-    [navigate],
+    [navigate, addressView],
   )
+
+  const handleAddressChange = useCallback((address: AddressFilter) => {
+    setUrlSearch((prior) => {
+      const next = new URLSearchParams(prior)
+      next.delete('mail')
+      if (address === 'all') next.delete('address')
+      else next.set('address', String(address))
+      return next
+    })
+    setActiveEmailId(null)
+    setCheckedIds(new Set())
+    setDrawerOpen(false)
+  }, [setUrlSearch])
 
   const handleSelectEmail = useCallback(
     (email: EmailListItem) => {
@@ -635,7 +668,10 @@ export function MailWorkspace() {
       customGroups={customGroups}
       unreadCounts={unreadCounts}
       starredCount={unreadCounts.starred ?? 0}
-      draftsCount={(unreadCounts.drafts ?? 0) + localDrafts.length}
+      draftsCount={(unreadCounts.drafts ?? 0) + visibleLocalDrafts.length}
+      addressCounts={pickerVisible ? addressCounts : undefined}
+      addressView={addressView}
+      onAddressChange={handleAddressChange}
       isMobileDrawer={isDrawer}
       onToggleCollapse={isDrawer ? undefined : toggleSidebarCollapsed}
       onSelectFolder={handleSelectFolder}
@@ -668,7 +704,8 @@ export function MailWorkspace() {
       folderTitle={folderTitle}
       emails={emails}
       totalCount={totalCount}
-      localDrafts={localDrafts}
+      localDrafts={visibleLocalDrafts}
+      showAddressLabels={addressView === 'all' && (addressCounts?.addresses.length ?? addresses.length) > 1}
       activeEmailId={activeEmailId}
       checkedIds={checkedIds}
       searchQuery={searchInput}
@@ -905,6 +942,7 @@ export function MailWorkspace() {
           <ComposeModal
             context={composeContext}
             sendableAddresses={sendableAddresses}
+            addressView={addressView}
             userDisplayName={user?.display_name || user?.name || user?.account || ''}
             suggestions={contactSuggestions}
             isMobile={isMobile}

@@ -7,6 +7,7 @@ import (
 	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
@@ -36,7 +37,12 @@ func getList(ctx *context.Context, tagInfo dto.SearchTag, keyword string, pop3Li
 	return emailList, total
 }
 
-func genSQL(ctx *context.Context, count bool, tagInfo dto.SearchTag, keyword string, pop3List bool, offset, limit int) (string, []any) {
+func genSQL(ctx *context.Context, count bool, tagInfo dto.SearchTag, keyword string, pop3List bool, offset, limit int, filters ...mailaddress.Filter) (string, []any) {
+	var predicate string
+	var addressArgs []any
+	if len(filters) != 0 {
+		predicate, addressArgs = filters[0].Predicate()
+	}
 	sqlParams := []any{ctx.UserID}
 	sql := "select "
 
@@ -54,8 +60,13 @@ func genSQL(ctx *context.Context, count bool, tagInfo dto.SearchTag, keyword str
 		sql += ` and ue.is_starred = ? and ue.status != 3
 			and not exists (select 1 from user_email older where older.user_id=ue.user_id
 			and older.email_id=ue.email_id and older.is_starred=ue.is_starred
-			and older.status != 3 and older.id < ue.id) `
+			and older.status != 3 and older.id < ue.id `
 		sqlParams = append(sqlParams, true)
+		if predicate != "" {
+			sql += " AND (" + strings.ReplaceAll(predicate, "ue.", "older.") + ")"
+			sqlParams = append(sqlParams, addressArgs...)
+		}
+		sql += ")"
 	} else if tagInfo.Status != -1 {
 		switch tagInfo.Status {
 		case consts.EmailStatusDel:
@@ -102,6 +113,11 @@ func genSQL(ctx *context.Context, count bool, tagInfo dto.SearchTag, keyword str
 	if keyword != "" {
 		sql += " and (subject like ? or text like ? )"
 		sqlParams = append(sqlParams, "%"+keyword+"%", "%"+keyword+"%")
+	}
+
+	if predicate != "" {
+		sql += " AND (" + predicate + ")"
+		sqlParams = append(sqlParams, addressArgs...)
 	}
 
 	if count {

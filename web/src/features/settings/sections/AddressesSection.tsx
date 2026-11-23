@@ -94,6 +94,9 @@ export function AddressesSection({ userId, embedded = false }: AddressesSectionP
   const invalidateAll = () => {
     void queryClient.invalidateQueries({ queryKey: addressQueryKey })
     void queryClient.invalidateQueries({ queryKey: queryKeys.addresses })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
+    void queryClient.invalidateQueries({ queryKey: ['emails', 'detail'] })
     void queryClient.invalidateQueries({ queryKey: queryKeys.userMe })
     void queryClient.invalidateQueries({ queryKey: queryKeys.usersRoot })
   }

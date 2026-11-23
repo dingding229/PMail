@@ -91,40 +91,45 @@ func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*p
 			return errs, err
 		}
 	}
-	// Web/authenticated local submission persists one row per recipient for
-	// legacy delivery reporting. Share the expensive scan across those rows.
+	// Group one local submission by recipient owner, not by untrusted Message-ID.
+	// A single owner who receives through two aliases gets one copy and two links.
 	delivery := inboundDelivery{envelope: inbound.Envelope{MailFrom: email.EnvelopeFrom}}
-	var targets []string
-	for _, r := range recipients {
-		if r != nil {
-			targets = append(targets, r.EmailAddress)
-		}
-	}
 	var owners []int
-	if len(targets) > 0 {
-		users, _, _, err := resolveIncomingUsers(ctx, email, int(consts.EmailTypeReceive), targets, true, true)
-		if err == nil {
-			for _, user := range users {
-				owners = append(owners, user.ID)
-			}
-		}
-	}
-	delivery.analyze(ctx, email, owners)
-
+	byOwner := map[int][]string{}
 	for _, recipient := range recipients {
 		if recipient == nil {
 			continue
 		}
-		// saveEmail assigns MessageId/MsgID on the parsed email. Use a per-
-		// recipient copy so local persistence cannot mutate the sender's parent
-		// audit email that outbound queue rows reference.
-		localEmail := *email
-		users, saved, err := saveEmail(ctx, len(raw), &localEmail, 0, int(consts.EmailTypeReceive), []string{recipient.EmailAddress}, true, true, &delivery)
+		rcpt := recipient.EmailAddress
+		users, _, _, err := resolveIncomingUsers(ctx, email, int(consts.EmailTypeReceive), []string{rcpt}, true, true)
 		if err == nil && len(users) == 0 {
 			err = address.ErrNotFound
 		}
 		if err != nil {
-			errs[recipient.EmailAddress] = err
+			errs[rcpt] = err
+			if first == nil {
+				first = err
+			}
+			continue
+		}
+		owner := users[0].ID
+		if _, exists := byOwner[owner]; !exists {
+			owners = append(owners, owner)
+		}
+		byOwner[owner] = append(byOwner[owner], rcpt)
+	}
+	delivery.analyze(ctx, email, owners)
+	for _, owner := range owners {
+		targets := byOwner[owner]
+		localEmail := *email // do not mutate the outbound audit parent
+		users, saved, err := saveEmail(ctx, len(raw), &localEmail, 0, int(consts.EmailTypeReceive), targets, true, true, &delivery)
+		if err == nil && len(users) == 0 {
+			err = address.ErrNotFound
+		}
+		if err != nil {
+			for _, rcpt := range targets {
+				errs[rcpt] = err
+			}
 			if first == nil {
 				first = err
 			}
@@ -355,7 +360,7 @@ func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserI
 			modelEmail.InboundAnalysis = inbound.Storage(delivery[0].analysis)
 			scores = delivery[0].scores
 		}
-		saved, accepted, err = persistInitialAuditWithQuota(ctx, modelEmail, userIDs, scores, catchAll)
+		saved, accepted, err = persistInitialAuditWithQuota(ctx, modelEmail, userIDs, scores, catchAll, reallyTo)
 		if err != nil {
 			return users, nil, err
 		}

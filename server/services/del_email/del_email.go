@@ -4,6 +4,7 @@ import (
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -28,8 +29,15 @@ func DelEmail(ctx *context.Context, ids []int, forced bool) error {
 			if err != nil {
 				return err
 			}
+			var links []int
+			if err := tx.Table(&models.UserEmail{}).Where("email_id=? AND user_id=?", id, ctx.UserID).Cols("id").Find(&links); err != nil {
+				return err
+			}
 			n, err := tx.Where("email_id=? AND user_id=?", id, ctx.UserID).Delete(&models.UserEmail{})
 			if err != nil {
+				return err
+			}
+			if err = mailaddress.DeleteLinks(tx, links); err != nil {
 				return err
 			}
 			if err = afterUnlink(tx, ctx.UserID, id, n, size); err != nil {
@@ -76,6 +84,11 @@ func DelByUID(ctx *context.Context, ids []int) error {
 			n, err := tx.ID(id).Where("user_id=?", ctx.UserID).Delete(&models.UserEmail{})
 			if err != nil {
 				return err
+			}
+			if n > 0 {
+				if err := mailaddress.DeleteLinks(tx, []int{id}); err != nil {
+					return err
+				}
 			}
 			if err = afterUnlink(tx, ctx.UserID, row.EmailID, n, size); err != nil {
 				return err

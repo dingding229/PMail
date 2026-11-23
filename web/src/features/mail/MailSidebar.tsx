@@ -27,7 +27,7 @@ import {
   Sun,
   Trash2,
 } from 'lucide-react'
-import type { GroupTreeItem, UserProfile } from '@/api'
+import type { AddressCounts, AddressFilter, GroupTreeItem, UserProfile } from '@/api'
 import { getAppLanguage, setAppLanguage, type SupportedLanguage } from '@/i18n'
 import { useTheme, type ThemeMode } from '@/lib/theme'
 import { prefetchAdminPage, prefetchComposeModal, prefetchSettingsPage } from '@/lib/prefetch'
@@ -58,6 +58,7 @@ import {
 import { BrandLogo } from '@/components/common/BrandLogo'
 import { SenderAvatar } from '@/components/common/SenderAvatar'
 import type { FolderSelection, SystemFolderKey } from './types'
+import { AddressPicker } from './AddressPicker'
 
 interface MailSidebarProps {
   activeFolder: FolderSelection
@@ -67,6 +68,9 @@ interface MailSidebarProps {
   unreadCounts: Partial<Record<SystemFolderKey, number>>
   starredCount: number
   draftsCount: number
+  addressCounts?: AddressCounts
+  addressView: AddressFilter
+  onAddressChange: (selection: AddressFilter) => void
   isMobileDrawer?: boolean
   onToggleCollapse?: () => void
   onSelectFolder: (folder: FolderSelection) => void
@@ -87,6 +91,9 @@ export function MailSidebar({
   unreadCounts,
   starredCount,
   draftsCount,
+  addressCounts,
+  addressView,
+  onAddressChange,
   isMobileDrawer = false,
   onToggleCollapse,
   onSelectFolder,
@@ -249,6 +256,7 @@ export function MailSidebar({
 
       {/* Scrollable Navigation */}
       <nav className="mail-scroll flex-1 overflow-y-auto px-2 space-y-4">
+        <AddressPicker counts={addressCounts} selection={addressView} onChange={onAddressChange} collapsed={collapsed} />
         {/* Built-in folders */}
         <ul className="space-y-0.5">
           {systemFolders.map(({ key, label, icon: Icon, count }) => {

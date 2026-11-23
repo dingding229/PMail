@@ -54,6 +54,9 @@ func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request
 		response.Localized(ctx, response.NoAccessPrivileges, "mail_not_found").FPrintStatus(w, http.StatusForbidden)
 		return
 	}
+	if body.FromAddress == "" {
+		body.FromAddress = preferredFrom(ctx.UserID, body.EmailID)
+	}
 	fromAddress, err := address.SendAddress(ctx.UserID, body.FromAddress)
 	if err != nil && !ctx.IsAdmin {
 		response.Localized(ctx, response.NoAccessPrivileges, "mail_sender_forbidden").FPrintStatus(w, http.StatusForbidden)

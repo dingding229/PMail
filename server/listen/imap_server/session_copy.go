@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/emersion/go-imap/v2"
 	"xorm.io/xorm"
@@ -54,11 +55,14 @@ func (s *serverSession) transfer(set imap.NumSet, dest string, move bool) (*imap
 		ar := make([]int, 0, len(selected))
 		for _, entry := range selected {
 			original := entry.row
-			next := models.UserEmail{UserID: s.ctx.UserID, EmailID: original.EmailID, IsRead: original.IsRead, IsStarred: original.IsStarred, InboundSpam: original.InboundSpam, IMAPDeleted: original.IMAPDeleted, GroupId: target.group, Status: target.status}
+			next := models.UserEmail{UserID: s.ctx.UserID, EmailID: original.EmailID, IsRead: original.IsRead, IsStarred: original.IsStarred, InboundSpam: original.InboundSpam, IMAPDeleted: original.IMAPDeleted, GroupId: target.group, Status: target.status, CatchAllAddresses: original.CatchAllAddresses, AddressAttributed: true}
 			if move {
 				next.IMAPDeleted = false
 			}
 			if _, err := tx.Insert(&next); err != nil {
+				return err
+			}
+			if err := mailaddress.Copy(tx, original, next); err != nil {
 				return err
 			}
 			ar = append(ar, next.ID)
@@ -69,6 +73,9 @@ func (s *serverSession) transfer(set imap.NumSet, dest string, move bool) (*imap
 				}
 				if n != 1 {
 					return errors.New("source membership changed")
+				}
+				if err := mailaddress.DeleteLinks(tx, []int{original.ID}); err != nil {
+					return err
 				}
 				removed = append(removed, entry)
 			}

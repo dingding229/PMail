@@ -12,6 +12,7 @@ import (
 	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/utils/context"
 )
@@ -44,11 +45,11 @@ func EncodeCursor(row *response.EmailResponseData) string {
 const webFields = `e.id,e.type,e.status,e.send_date,e.create_time,e.update_time,e.cron_send_time,
  e.from_address,e.from_name,e.reply_to,e.sender,e.subject,e.%s,e.cc,e.bcc,e.error,e.auth_results,e.inbound_analysis,e.auth_unchecked,e.spf_check,e.dkim_check,e.projection_ready,
  CASE WHEN e.projection_ready THEN e.list_snippet ELSE SUBSTR(e.text,1,1024) END AS list_snippet,
- ue.is_read,ue.is_starred,ue.inbound_spam,ue.status AS mailbox_status,ue.id AS ue_id`
+ ue.is_read,ue.is_starred,ue.inbound_spam,ue.status AS mailbox_status,ue.id AS ue_id,ue.catch_all_addresses`
 
-func webPageSQL(ctx *context.Context, tag dto.SearchTag, keyword string, cursor MailCursor, offset, limit int) (string, []any, string, []any, error) {
+func webPageSQL(ctx *context.Context, tag dto.SearchTag, keyword string, cursor MailCursor, offset, limit int, filters ...mailaddress.Filter) (string, []any, string, []any, error) {
 	// Reuse the legacy mailbox semantics, including IMAP copies and drafts.
-	countSQL, args := genSQL(ctx, true, tag, keyword, false, 0, 0)
+	countSQL, args := genSQL(ctx, true, tag, keyword, false, 0, 0, filters...)
 	from := strings.TrimPrefix(countSQL, "select count(1)")
 	query := "SELECT ue.id,ue.email_id" + from
 	pageArgs := append([]any(nil), args...)
@@ -89,8 +90,8 @@ func webPageSQL(ctx *context.Context, tag dto.SearchTag, keyword string, cursor 
 	return outer, pageArgs, countSQL, args, nil
 }
 
-func WebPage(ctx *context.Context, tag dto.SearchTag, keyword string, cursor MailCursor, offset, limit int, count bool) ([]*response.EmailResponseData, int64, error) {
-	outer, pageArgs, countSQL, args, err := webPageSQL(ctx, tag, keyword, cursor, offset, limit)
+func WebPage(ctx *context.Context, tag dto.SearchTag, keyword string, cursor MailCursor, offset, limit int, count bool, filters ...mailaddress.Filter) ([]*response.EmailResponseData, int64, error) {
+	outer, pageArgs, countSQL, args, err := webPageSQL(ctx, tag, keyword, cursor, offset, limit, filters...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -132,4 +133,13 @@ func WebPage(ctx *context.Context, tag dto.SearchTag, keyword string, cursor Mai
 		}
 	}
 	return rows, total, nil
+}
+
+// FolderCount uses the same predicates as WebPage, without reading MIME/body data.
+func FolderCount(ctx *context.Context, tag dto.SearchTag, filter mailaddress.Filter) (total, unread int, err error) {
+	q, args := genSQL(ctx, true, tag, "", false, 0, 0, filter)
+	q = "SELECT COUNT(1) AS total,COALESCE(SUM(CASE WHEN ue.is_read=0 THEN 1 ELSE 0 END),0) AS unread" + strings.TrimPrefix(q, "select count(1)")
+	var row struct{ Total, Unread int }
+	_, err = db.Instance.SQL(q, args...).Get(&row)
+	return row.Total, row.Unread, err
 }

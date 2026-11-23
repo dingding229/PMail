@@ -68,6 +68,9 @@ func Allows(scope, method, path string) bool {
 	if scope != Read && scope != Send {
 		return false
 	}
+	if method == http.MethodGet && path == "/api/email/address_counts" {
+		return true
+	}
 	if method == http.MethodGet || method == http.MethodHead {
 		if scope == Send && strings.HasPrefix(path, "/api/compose/inline-image/") {
 			return true

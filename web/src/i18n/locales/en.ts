@@ -177,6 +177,10 @@ const en = {
     },
   },
   nav: {
+    mailboxAddress: 'Mailbox address',
+    allAddresses: 'All addresses',
+    otherAddresses: 'Other addresses',
+    addressUnread: '{{address}} ({{count}} unread)',
     compose: 'Compose',
     inbox: 'Inbox',
     starred: 'Starred',

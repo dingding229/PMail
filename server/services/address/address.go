@@ -315,7 +315,10 @@ func Delete(id, actor int, admin bool) error {
 		if row.IsPrimary {
 			return ErrPrimary
 		}
-		_, err = tx.ID(id).Delete(&models.MailboxAddress{})
+		if _, err = tx.ID(id).Delete(&models.MailboxAddress{}); err != nil {
+			return err
+		}
+		_, err = tx.Where("address_id=?", id).Delete(&models.UserEmailAddress{})
 		return err
 	})
 }

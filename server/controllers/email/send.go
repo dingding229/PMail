@@ -24,20 +24,21 @@ import (
 )
 
 type sendRequest struct {
-	DraftID      int              `json:"draft_id"`
-	ReplyTo      []user           `json:"reply_to"`
-	From         user             `json:"from"`
-	FromAddress  string           `json:"from_address"`
-	To           []user           `json:"to"`
-	Bcc          []user           `json:"bcc"`
-	Cc           []user           `json:"cc"`
-	Subject      string           `json:"subject"`
-	Text         string           `json:"text"`   // Plaintext message (optional)
-	HTML         string           `json:"html"`   // Html message (optional)
-	Sender       user             `json:"sender"` // override From as SMTP envelope sender (optional)
-	ReadReceipt  []string         `json:"read_receipt"`
-	Attachments  []attachment     `json:"attrs"`
-	InlineImages []svccompose.Ref `json:"inline_images"`
+	ReplyToEmailID int              `json:"reply_to_email_id"`
+	DraftID        int              `json:"draft_id"`
+	ReplyTo        []user           `json:"reply_to"`
+	From           user             `json:"from"`
+	FromAddress    string           `json:"from_address"`
+	To             []user           `json:"to"`
+	Bcc            []user           `json:"bcc"`
+	Cc             []user           `json:"cc"`
+	Subject        string           `json:"subject"`
+	Text           string           `json:"text"`   // Plaintext message (optional)
+	HTML           string           `json:"html"`   // Html message (optional)
+	Sender         user             `json:"sender"` // override From as SMTP envelope sender (optional)
+	ReadReceipt    []string         `json:"read_receipt"`
+	Attachments    []attachment     `json:"attrs"`
+	InlineImages   []svccompose.Ref `json:"inline_images"`
 }
 
 type user struct {
@@ -71,6 +72,10 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 			draftError(ctx, w, err)
 			return
 		}
+	}
+
+	if reqData.FromAddress == "" && reqData.From.Email == "" && reqData.ReplyToEmailID > 0 {
+		reqData.FromAddress = preferredFrom(ctx.UserID, reqData.ReplyToEmailID)
 	}
 
 	if reqData.FromAddress != "" {

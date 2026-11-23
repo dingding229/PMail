@@ -1,9 +1,9 @@
 import { apiPost } from './client'
-import type { GroupOption, GroupTreeItem } from './types'
+import type { AddressFilter, GroupOption, GroupTreeItem } from './types'
 
 export const groupApi = {
   /** Default + custom group tree for navigation sidebar */
-  sidebarTree: () => apiPost<GroupTreeItem[]>('/api/group', {}),
+  sidebarTree: (address: AddressFilter = 'all') => apiPost<GroupTreeItem[]>('/api/group', address === 'all' ? {} : { address }),
 
   /** Flat list of movable destinations (INBOX, Junk, Deleted + custom groups) */
   list: () => apiPost<GroupOption[]>('/api/group/list', {}),

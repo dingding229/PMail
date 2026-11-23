@@ -570,12 +570,13 @@ paths:
     get:
       operationId: groupTreeGet
       tags: [Groups]
-      summary: Get nested groups and built-in mailbox navigation tags
+      summary: Get nested groups, navigation tags and address-filtered counts
       x-permission: user
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
-      x-error-codes: {'200': [402, 403, 500], '403': [405]}
+      - {$ref: '#/components/parameters/MailboxAddressQuery'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -585,16 +586,27 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/GroupNodeListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
     post:
       operationId: groupTreePost
       tags: [Groups]
-      summary: Get nested groups and built-in mailbox navigation tags
+      summary: Get nested groups, navigation tags and address-filtered counts
       x-permission: user
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
-      x-error-codes: {'200': [402, 403, 500], '403': [405]}
+      - {$ref: '#/components/parameters/MailboxAddressQuery'}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                address: {$ref: '#/components/schemas/MailboxAddressFilter'}
+      x-error-codes: {'200': [402, 403, 500], '400': [100], '403': [405], '500': [500]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -604,7 +616,9 @@ paths:
                 oneOf:
                 - {$ref: '#/components/schemas/GroupNodeListSuccess'}
                 - {$ref: '#/components/schemas/Error402403500'}
+        '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/group/list:
     get:
       operationId: groupListGet
@@ -701,6 +715,29 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
+  /api/email/address_counts:
+    get:
+      operationId: getMailboxAddressCounts
+      tags: [Mail]
+      summary: Get inbox unread counts for all addresses, each owned address and catch-all
+      x-permission: user
+      parameters:
+      - {$ref: '#/components/parameters/PMailLang'}
+      - {$ref: '#/components/parameters/AcceptLanguage'}
+      responses:
+        '200':
+          description: Address counts. One message can count toward multiple address views but is counted once in all_unread.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Envelope'}
+                - type: object
+                  properties:
+                    errorNo: {const: 0}
+                    errorMsg: {const: ''}
+                    data: {$ref: '#/components/schemas/MailboxAddressCounts'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/email/list:
     post:
       operationId: listMail
@@ -710,12 +747,13 @@ paths:
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
+      - {$ref: '#/components/parameters/MailboxAddressQuery'}
       requestBody:
         required: false
         content:
           application/json:
             schema: {$ref: '#/components/schemas/MailListRequest'}
-      x-error-codes: {'200': [100, 402, 403, 500], '403': [405]}
+      x-error-codes: {'200': [100, 402, 403, 500], '400': [100], '403': [405]}
       responses:
         '200':
           description: Success or legacy application error; inspect errorNo.
@@ -767,6 +805,7 @@ paths:
                         error: ''
                       current_page: 1
                       total_page: 1
+        '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/email/detail:
     post:
@@ -4466,6 +4505,11 @@ components:
     BearerToken: {type: http, scheme: bearer}
     LegacyToken: {type: apiKey, in: header, name: Token}
   parameters:
+    MailboxAddressQuery:
+      name: address
+      in: query
+      description: Optional address view. A query value overrides any body value. Only addresses owned by the caller may be selected.
+      schema: {$ref: '#/components/schemas/MailboxAddressFilter'}
     ConfirmAttachmentRisk:
       name: confirm_risk
       in: query
@@ -5916,9 +5960,43 @@ components:
             pending.'
         group_id: {type: integer, description: -1 any; 0 default; positive custom group ID.}
         starred: {type: boolean, description: 'True selects starred messages outside Deleted, ignoring group_id/type/status.'}
+    MailboxAddressFilter:
+      description: Omit or use all for the existing view; other selects catch-all; a positive ID selects a mailbox address owned by the caller.
+      oneOf:
+      - {type: integer, minimum: 1}
+      - {type: string, pattern: '^(all|other|[1-9][0-9]*)$'}
+    MailboxAddressMatch:
+      type: object
+      required: [id, address, can_send, is_primary]
+      properties:
+        id: {type: integer, minimum: 1}
+        address: {type: string}
+        can_send: {type: boolean}
+        is_primary: {type: boolean}
+    MailboxAddressCounts:
+      type: object
+      required: [all_unread, addresses, other]
+      properties:
+        all_unread: {type: integer, minimum: 0}
+        addresses:
+          type: array
+          items:
+            allOf:
+            - {$ref: '#/components/schemas/MailboxAddressMatch'}
+            - type: object
+              required: [unread]
+              properties:
+                unread: {type: integer, minimum: 0}
+        other:
+          type: object
+          required: [unread, has_mail]
+          properties:
+            unread: {type: integer, minimum: 0}
+            has_mail: {type: boolean, description: True if a retained catch-all message exists in any folder.}
     MailListRequest:
       type: object
       properties:
+        address: {$ref: '#/components/schemas/MailboxAddressFilter'}
         keyword: {type: string}
         tag:
           type: string
@@ -6018,6 +6096,12 @@ components:
       - to
       - error
       properties:
+        mailbox_addresses:
+          type: array
+          items: {$ref: '#/components/schemas/MailboxAddressMatch'}
+        catch_all_addresses:
+          type: array
+          items: {type: string}
         spam:
           oneOf:
           - $ref: '#/components/schemas/MailSpamSummary'
@@ -6099,6 +6183,9 @@ components:
     EmailDetail:
       type: object
       properties:
+        mailbox_addresses:
+          type: array
+          items: {$ref: '#/components/schemas/MailboxAddressMatch'}
         spam:
           oneOf:
           - $ref: '#/components/schemas/MailSpamAssessment'
@@ -6314,6 +6401,7 @@ components:
       type: object
       required: [to, subject]
       properties:
+        reply_to_email_id: {type: integer, minimum: 1, description: When no From was supplied use a send-enabled address associated with this original message before falling back to the primary address.}
         inline_images:
           type: array
           items:
@@ -6468,6 +6556,8 @@ components:
       type: object
       required: [id, label, tag, children]
       properties:
+        unread: {type: integer, minimum: 0}
+        total: {type: integer, minimum: 0}
         id: {type: integer}
         label: {type: string}
         tag:

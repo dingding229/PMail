@@ -3,6 +3,7 @@ import dayjs from 'dayjs'
 import { version as mockBuildVersion } from '../../package.json'
 import {
   SYSTEM_GROUP_IDS,
+  type AddressFilter,
   type AdminTelegramStatus,
   type AdminUpdateInfo,
   type AppPassword,
@@ -321,6 +322,14 @@ const emailStore = new Map<number, MockEmailRecord>()
 for (const item of createSeedEmails()) {
   if (item.id === 101 || item.id === 103 || item.id === 106) {
     item.is_starred = true
+  }
+  const addresses = getMe().addresses ?? []
+  const names = item.type === 1 || item.status === 4 ? [item.from_address] : [...item.to, ...item.cc].map(({ EmailAddress }) => EmailAddress)
+  item.mailbox_address_ids = addresses.filter((a) => names.some((name) => name.toLowerCase() === a.address.toLowerCase())).map(({ id }) => id)
+  if (item.id === 201) item.mailbox_address_ids = [1, 2]
+  if (item.id === 202) {
+    item.mailbox_address_ids = []
+    item.catch_all_addresses = ['legacy-notices@pmail.dev']
   }
   emailStore.set(item.id, item)
 }
@@ -784,11 +793,31 @@ function matchesTag(
   return true
 }
 
+function mockAddressIDs(from: string) {
+  return (getMe().addresses ?? []).filter((a) => a.address.toLowerCase() === from.toLowerCase()).map(({ id }) => id)
+}
+
+function mockMailboxAddresses(rec: MockEmailRecord) {
+  return (getMe().addresses ?? []).filter(({ id }) => rec.mailbox_address_ids?.includes(id))
+}
+
+function allowedMockFilter(address?: AddressFilter) {
+  return address == null || address === 'all' || address === 'other' || (getMe().addresses ?? []).some(({ id }) => id === address)
+}
+
+function matchesMockAddress(rec: MockEmailRecord, address?: AddressFilter) {
+  if (address == null || address === 'all') return true
+  if (address === 'other') return Boolean(rec.catch_all_addresses?.length)
+  return rec.mailbox_address_ids?.includes(address) ?? false
+}
+
 function toListItem(rec: MockEmailRecord) {
   const iso = dayjs(rec.send_date).isValid()
     ? dayjs(rec.send_date).toISOString()
     : new Date().toISOString()
   return {
+    mailbox_addresses: mockMailboxAddresses(rec),
+    catch_all_addresses: rec.catch_all_addresses,
     id: rec.id,
     title: rec.subject,
     desc: rec.text,
@@ -1343,10 +1372,12 @@ export const handlers = [
   }),
 
   /* ==================== Groups & Mail ==================== */
-  http.post('/api/group', async () => {
+  http.post('/api/group', async ({ request }) => {
     await delay(35)
     if (!loggedIn) return fail('未登录', 403, 401)
-    const allSeed = Array.from(emailStore.values())
+    const { address } = await request.json() as { address?: AddressFilter }
+    if (!allowedMockFilter(address)) return fail('邮箱地址不属于当前用户', 405, 403)
+    const allSeed = Array.from(emailStore.values()).filter((record) => matchesMockAddress(record, address))
     const inboxUnread = allSeed.filter(
       (e) => e.type === 0 && e.status === 0 && e.group_id === 0 && !e.is_read,
     ).length
@@ -1377,7 +1408,8 @@ export const handlers = [
         id: 0,
         label: '草稿箱',
         tag: JSON.stringify({ type: 0, status: 4 }),
-        unread: draftsCount,
+        total: draftsCount,
+        unread: allSeed.filter((e) => e.status === 4 && !e.is_read).length,
       },
       {
         id: 0,
@@ -1433,15 +1465,28 @@ export const handlers = [
     return ok(true)
   }),
 
+  http.get('/api/email/address_counts', () => {
+    if (!loggedIn) return fail('未登录', 403, 401)
+    const records = Array.from(emailStore.values())
+    const unread = records.filter((rec) => rec.type === 0 && rec.status === 0 && rec.group_id === 0 && !rec.is_read)
+    return ok({
+      addresses: (getMe().addresses ?? []).map((a) => ({ ...a, unread: unread.filter((rec) => matchesMockAddress(rec, a.id)).length })),
+      all_unread: unread.length,
+      other: { unread: unread.filter((rec) => matchesMockAddress(rec, 'other')).length, has_mail: records.some((rec) => matchesMockAddress(rec, 'other')) },
+    })
+  }),
+
   http.post('/api/email/list', async ({ request }) => {
     await delay(50)
     if (!loggedIn) return fail('未登录', 403, 401)
     const body = (await request.json()) as {
+      address?: AddressFilter
       keyword?: string
       tag?: string
       current_page?: number
       page_size?: number
     }
+    if (!allowedMockFilter(body.address)) return fail('邮箱地址不属于当前用户', 405, 403)
     const page = Math.max(1, body.current_page ?? 1)
     const pageSize = Math.max(1, body.page_size ?? 50)
     const kw = (body.keyword || '').trim().toLowerCase()
@@ -1460,7 +1505,7 @@ export const handlers = [
     const isDefaultInbox = tagObj.type === 0 && tagObj.group_id === 0 && !tagObj.starred
 
     const seedMatched = Array.from(emailStore.values())
-      .filter((rec) => matchesTag(rec, tagObj))
+      .filter((rec) => matchesTag(rec, tagObj) && matchesMockAddress(rec, body.address))
       .filter((rec) => {
         if (!kw) return true
         return (
@@ -1472,7 +1517,7 @@ export const handlers = [
       })
       .sort((a, b) => (b.send_date > a.send_date ? 1 : -1))
 
-    if (isDefaultInbox && !kw) {
+    if (isDefaultInbox && !kw && (body.address == null || body.address === 'all')) {
       const seedCount = seedMatched.length
       const syntheticCount = VIRTUAL_TOTAL_INBOX - deletedSyntheticIds.size
       const total = seedCount + syntheticCount
@@ -1511,7 +1556,7 @@ export const handlers = [
     if (!rec) return fail('邮件不存在', 100, 404)
     rec.is_read = true
     if (rec.id >= 1000) readSyntheticOverrides.set(rec.id, true)
-    return ok(toEmailDetail(rec))
+    return ok({ ...toEmailDetail(rec), mailbox_addresses: mockMailboxAddresses(rec) })
   }),
 
   http.post('/api/email/read', async ({ request }) => {
@@ -1563,6 +1608,7 @@ export const handlers = [
       subject: body.subject || '(无主题草稿)',
       from_name: me.display_name || me.name,
       from_address: body.from_address || 'admin@pmail.dev',
+      mailbox_address_ids: mockAddressIDs(body.from_address || 'admin@pmail.dev'),
       to: (body.to ?? []).map((x) => ({ Name: x.name || '', EmailAddress: x.email })),
       cc: (body.cc ?? []).map((x) => ({ Name: x.name || '', EmailAddress: x.email })),
       reply_to: [],
@@ -1668,6 +1714,7 @@ export const handlers = [
       subject: body.subject || '(无主题)',
       from_name: body.from?.name || me.name,
       from_address: body.from_address || body.from?.email || 'admin@pmail.dev',
+      mailbox_address_ids: mockAddressIDs(body.from_address || body.from?.email || 'admin@pmail.dev'),
       to: (body.to ?? []).map((x) => ({ Name: x.name || '', EmailAddress: x.email })),
       cc: (body.cc ?? []).map((x) => ({ Name: x.name || '', EmailAddress: x.email })),
       reply_to: [],

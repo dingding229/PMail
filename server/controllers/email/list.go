@@ -11,6 +11,7 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/services/list"
+	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/isotime"
 )
@@ -23,6 +24,8 @@ type emailListResponse struct {
 }
 
 type emilItem struct {
+	MailboxAddresses  []mailaddress.Address `json:"mailbox_addresses,omitempty"`
+	CatchAllAddresses []string              `json:"catch_all_addresses,omitempty"`
 	normalizedMail
 	inbound.ListView
 	models.EmailISOTimes
@@ -45,18 +48,24 @@ type User struct {
 }
 
 type emailRequest struct {
-	Keyword      string  `json:"keyword"`
-	Tag          string  `json:"tag"`
-	CurrentPage  int     `json:"current_page"`
-	PageSize     int     `json:"page_size"`
-	Cursor       *string `json:"cursor"`
-	IncludeTotal *bool   `json:"include_total"`
+	Address      json.RawMessage `json:"address"`
+	Keyword      string          `json:"keyword"`
+	Tag          string          `json:"tag"`
+	CurrentPage  int             `json:"current_page"`
+	PageSize     int             `json:"page_size"`
+	Cursor       *string         `json:"cursor"`
+	IncludeTotal *bool           `json:"include_total"`
 }
 
 func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 	var lst []*emilItem
 	var retData emailRequest
 	if !readMailJSON(ctx, w, req, &retData, true) {
+		return
+	}
+
+	selected, ok := addressFilter(ctx, w, req.URL.Query().Get("address"), retData.Address)
+	if !ok {
 		return
 	}
 
@@ -92,7 +101,7 @@ func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		offset = 0
 		limit++
 	}
-	emailList, total, err := list.WebPage(ctx, tagInfo, retData.Keyword, cursor, offset, limit, count)
+	emailList, total, err := list.WebPage(ctx, tagInfo, retData.Keyword, cursor, offset, limit, count, selected)
 	if err != nil {
 		response.Localized(ctx, response.ServerError, "internal_error").FPrint(w)
 		return
@@ -105,6 +114,16 @@ func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 			value = list.EncodeCursor(emailList[len(emailList)-1])
 		}
 		next = &value
+	}
+
+	ids := make([]int, 0, len(emailList))
+	for _, email := range emailList {
+		ids = append(ids, email.UeId)
+	}
+	matches, err := mailaddress.Views(ctx.UserID, ids)
+	if err != nil {
+		response.Localized(ctx, response.ServerError, "internal_error").FPrint(w)
+		return
 	}
 
 	for _, email := range emailList {
@@ -120,6 +139,8 @@ func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		_ = json.Unmarshal([]byte(email.To), &tos)
 
 		lst = append(lst, &emilItem{
+			MailboxAddresses:       matches[email.UeId],
+			CatchAllAddresses:      mailaddress.CatchAll(email.CatchAllAddresses.String),
 			normalizedMail:         normalizeMail(email.Email),
 			ListView:               inbound.ReadList(email.InboundAnalysis, email.InboundSpam),
 			EmailISOTimes:          email.Email.ISOTimes(),

@@ -16,6 +16,7 @@ import {
   signaturesApi,
   userApi,
   SYSTEM_GROUP_IDS,
+  type AddressFilter,
   type DraftSaveRequest,
   type EmailDetail,
   type EmailListItem,
@@ -31,9 +32,11 @@ export const queryKeys = {
   addresses: ['user', 'addresses'] as const,
   signatures: ['settings', 'signatures'] as const,
   sidebarGroups: ['groups', 'sidebar'] as const,
+  sidebarGroupView: (address: AddressFilter) => ['groups', 'sidebar', 'filter', address] as const,
+  addressCounts: ['groups', 'sidebar', 'address-counts'] as const,
   groupOptions: ['groups', 'list'] as const,
   emailListsRoot: ['emails', 'list'] as const,
-  emailList: (tag: string, keyword: string) => ['emails', 'list', tag, keyword] as const,
+  emailList: (tag: string, keyword: string, address: AddressFilter = 'all') => ['emails', 'list', tag, keyword, address] as const,
   emailDetail: (id: number) => ['emails', 'detail', id] as const,
   forward: ['settings', 'forward'] as const,
   rules: ['settings', 'rules'] as const,
@@ -98,10 +101,19 @@ export function useAdminUpdateQuery(enabled = true) {
   })
 }
 
-export function useSidebarGroupsQuery(enabled = true) {
+export function useAddressCountsQuery() {
   return useQuery({
-    queryKey: queryKeys.sidebarGroups,
-    queryFn: () => groupApi.sidebarTree(),
+    queryKey: queryKeys.addressCounts,
+    queryFn: ({ signal }) => mailApi.addressCounts(signal),
+    staleTime: 20_000,
+    refetchInterval: 30_000,
+  })
+}
+
+export function useSidebarGroupsQuery(enabled = true, address: AddressFilter = 'all') {
+  return useQuery({
+    queryKey: queryKeys.sidebarGroupView(address),
+    queryFn: () => groupApi.sidebarTree(address),
     enabled,
     staleTime: 30_000,
   })
@@ -116,18 +128,20 @@ export function useGroupOptionsQuery(enabled = true) {
   })
 }
 
-export function useEmailInfiniteList(folder: FolderSelection, keyword: string) {
+export function useEmailInfiniteList(folder: FolderSelection, keyword: string, address: AddressFilter = 'all', enabled = true) {
   const tag = getSearchTagForFolder(folder)
   const trimmedKeyword = keyword.trim()
 
   return useInfiniteQuery({
-    queryKey: queryKeys.emailList(tag, trimmedKeyword),
+    queryKey: queryKeys.emailList(tag, trimmedKeyword, address),
+    enabled,
     initialPageParam: 1,
     queryFn: ({ pageParam, signal }) =>
       mailApi.list(
         {
           tag,
           keyword: trimmedKeyword,
+          ...(address === 'all' ? {} : { address }),
           current_page: pageParam,
           page_size: PAGE_SIZE,
         },

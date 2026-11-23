@@ -24,6 +24,7 @@ import (
 	"github.com/Jinnrry/pmail/services/compose"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/inbound"
+	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/services/quota"
@@ -180,6 +181,18 @@ func Init(serverVersion string) {
 				log.Errorf("mail projection backfill: %v", err)
 			}
 		}()
+		addressDone := make(chan struct{})
+		go func() {
+			defer close(addressDone)
+			started := time.Now()
+			n, err := mailaddress.Backfill(ctx, db.Instance)
+			if err != nil && ctx.Err() == nil {
+				log.Errorf("mail address backfill: %v", err)
+			} else if err == nil {
+				log.Infof("mail address backfill complete rows=%d duration=%s", n, time.Since(started).Round(time.Millisecond))
+			}
+		}()
+		c9Workers = append(c9Workers, addressDone)
 		drainScheduler := cron_server.Start(ctx, cfg, cert)
 
 		restart := false

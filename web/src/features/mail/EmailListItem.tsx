@@ -27,6 +27,7 @@ interface EmailListItemProps {
   isMobile: boolean
   density?: ListDensity
   suppressAuthWarning?: boolean
+  showAddressLabels?: boolean
   onSelect: (email: EmailListItemModel) => void
   onToggleCheck: (id: number) => void
   onToggleStar: (id: number, nextStarred: boolean) => void
@@ -47,6 +48,7 @@ export const EmailListItem = memo(function EmailListItem({
   isMobile,
   density = 'comfortable',
   suppressAuthWarning = false,
+  showAddressLabels = false,
   onSelect,
   onToggleCheck,
   onToggleStar,
@@ -67,6 +69,11 @@ export const EmailListItem = memo(function EmailListItem({
     email.sender?.Name || email.sender?.EmailAddress || t('mail.unknownSender')
   const senderEmail = email.sender?.EmailAddress || ''
   const isUnread = !email.is_read
+
+  const mailboxLabels = showAddressLabels ? Array.from(new Set([
+    ...(email.mailbox_addresses ?? []).map(({ address }) => address),
+    ...(email.catch_all_addresses ?? []),
+  ])) : []
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (!isMobile || e.touches.length !== 1) return
@@ -294,6 +301,11 @@ export const EmailListItem = memo(function EmailListItem({
             >
               {email.title || t('mail.noSubject')}
             </p>
+            {mailboxLabels.length > 0 && (
+              <span title={mailboxLabels.join(', ')} className="max-w-[44%] shrink-0 truncate rounded-[var(--radius-xs)] bg-[var(--surface-subtle)] px-1.5 text-[10px] leading-5 text-[var(--ink-secondary)]">
+                {mailboxLabels[0]}{mailboxLabels.length > 1 ? ` +${mailboxLabels.length - 1}` : ''}
+              </span>
+            )}
           </div>
 
           {/* Row 3: Snippet + Verification Code / Attachment / Star */}

@@ -9,6 +9,7 @@ import (
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/mailaddress"
 	log "github.com/sirupsen/logrus"
 	"xorm.io/builder"
 	"xorm.io/xorm"
@@ -178,7 +179,7 @@ func LockMessage(tx *xorm.Session, id int) (int64, bool, error) {
 }
 
 // EnsureLink is used by legacy forwarding paths that share an existing email.
-func EnsureLink(owner, emailID int, status int8) error {
+func EnsureLink(owner, emailID int, status int8, targets ...string) error {
 	return db.Transaction(db.Instance, func(tx *xorm.Session) error {
 		if _, err := Lock(tx, owner); err != nil {
 			return err
@@ -194,7 +195,11 @@ func EnsureLink(owner, emailID int, status int8) error {
 		if err != nil || exists {
 			return err
 		}
-		if _, err := tx.Insert(&models.UserEmail{UserID: owner, EmailID: emailID, Status: status}); err != nil {
+		link := models.UserEmail{UserID: owner, EmailID: emailID, Status: status, AddressAttributed: true}
+		if _, err := tx.Insert(&link); err != nil {
+			return err
+		}
+		if err := mailaddress.Add(tx, []models.UserEmail{link}, targets); err != nil {
 			return err
 		}
 		return Adjust(tx, owner, size)

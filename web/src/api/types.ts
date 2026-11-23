@@ -123,7 +123,23 @@ export interface SearchTag {
   starred?: boolean
 }
 
+export type AddressFilter = 'all' | 'other' | number
+
+export interface MailboxAddressMatch {
+  id: number
+  address: string
+  can_send: boolean
+  is_primary: boolean
+}
+
+export interface AddressCounts {
+  addresses: (MailboxAddressMatch & { unread: number })[]
+  all_unread: number
+  other: { unread: number; has_mail: boolean }
+}
+
 export interface EmailListRequest {
+  address?: AddressFilter
   keyword?: string
   tag: string
   current_page: number
@@ -357,6 +373,8 @@ export interface SignatureInput {
 }
 
 export interface EmailListItem {
+  mailbox_addresses?: MailboxAddressMatch[]
+  catch_all_addresses?: string[]
   id: number
   title: string
   desc: string
@@ -401,6 +419,7 @@ export interface EmailAttachment {
 }
 
 export interface EmailDetail {
+  mailbox_addresses?: MailboxAddressMatch[]
   id: number
   type: number
   subject: string
@@ -470,6 +489,7 @@ export interface InlineImageUploadResult {
 }
 
 export interface SendEmailRequest {
+  reply_to_email_id?: number
   from?: SendEmailParticipant
   from_address?: string
   to: SendEmailParticipant[]
@@ -528,6 +548,7 @@ export interface GroupTreeItem {
   label: string
   tag: string
   unread?: number
+  total?: number
   children?: GroupTreeItem[] | null
 }
 

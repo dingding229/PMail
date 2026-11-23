@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
@@ -37,6 +38,9 @@ func (s *serverSession) expunge(set imap.NumSet, emit func(uint32) error) error 
 				return err
 			}
 			if n > 0 {
+				if err := mailaddress.DeleteLinks(tx, []int{item.row.ID}); err != nil {
+					return err
+				}
 				removed = append(removed, item)
 			}
 		}

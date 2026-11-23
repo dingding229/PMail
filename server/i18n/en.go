@@ -2,6 +2,8 @@ package i18n
 
 // #nosec G101 -- user-facing translations contain labels and errors about passwords/tokens, not credential values.
 var en = map[string]string{
+	"mail_address_forbidden":         "This mailbox address does not belong to you.",
+	"mail_address_invalid":           "Invalid mailbox address filter.",
 	"clamav_env_controlled":          "ClamAV is controlled by PMAIL_CLAMAV.",
 	"clamav_disabled":                "ClamAV is disabled.",
 	"clamav_update_busy":             "A ClamAV update is already in progress.",

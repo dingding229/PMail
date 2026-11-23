@@ -177,6 +177,10 @@ const zhCN = {
     },
   },
   nav: {
+    mailboxAddress: '邮箱地址',
+    allAddresses: '全部地址',
+    otherAddresses: '其他地址',
+    addressUnread: '{{address}}（{{count}} 未读）',
     compose: '写邮件',
     inbox: '收件箱',
     starred: '星标邮件',

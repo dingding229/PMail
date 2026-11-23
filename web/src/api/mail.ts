@@ -1,5 +1,6 @@
 import { apiGet, apiPost, apiUpload } from './client'
 import type {
+  AddressCounts,
   AttachmentPreviewResponse,
   DraftSaveRequest,
   DraftSaveResponse,
@@ -17,6 +18,8 @@ const toIds = (value: number | number[]) => (Array.isArray(value) ? value : [val
 export const mailApi = {
   list: (payload: EmailListRequest, signal?: AbortSignal) =>
     apiPost<EmailListResponse>('/api/email/list', payload, { signal }),
+
+  addressCounts: (signal?: AbortSignal) => apiGet<AddressCounts>('/api/email/address_counts', { cache: 'no-store', signal }),
 
   detail: (id: number, signal?: AbortSignal) =>
     apiPost<EmailDetail>('/api/email/detail', { id }, { signal }),

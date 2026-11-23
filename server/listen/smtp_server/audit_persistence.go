@@ -16,6 +16,7 @@ import (
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/inbound"
+	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/services/quota"
@@ -88,7 +89,7 @@ func localPersistenceSMTPError() error {
 	}
 }
 
-func persistInitialAuditWithQuota(ctx *context.Context, modelEmail models.Email, userIDs []int, scores map[int]*inbound.Spam, catchAll map[int][]string) (*models.Email, []int, error) {
+func persistInitialAuditWithQuota(ctx *context.Context, modelEmail models.Email, userIDs []int, scores map[int]*inbound.Spam, catchAll map[int][]string, rcpts ...[]string) (*models.Email, []int, error) {
 	var saved models.Email
 	userIDs = sortedOwners(userIDs)
 	accepted := make([]int, 0, len(userIDs))
@@ -120,15 +121,23 @@ func persistInitialAuditWithQuota(ctx *context.Context, modelEmail models.Email,
 		if candidate.Id <= 0 {
 			return stderrors.New("email insert returned no id")
 		}
+		links := make([]models.UserEmail, 0, len(accepted))
 		for _, id := range accepted {
 			link := initialLink(&candidate, id, 0, scores[id])
+			link.AddressAttributed = true
 			if addresses := catchAll[id]; len(addresses) != 0 {
 				link.CatchAllAddresses = sql.NullString{String: json2string(addresses), Valid: true}
 			}
 			if _, err := session.Insert(&link); err != nil {
 				return err
 			}
+			links = append(links, link)
 			if err := quota.Adjust(session, id, int64(candidate.Size)); err != nil {
+				return err
+			}
+		}
+		if len(rcpts) > 0 {
+			if err := mailaddress.Add(session, links, rcpts[0]); err != nil {
 				return err
 			}
 		}
@@ -164,8 +173,11 @@ func persistInitialAudit(ctx *context.Context, modelEmail models.Email, userIDs 
 			return stderrors.New("email insert returned no id")
 		}
 		for _, userID := range userIDs {
-			relation := models.UserEmail{EmailID: candidate.Id, UserID: userID, Status: candidate.Status}
+			relation := models.UserEmail{EmailID: candidate.Id, UserID: userID, Status: candidate.Status, AddressAttributed: true}
 			if _, err := session.Insert(&relation); err != nil {
+				return err
+			}
+			if err := mailaddress.Add(session, []models.UserEmail{relation}, []string{candidate.FromAddress}); err != nil {
 				return err
 			}
 			if err := quota.Adjust(session, userID, int64(candidate.Size)); err != nil {

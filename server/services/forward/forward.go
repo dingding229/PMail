@@ -189,7 +189,7 @@ func EnqueueForUser(ctx *pcontext.Context, userID int, email *parsemail.Email, r
 			if email.Status < 0 || email.Status > math.MaxInt8 {
 				return errors.New("invalid forwarded mail status")
 			}
-			return quota.EnsureLink(user.ID, int(forwarded.MessageId), int8(email.Status))
+			return quota.EnsureLink(user.ID, int(forwarded.MessageId), int8(email.Status), target)
 		}
 		return nil
 	}
