@@ -164,7 +164,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 CI 的[工作流](../.github/workflows/ci.yml)分别检查前后端、执行 Go 的常规与集成测试。在 `server/` 目录使用 `go test -tags integration ./...` 运行集成测试；需要能绑定固定邮件端口的权限和独立、空白的 PostgreSQL 测试库（`PMAIL_TEST_PG_DSN`），该库账号还须能建 schema。可选的 MySQL 主程序集成测试用 `PMAIL_TEST_MYSQL_DSN` 与 `go test -tags integration . -args mysql`，不要使用生产库。
 
-[发布工作流](../.github/workflows/docker.yml) 仅在 `v0.x.y` 标签匹配源码版本时构建 `linux/amd64` 与 `linux/arm64`。它推送 `dingding229/pmail-pro` 的版本标签及 `latest`（需 `DOCKERHUB_TOKEN`；可选 `DOCKERHUB_USERNAME`），并用 `CHANGELOG.md` 的对应段落创建 GitHub Release。该 Release 上传两种架构的程序/网页压缩包及 `checksums.txt`、`checksums.txt.sig`。发布前须配对设置代码中的 Ed25519 公钥和仓库 Secret `PMAIL_RELEASE_SIGNING_KEY`；缺失或不匹配会阻止发布。
+[发布工作流](../.github/workflows/docker.yml) 仅在 `vX.Y.Z` 标签匹配源码版本时构建 `linux/amd64` 与 `linux/arm64`。它推送 `dingding229/pmail-pro` 的版本标签及 `latest`（需 `DOCKERHUB_TOKEN`；可选 `DOCKERHUB_USERNAME`），并用 `CHANGELOG.md` 的对应段落创建 GitHub Release。该 Release 上传两种架构的程序/网页压缩包及 `checksums.txt`、`checksums.txt.sig`。发布前须配对设置代码中的 Ed25519 公钥和仓库 Secret `PMAIL_RELEASE_SIGNING_KEY`；缺失或不匹配会阻止发布。
 
 ### Web 前端与 API
 

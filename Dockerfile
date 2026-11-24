@@ -20,7 +20,7 @@ COPY server/ ./
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     set -eu; \
     case "$VERSION" in *[!0-9.]*|'') echo "Invalid PMail Pro version" >&2; exit 1;; esac; \
-    printf '%s\n' "$VERSION" | grep -Eq '^0\.[0-9]+\.[0-9]+$' || { echo "Invalid PMail Pro version" >&2; exit 1; }; \
+    printf '%s\n' "$VERSION" | grep -Eq '^(0|[1-9][0-9]*)\.[0-9]+\.[0-9]+$' || { echo "Invalid PMail Pro version" >&2; exit 1; }; \
     export CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH"; \
     if [ "$GOARCH" = arm ] && [ -n "$TARGETVARIANT" ]; then export GOARM="${TARGETVARIANT#v}"; fi; \
     mkdir -p /out; \

@@ -21,7 +21,8 @@ const Signature = "checksums.txt.sig"
 const MaxManifest = 4096
 const MaxDownload = 128 << 20
 
-var versionPattern = regexp.MustCompile(`^v0\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$`)
+// Release tags are vMAJOR.MINOR.PATCH without prerelease or build suffixes.
+var versionPattern = regexp.MustCompile(`^v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$`)
 var ErrSignature = errors.New("invalid PMail release signature or manifest")
 
 func Rank(tag string) int64 {
@@ -29,9 +30,10 @@ func Rank(tag string) int64 {
 	if len(m) == 0 {
 		return -1
 	}
-	a, _ := strconv.ParseInt(m[1], 10, 64)
-	b, _ := strconv.ParseInt(m[2], 10, 64)
-	return a*1_000_000_000 + b
+	major, _ := strconv.ParseInt(m[1], 10, 64)
+	minor, _ := strconv.ParseInt(m[2], 10, 64)
+	patch, _ := strconv.ParseInt(m[3], 10, 64)
+	return major*1_000_000_000_000 + minor*1_000_000 + patch
 }
 
 func Asset(arch string) string {

@@ -32,7 +32,7 @@ func TestReleaseAllowlistNumericETagAndManualRate(t *testing.T) {
 			w.Header().Set("ETag", `"abc"`)
 			_, _ = io.WriteString(w, `[
 				{"tag_name":"v0.2.1","body":"notes","published_at":"2026-11-01T00:00:00Z"},
-				{"tag_name":"v0.10.0"}, {"tag_name":"v1.0.0"}, {"tag_name":"0.80.0"},
+				{"tag_name":"v0.10.0"}, {"tag_name":"v1.0.0"}, {"tag_name":"v01.0.0"}, {"tag_name":"0.80.0"},
 				{"tag_name":"v0.90.0-beta.1"}, {"tag_name":"v0.20.0","prerelease":true},
 				{"tag_name":"v0.50.0","draft":true}
 			]`)
@@ -53,8 +53,8 @@ func TestReleaseAllowlistNumericETagAndManualRate(t *testing.T) {
 	if err := c.Refresh(ctx, false); err != nil {
 		t.Fatal(err)
 	}
-	if v := c.Info(); v.Latest == nil || *v.Latest != "v0.10.0" || !v.HasUpdate || len(v.Releases) != 3 ||
-		v.Releases[1].Version != "v0.2.1" || !v.Releases[2].Current || v.Releases[2].Notes == "" {
+	if v := c.Info(); v.Latest == nil || *v.Latest != "v1.0.0" || !v.HasUpdate || len(v.Releases) != 4 ||
+		v.Releases[1].Version != "v0.10.0" || v.Releases[2].Version != "v0.2.1" || !v.Releases[3].Current || v.Releases[3].Notes == "" {
 		t.Fatalf("release contract %+v", v)
 	}
 	if err := c.Refresh(ctx, true); err != nil {

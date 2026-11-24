@@ -15,7 +15,7 @@ import (
 
 func main() {
 	if len(os.Args) != 3 {
-		fmt.Fprintln(os.Stderr, "usage: pmail-sign v0.x.y <archive-directory>")
+		fmt.Fprintln(os.Stderr, "usage: pmail-sign vX.Y.Z <archive-directory>")
 		os.Exit(2)
 	}
 	if err := sign(os.Args[1], os.Args[2], os.Getenv("PMAIL_RELEASE_SIGNING_KEY"), releasebundle.PublicKey()); err != nil {

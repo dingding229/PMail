@@ -12,8 +12,8 @@ build_web:
 	cd web && npm ci --ignore-scripts && npm run build
 
 check-version:
-	@case "$$VERSION" in *[!0-9.]*|'') echo 'PMail Pro version must match ^0\.[0-9]+\.[0-9]+$$' >&2; exit 1;; esac; \
-	printf '%s\n' "$$VERSION" | grep -Eq '^0\.[0-9]+\.[0-9]+$$' || { echo 'PMail Pro version must match ^0\.[0-9]+\.[0-9]+$$' >&2; exit 1; }
+	@case "$$VERSION" in *[!0-9.]*|'') echo 'PMail Pro version must match ^(0|[1-9][0-9]*)\.[0-9]+\.[0-9]+$$' >&2; exit 1;; esac; \
+	printf '%s\n' "$$VERSION" | grep -Eq '^(0|[1-9][0-9]*)\.[0-9]+\.[0-9]+$$' || { echo 'PMail Pro version must match ^(0|[1-9][0-9]*)\.[0-9]+\.[0-9]+$$' >&2; exit 1; }
 
 build_server: check-version
 	cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X 'main.version=$(VERSION)' -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(GITHASH)' -X 'main.buildTime=$(TZ=UTC-8 date +%Y-%m-%d" "%H:%M:%S)'" -o pmail_linux_amd64  main.go

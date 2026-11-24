@@ -4967,7 +4967,7 @@ paths:
               required: [version]
               additionalProperties: false
               properties:
-                version: {type: string, pattern: '^v0\.[0-9]+\.[0-9]+$'}
+                version: {type: string, pattern: '^v(0|[1-9][0-9]*)\.[0-9]+\.[0-9]+$'}
       x-i18n-error-codes:
       - inbound_login_required
       - inbound_permission_denied
@@ -6556,7 +6556,7 @@ components:
       properties:
         version:
           type: string
-          pattern: ^v0\.[0-9]+\.[0-9]+$
+          pattern: ^v(0|[1-9][0-9]*)\.[0-9]+\.[0-9]+$
         published_at:
           type: string
           description: RFC3339 when available; empty for an embedded entry without a publication date.

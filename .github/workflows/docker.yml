@@ -5,7 +5,7 @@ name: PMail Pro Docker image
 on:
   push:
     tags:
-      - 'v0.*.*'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: read
