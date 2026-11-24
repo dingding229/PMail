@@ -204,7 +204,7 @@ func EnqueueForUser(ctx *pcontext.Context, userID int, email *parsemail.Email, r
 	if err != nil {
 		return err
 	}
-	decorated, err := parsemail.SignBytes(forwardedRaw, "mailer-daemon@"+fromDomain)
+	decorated, err := parsemail.SignBytes(arcSeal(ctx, forwardedRaw, email, fromDomain), "mailer-daemon@"+fromDomain)
 	if err != nil {
 		return err
 	}
