@@ -103,7 +103,7 @@ func privateDir(p string) (string, error) {
 	if info, err := os.Lstat(p); err != nil || !info.IsDir() {
 		return "", ErrInvalid
 	}
-	return p, os.Chmod(p, 0700)
+	return p, os.Chmod(p, 0700) // #nosec G302 -- directory: owner needs execute permission.
 }
 
 func (m *Manager) begin(owner int, kind string) (Job, error) {
@@ -332,7 +332,7 @@ func (m *Manager) OpenExport(root string, owner int, id string) (*os.File, error
 	if st, err := os.Lstat(path); err != nil || !st.Mode().IsRegular() {
 		return nil, ErrNotFound
 	}
-	return os.Open(path)
+	return os.Open(path) // #nosec G304 -- id matched idFormat; regular file checked with Lstat.
 }
 
 func (m *Manager) Cleanup(root string, now time.Time) {

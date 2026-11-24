@@ -110,7 +110,7 @@ func BackupRestore(version string) HandlerFunc {
 			backupError(ctx, w, err)
 			return
 		}
-		http.SetCookie(w, &http.Cookie{Name: restoreCookie, Value: j.ID, Path: BackupStatusPath, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: clientip.HTTPS(r) || strings.HasPrefix(r.Header.Get("Origin"), "https://"), MaxAge: 86400})
+		http.SetCookie(w, &http.Cookie{Name: restoreCookie, Value: j.ID, Path: BackupStatusPath, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: secureCookie(r), MaxAge: 86400}) // #nosec G124 -- Secure follows the request scheme; plain-HTTP installs need the cookie.
 		response.NewSuccessResponse(map[string]any{"started": true, "job_id": j.ID}).FPrintStatus(w, http.StatusAccepted)
 	}
 }
@@ -158,7 +158,7 @@ func BackupRestoreProgress(ctx *context.Context, w http.ResponseWriter, r *http.
 	w.Header().Set("Cache-Control", "no-store")
 	j := sitebackup.Jobs.RestoreStatus(RestoreCapability(r))
 	if j == nil {
-		http.SetCookie(w, &http.Cookie{Name: restoreCookie, Path: BackupStatusPath, MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		http.SetCookie(w, &http.Cookie{Name: restoreCookie, Path: BackupStatusPath, MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: secureCookie(r)}) // #nosec G124 -- Secure follows the request scheme; plain-HTTP installs need the cookie.
 		backupError(ctx, w, sitebackup.ErrNotFound)
 		return
 	}
@@ -254,4 +254,10 @@ func BackupUpload(ctx *context.Context, w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	backupError(ctx, w, sitebackup.ErrNotFound)
+}
+
+// secureCookie sets Secure when the browser reached PMail over HTTPS, directly
+// or through a trusted proxy.
+func secureCookie(r *http.Request) bool {
+	return clientip.HTTPS(r) || strings.HasPrefix(r.Header.Get("Origin"), "https://")
 }

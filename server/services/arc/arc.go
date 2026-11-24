@@ -343,18 +343,4 @@ func (m message) arcSets() ([]arcSet, error) {
 	return sets, nil
 }
 
-// headersWithout returns the message fields minus ARC headers, used to
-// verify the most recent ARC-Message-Signature.
-func (m message) withoutARC() message {
-	out := message{body: m.body}
-	for _, f := range m.fields {
-		switch strings.ToLower(strings.TrimSpace(f.name)) {
-		case "arc-seal", "arc-message-signature", "arc-authentication-results":
-			continue
-		}
-		out.fields = append(out.fields, f)
-	}
-	return out
-}
-
 func validAlgo(a string) bool { return a == "rsa-sha256" }

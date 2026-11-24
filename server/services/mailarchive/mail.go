@@ -328,7 +328,7 @@ func Import(ctx context.Context, owner int, f Folder, path, ext string, budget i
 		}
 	}
 	if ext == ".zip" {
-		f, err := os.Open(path)
+		f, err := os.Open(path) // #nosec G304 -- path is the server-created temporary upload file.
 		if err != nil {
 			return err
 		}
@@ -349,7 +349,7 @@ func Import(ctx context.Context, owner int, f Folder, path, ext string, budget i
 		}
 		return visitInput(ctx, z.File, visit)
 	}
-	r, err := os.Open(path)
+	r, err := os.Open(path) // #nosec G304 -- path is the server-created temporary upload file.
 	if err != nil {
 		return err
 	}

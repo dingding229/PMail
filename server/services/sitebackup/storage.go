@@ -31,7 +31,7 @@ func DataDir(root, name string) (string, error) {
 	if i, err := os.Lstat(d); err != nil || !i.IsDir() {
 		return "", ErrInvalid
 	}
-	if err := os.Chmod(d, 0700); err != nil {
+	if err := os.Chmod(d, 0700); err != nil { // #nosec G302 -- directory: owner needs execute permission.
 		return "", err
 	}
 	alias := filepath.Join(root, name)
@@ -56,7 +56,7 @@ func Acquire(root string) (*os.File, error) {
 	if err != nil || !i.IsDir() {
 		return nil, ErrInvalid
 	}
-	f, err := os.OpenFile(filepath.Join(d, ".pmail-instance.lock"), os.O_CREATE|os.O_RDWR|noFollow(), 0600)
+	f, err := os.OpenFile(filepath.Join(d, ".pmail-instance.lock"), os.O_CREATE|os.O_RDWR|noFollow(), 0600) // #nosec G304 -- fixed file name in the config directory.
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func OpenNamed(dir, name string) (*os.File, error) {
 	if _, _, ok := parseName(name); !ok {
 		return nil, ErrNotFound
 	}
-	f, err := os.OpenFile(filepath.Join(dir, name), os.O_RDONLY|noFollow(), 0)
+	f, err := os.OpenFile(filepath.Join(dir, name), os.O_RDONLY|noFollow(), 0) // #nosec G304 -- name passed parseName (fixed backup name format), O_NOFOLLOW.
 	if err != nil {
 		return nil, ErrNotFound
 	}

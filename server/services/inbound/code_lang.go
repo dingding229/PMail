@@ -105,7 +105,7 @@ func labelBounded(s string, at []int) bool {
 
 var structuralToken = regexp.MustCompile(`^(?:[0-9]{4,8}|[A-Z0-9]{5,8})$`)
 
-const lineDecoration = " \t :：=*#>-–—•·▼▽▶►→←【】[]「」『』()（）<>《》〈〉\"'“”‘’|｜"
+const lineDecoration = " \t\u00a0:：=*#>-–—•·▼▽▶►→←【】[]「」『』()（）<《》〈〉\"'“”‘’|｜"
 
 // Labels in the line above a lone number that make it an identifier, not a code.
 var identifierLine = regexp.MustCompile(`(?i)order|invoice|tracking|reference|ticket|case|customer|member|account (?:no|number)|zip|postal|amount|total|price|` +

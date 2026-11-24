@@ -109,7 +109,7 @@ func (s Store) restore(ctx context.Context, in io.ReadSeeker, pass string, befor
 		if n == "sessions" {
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, "DELETE FROM "+s.table(n)); err != nil {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+s.table(n)); err != nil { // #nosec G202 -- table name comes from backupcatalog and is quoted by s.table.
 			return fmt.Errorf("clear %s: %w", n, err)
 		}
 	}
@@ -123,7 +123,7 @@ func (s Store) restore(ctx context.Context, in io.ReadSeeker, pass string, befor
 		return ErrInvalid
 	}
 	r.finish()
-	if _, err := tx.ExecContext(ctx, "UPDATE "+s.table("email")+" SET projection_ready=false, pop_octets=0"); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE "+s.table("email")+" SET projection_ready=false, pop_octets=0"); err != nil { // #nosec G202 -- fixed table, quoted identifier.
 		return err
 	}
 	for _, n := range names {
@@ -160,7 +160,7 @@ func (s Store) restore(ctx context.Context, in io.ReadSeeker, pass string, befor
 	if phase != nil {
 		phase("clearing_sessions")
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM "+s.table("sessions")); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM "+s.table("sessions")); err != nil { // #nosec G202 -- fixed table, quoted identifier.
 		return errors.Join(err, staged.rollback(), recoverExports())
 	}
 	if err := tx.Commit(); err != nil {
@@ -206,7 +206,7 @@ func (r *tableRestore) start(table string, row map[string]any) error {
 	r.tables = slices.Index(backupcatalog.Tables, table) + 1
 	r.cols = nil
 	r.kinds = map[string]string{}
-	res, err := r.tx.QueryContext(r.ctx, "SELECT * FROM "+r.s.table(table)+" WHERE 1=0")
+	res, err := r.tx.QueryContext(r.ctx, "SELECT * FROM "+r.s.table(table)+" WHERE 1=0") // #nosec G202 -- catalog table, quoted identifier.
 	if err != nil {
 		return err
 	}
@@ -240,7 +240,7 @@ func (r *tableRestore) start(table string, row map[string]any) error {
 		cols[i] = r.s.quote(c)
 		args[i] = bind(r.s.Engine.DriverName(), i+1)
 	}
-	r.stmt, err = r.tx.PrepareContext(r.ctx, "INSERT INTO "+r.s.table(table)+" ("+strings.Join(cols, ",")+") VALUES ("+strings.Join(args, ",")+")")
+	r.stmt, err = r.tx.PrepareContext(r.ctx, "INSERT INTO "+r.s.table(table)+" ("+strings.Join(cols, ",")+") VALUES ("+strings.Join(args, ",")+")") // #nosec G202 -- quoted catalog identifiers and generated placeholders; values are bound.
 	return err
 }
 func (r *tableRestore) insert(table string, row map[string]any) error {

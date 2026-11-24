@@ -67,7 +67,7 @@ func (w Window) args() []any { return []any{w.Domain, w.From.Unix(), w.To.AddDat
 const whereDMARC = `r.domain=? AND r.begin_at>=? AND r.begin_at<?`
 const whereTLS = `domain=? AND begin_at>=? AND begin_at<?`
 const joined = ` FROM dmarc_record d JOIN dmarc_report r ON d.report_id=r.id WHERE ` + whereDMARC
-const passed = `(d.dkim_result='pass' OR d.spf_result='pass')`
+const passed = `(d.dkim_result='pass' OR d.spf_result='pass')` // #nosec G101 -- SQL predicate, not a credential.
 const passSum = `COALESCE(SUM(CASE WHEN ` + passed + ` THEN d.mail_count ELSE 0 END),0)`
 
 func pct(n, total int64) float64 {

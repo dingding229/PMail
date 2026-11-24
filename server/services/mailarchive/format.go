@@ -173,7 +173,7 @@ func validZip(ctx context.Context, z []*zip.File, budget int64) error {
 			return ErrInvalid
 		}
 		seen[f.Name] = true
-		if f.UncompressedSize64 > uint64(budget-total) {
+		if f.UncompressedSize64 > uint64(budget-total) { // #nosec G115 -- total never exceeds budget, so budget-total >= 0.
 			return ErrTooLarge
 		}
 		if dir {
@@ -196,7 +196,7 @@ func validZip(ctx context.Context, z []*zip.File, budget int64) error {
 		if n > budget-total {
 			return ErrTooLarge
 		}
-		if err != nil || uint64(n) != f.UncompressedSize64 {
+		if err != nil || uint64(n) != f.UncompressedSize64 { // #nosec G115 -- io.Copy returns a non-negative count.
 			return ErrInvalid
 		}
 		total += n

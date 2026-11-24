@@ -63,7 +63,7 @@ type framing struct {
 func (f *framing) frame(n int, final bool) (nonce [12]byte, size [5]byte, aad []byte) {
 	copy(nonce[:4], f.header[headerSize-4:])
 	binary.BigEndian.PutUint64(nonce[4:], f.seq)
-	binary.BigEndian.PutUint32(size[:4], uint32(n))
+	binary.BigEndian.PutUint32(size[:4], uint32(n)) // #nosec G115 -- n <= chunkSize (64 KiB).
 	if final {
 		size[4] = 1
 	}

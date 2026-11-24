@@ -153,7 +153,7 @@ func checkXML(b []byte) error {
 		if err != nil {
 			return errPayload
 		}
-		switch t.(type) {
+		switch t := t.(type) {
 		case xml.Directive:
 			return errPayload
 		case xml.StartElement:
@@ -167,7 +167,7 @@ func checkXML(b []byte) error {
 		case xml.EndElement:
 			depth--
 		case xml.CharData:
-			if depth == 0 && len(bytes.TrimSpace(t.(xml.CharData))) != 0 {
+			if depth == 0 && len(bytes.TrimSpace(t)) != 0 {
 				return errPayload
 			}
 		}
