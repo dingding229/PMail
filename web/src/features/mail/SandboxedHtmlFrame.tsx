@@ -33,10 +33,23 @@ function extractLangClass(el: Element): string | null {
   return match?.[1] ?? null
 }
 
+// Pixel size of an <img> from its width/height attributes or inline style.
+function declaredSize(img: Element, dim: 'width' | 'height'): number | null {
+  const attr = (img.getAttribute(dim) || '').trim()
+  const style = (img.getAttribute('style') || '').match(new RegExp(`(?:^|;)\\s*${dim}\\s*:\\s*([0-9.]+)px`, 'i'))
+  const raw = /^[0-9.]+$/.test(attr) ? attr : style?.[1]
+  const n = raw ? Number.parseFloat(raw) : NaN
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+const BLOCKED_ICON =
+  '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/><path d="m2 2 20 20"/></svg>'
+
 function processEmailHtml(
   rawHtml: string,
   allowExternal: boolean,
-  blockedFallbackLabel: string,
+  blockedShortLabel: string,
+  blockedNotice: string,
 ) {
   let hasExternalImages = false
   const codeBlocks: ExtractedCodeBlock[] = []
@@ -67,10 +80,30 @@ function processEmailHtml(
     if (isExtSrc || isExtSrcset) {
       hasExternalImages = true
       if (!allowExternal) {
+        // Keep the image's box so small images (signature avatars, icons)
+        // do not turn into a tall column of wrapped text.
         const placeholder = doc.createElement('span')
         placeholder.setAttribute('data-pmail-blocked', '1')
         const alt = (img.getAttribute('alt') || '').trim()
-        placeholder.textContent = alt ? `[${alt}]` : `[${blockedFallbackLabel}]`
+        const label = alt || blockedShortLabel
+        placeholder.setAttribute('title', `${label} · ${blockedNotice}`)
+        placeholder.setAttribute('role', 'img')
+        placeholder.setAttribute('aria-label', label)
+        const w = declaredSize(img, 'width')
+        const h = declaredSize(img, 'height')
+        const sizes: string[] = []
+        if (w) sizes.push(`width:${Math.max(20, Math.round(w))}px`)
+        if (h) sizes.push(`height:${Math.max(20, Math.round(h))}px`)
+        if (sizes.length) placeholder.setAttribute('style', sizes.join(';'))
+        placeholder.innerHTML = BLOCKED_ICON
+        if (!w || w > 120) {
+          const text = doc.createElement('span')
+          text.setAttribute('data-pmail-blocked-text', '1')
+          text.textContent = label
+          placeholder.append(text)
+        } else {
+          placeholder.setAttribute('data-pmail-blocked-compact', '1')
+        }
         img.replaceWith(placeholder)
       }
     }
@@ -125,10 +158,11 @@ export function SandboxedHtmlFrame({
     Map<string, { html: string; langLabel: string; rawCode: string }>
   >(new Map())
 
-  const blockedLabel = t('mail.security.externalImagesBlocked')
+  const blockedLabel = t('mail.security.blockedImageShort')
+  const blockedNotice = t('mail.security.externalImagesBlocked')
   const { bodyHtml, hasExternalImages, codeBlocks } = useMemo(
-    () => processEmailHtml(html, allowExternalImages, blockedLabel),
-    [html, allowExternalImages, blockedLabel],
+    () => processEmailHtml(html, allowExternalImages, blockedLabel, blockedNotice),
+    [html, allowExternalImages, blockedLabel, blockedNotice],
   )
 
   useEffect(() => {
@@ -253,14 +287,26 @@ export function SandboxedHtmlFrame({
       [data-pmail-blocked="1"] {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         gap: 6px;
-        padding: 6px 12px;
+        box-sizing: border-box;
+        max-width: 100%;
+        min-width: 20px;
+        min-height: 20px;
+        vertical-align: middle;
+        overflow: hidden;
+        white-space: nowrap;
+        line-height: 1.2;
+        padding: 4px 8px;
         border: 1px dashed ${isDark ? 'rgba(248,250,252,0.22)' : 'rgba(15,23,42,0.18)'};
         background: ${isDark ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.03)'};
         border-radius: 8px;
         font-size: 12.5px;
         color: ${isDark ? '#94a3b8' : '#64748b'};
       }
+      [data-pmail-blocked-compact="1"] { padding: 0; }
+      [data-pmail-blocked="1"] svg { flex: none; opacity: 0.75; }
+      [data-pmail-blocked-text="1"] { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
       table { max-width: 100%; border-collapse: collapse; }
       td code, th code { tab-size: 4; }
       blockquote {

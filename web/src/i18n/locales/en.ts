@@ -417,6 +417,7 @@ const en = {
       verifiedSenderBadge: 'Verified sender',
       verifiedSenderTooltip: 'Sender domain passed DMARC verification',
       externalImagesBlocked: 'External images are blocked by default to protect your privacy.',
+      blockedImageShort: 'Image blocked',
       loadExternalImages: 'Load external images',
       detailForbiddenTitle: 'Access denied',
       detailForbiddenDesc: 'You do not have permission to view this message or attachment. For privacy, administrators cannot read other users’ mail by default.',

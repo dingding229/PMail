@@ -417,6 +417,7 @@ const zhCN = {
       verifiedSenderBadge: '已验证发件人',
       verifiedSenderTooltip: '发件域名已通过 DMARC 验证',
       externalImagesBlocked: '已默认阻止外部图片，以保护你的隐私与防止追踪。',
+      blockedImageShort: '图片已拦截',
       loadExternalImages: '加载外部图片',
       detailForbiddenTitle: '无权查看此邮件',
       detailForbiddenDesc: '你没有权限访问此邮件或附件。出于隐私保护，管理员默认也不能查看其他用户的邮件。',
