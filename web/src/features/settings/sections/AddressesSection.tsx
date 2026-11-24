@@ -104,6 +104,8 @@ export function AddressesSection({ userId, embedded = false }: AddressesSectionP
     void queryClient.invalidateQueries({ queryKey: ['emails', 'detail'] })
     void queryClient.invalidateQueries({ queryKey: queryKeys.userMe })
     void queryClient.invalidateQueries({ queryKey: queryKeys.usersRoot })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.adminOverview })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.adminAddressRequestsRoot })
   }
 
   const createMutation = useMutation({
@@ -115,7 +117,11 @@ export function AddressesSection({ userId, embedded = false }: AddressesSectionP
         can_send: values.can_send,
       }),
     onSuccess: (created) => {
-      toast.success(t('settings.addresses.created', { address: created.address }))
+      if (created.status === 'pending') {
+        toast.success(t('settings.addresses.createdPending', { address: created.address }))
+      } else {
+        toast.success(t('settings.addresses.created', { address: created.address }))
+      }
       setAddOpen(false)
       form.reset({
         local_part: '',
@@ -155,7 +161,11 @@ export function AddressesSection({ userId, embedded = false }: AddressesSectionP
   const deleteMutation = useMutation({
     mutationFn: (addr: MailboxAddress) => userApi.deleteAddress(addr.id),
     onSuccess: (_res, addr) => {
-      toast.success(t('settings.addresses.deleted', { address: addr.address }))
+      if (addr.status === 'pending') {
+        toast.success(t('settings.addresses.withdrawn', { address: addr.address }))
+      } else {
+        toast.success(t('settings.addresses.deleted', { address: addr.address }))
+      }
       setDeletingAddr(null)
       invalidateAll()
     },
@@ -202,62 +212,92 @@ export function AddressesSection({ userId, embedded = false }: AddressesSectionP
         <EmptyState icon={AtSign} title={t('settings.addresses.empty')} compact />
       ) : (
         <div className="divide-y divide-[var(--border-hairline)] rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
-          {addresses.map((addr) => (
-            <div
-              key={addr.id}
-              className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="break-all font-mono text-[13.5px] font-medium text-[var(--ink-primary)]">
-                    {addr.address}
-                  </span>
-                  {addr.is_primary && (
-                    <Badge variant="accent">{t('settings.addresses.primaryBadge')}</Badge>
-                  )}
-                  {!addr.can_send && (
-                    <Badge variant="default">{t('settings.addresses.receiveOnly')}</Badge>
+          {addresses.map((addr) => {
+            const status = addr.status ?? 'active'
+            const isActive = status === 'active'
+            const isPending = status === 'pending'
+            const isRejected = status === 'rejected'
+
+            return (
+              <div
+                key={addr.id}
+                className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="break-all font-mono text-[13.5px] font-medium text-[var(--ink-primary)]">
+                      {addr.address}
+                    </span>
+                    {addr.is_primary && (
+                      <Badge variant="accent">{t('settings.addresses.primaryBadge')}</Badge>
+                    )}
+                    {isActive && (
+                      <Badge variant="success">{t('settings.addresses.statusActive')}</Badge>
+                    )}
+                    {isPending && (
+                      <Badge variant="warning">{t('settings.addresses.statusPending')}</Badge>
+                    )}
+                    {isRejected && (
+                      <Badge variant="danger">{t('settings.addresses.statusRejected')}</Badge>
+                    )}
+                    {isActive && !addr.can_send && (
+                      <Badge variant="default">{t('settings.addresses.receiveOnly')}</Badge>
+                    )}
+                  </div>
+                  {isRejected && addr.reject_reason && (
+                    <p className="mt-1 text-[12px] text-[var(--danger)]">
+                      {t('settings.addresses.rejectReasonPrefix', { reason: addr.reject_reason })}
+                    </p>
                   )}
                 </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="inline-flex items-center gap-2 text-[12.5px] text-[var(--ink-secondary)]">
+                    <span>{t('settings.addresses.canSendLabel')}</span>
+                    <Switch
+                      checked={isActive ? addr.can_send : false}
+                      disabled={!isActive || addr.is_primary || toggleSendMutation.isPending}
+                      onCheckedChange={(checked) =>
+                        toggleSendMutation.mutate({ id: addr.id, can_send: checked })
+                      }
+                    />
+                  </label>
+
+                  {!addr.is_primary && (
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      disabled={!isActive || setPrimaryMutation.isPending}
+                      onClick={() => setPrimaryMutation.mutate(addr.id)}
+                    >
+                      <Star className="h-3 w-3" />
+                      {t('settings.addresses.setPrimary')}
+                    </Button>
+                  )}
+
+                  {!addr.is_primary &&
+                    (isPending ? (
+                      <Button
+                        variant="dangerGhost"
+                        size="xs"
+                        onClick={() => setDeletingAddr(addr)}
+                      >
+                        {t('settings.addresses.withdraw')}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="dangerGhost"
+                        size="iconSm"
+                        aria-label={t('common.delete')}
+                        onClick={() => setDeletingAddr(addr)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    ))}
+                </div>
               </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="inline-flex items-center gap-2 text-[12.5px] text-[var(--ink-secondary)]">
-                  <span>{t('settings.addresses.canSendLabel')}</span>
-                  <Switch
-                    checked={addr.can_send}
-                    disabled={addr.is_primary || toggleSendMutation.isPending}
-                    onCheckedChange={(checked) =>
-                      toggleSendMutation.mutate({ id: addr.id, can_send: checked })
-                    }
-                  />
-                </label>
-
-                {!addr.is_primary && (
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    disabled={setPrimaryMutation.isPending}
-                    onClick={() => setPrimaryMutation.mutate(addr.id)}
-                  >
-                    <Star className="h-3 w-3" />
-                    {t('settings.addresses.setPrimary')}
-                  </Button>
-                )}
-
-                {!addr.is_primary && (
-                  <Button
-                    variant="dangerGhost"
-                    size="iconSm"
-                    aria-label={t('common.delete')}
-                    onClick={() => setDeletingAddr(addr)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                )}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -344,17 +384,23 @@ export function AddressesSection({ userId, embedded = false }: AddressesSectionP
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirm Dialog */}
+      {/* Delete / Withdraw Confirm Dialog */}
       <Dialog
         open={deletingAddr !== null}
         onOpenChange={(open) => !open && setDeletingAddr(null)}
       >
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>{t('settings.addresses.deleteTitle')}</DialogTitle>
+            <DialogTitle>
+              {deletingAddr?.status === 'pending'
+                ? t('settings.addresses.withdrawTitle')
+                : t('settings.addresses.deleteTitle')}
+            </DialogTitle>
             <DialogDescription>
               {deletingAddr
-                ? t('settings.addresses.deleteConfirm', { address: deletingAddr.address })
+                ? deletingAddr.status === 'pending'
+                  ? t('settings.addresses.withdrawConfirm', { address: deletingAddr.address })
+                  : t('settings.addresses.deleteConfirm', { address: deletingAddr.address })
                 : ''}
             </DialogDescription>
           </DialogHeader>
@@ -368,7 +414,9 @@ export function AddressesSection({ userId, embedded = false }: AddressesSectionP
               disabled={deleteMutation.isPending}
               onClick={() => deletingAddr && deleteMutation.mutate(deletingAddr)}
             >
-              {t('common.delete')}
+              {deletingAddr?.status === 'pending'
+                ? t('settings.addresses.withdraw')
+                : t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

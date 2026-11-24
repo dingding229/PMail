@@ -9,6 +9,7 @@ import {
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import {
+  adminAddressApprovalApi,
   adminTrashApi,
   adminUpdateApi,
   authApi,
@@ -55,6 +56,11 @@ export const queryKeys = {
   adminTelegram: ['admin', 'telegram'] as const,
   adminTrash: ['admin', 'trash'] as const,
   adminTranslation: ['admin', 'translation'] as const,
+  adminOverview: ['admin', 'overview'] as const,
+  adminAddressSettings: ['admin', 'address-settings'] as const,
+  adminAddressRequestsRoot: ['admin', 'address-requests'] as const,
+  adminAddressRequests: (status: string, page: number, pageSize: number) =>
+    ['admin', 'address-requests', status, page, pageSize] as const,
   adminUpdate: ['admin', 'update'] as const,
   userTelegram: ['settings', 'telegram'] as const,
   userTranslation: ['settings', 'translation'] as const,
@@ -631,5 +637,15 @@ export function useEmptyTrashMutation() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
       void queryClient.invalidateQueries({ queryKey: queryKeys.addressCounts })
     },
+  })
+}
+
+export function useAdminOverviewQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.adminOverview,
+    queryFn: () => adminAddressApprovalApi.getOverview(),
+    enabled,
+    staleTime: 30_000,
+    retry: false,
   })
 }

@@ -164,8 +164,8 @@ export function MailSidebar({
 
   const displayName = user?.display_name || user?.name || user?.account || ''
   const primaryAddress =
-    user?.addresses?.find((a) => a.is_primary)?.address ||
-    user?.addresses?.[0]?.address ||
+    user?.addresses?.find((a) => a.is_primary && (!a.status || a.status === 'active'))?.address ||
+    user?.addresses?.find((a) => !a.status || a.status === 'active')?.address ||
     user?.account ||
     ''
 

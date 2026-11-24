@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import {
   ArrowUpCircle,
   AtSign,
+  ClipboardCheck,
   Globe,
   Languages,
   Send,
@@ -13,14 +14,16 @@ import {
   Trash2,
   Users,
 } from 'lucide-react'
-import { useUserMeQuery } from '@/hooks/useMailQueries'
+import { useAdminOverviewQuery, useUserMeQuery } from '@/hooks/useMailQueries'
 import { prefetchSettingsPage } from '@/lib/prefetch'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SettingsLayout, type SettingsNavItem } from '@/components/settings'
 import { QueueSection } from '@/features/settings/sections/QueueSection'
 import { DomainsSection } from './DomainsSection'
 import { UsersSection } from './UsersSection'
 import { AdminAddressesSection } from './AdminAddressesSection'
+import { AdminAddressApprovalSection } from './AdminAddressApprovalSection'
 import { InboundSecuritySection } from './InboundSecuritySection'
 import { AdminTelegramSection } from './AdminTelegramSection'
 import { AdminTranslationSection } from './AdminTranslationSection'
@@ -31,6 +34,7 @@ type AdminTabKey =
   | 'domains'
   | 'users'
   | 'addresses'
+  | 'address-approval'
   | 'inbound'
   | 'translation'
   | 'telegram'
@@ -43,11 +47,27 @@ export function AdminPage() {
   const navigate = useNavigate()
   const { tab } = useParams<{ tab?: string }>()
   const { data: user } = useUserMeQuery(true)
+  const { data: overview } = useAdminOverviewQuery(Boolean(user && user.is_admin === 1))
+  const pendingAddressRequests = overview?.pending_address_requests ?? 0
 
   const tabs: SettingsNavItem<AdminTabKey>[] = [
     { key: 'domains', label: t('admin.tabs.domains'), icon: Globe },
     { key: 'users', label: t('admin.tabs.users'), icon: Users },
     { key: 'addresses', label: t('admin.tabs.addresses'), icon: AtSign },
+    {
+      key: 'address-approval',
+      label: t('admin.tabs.addressApproval'),
+      icon: ClipboardCheck,
+      badge:
+        pendingAddressRequests > 0 ? (
+          <Badge
+            variant="warning"
+            className="ml-auto h-5 min-w-[20px] justify-center px-1.5 text-[11px] font-semibold"
+          >
+            {pendingAddressRequests}
+          </Badge>
+        ) : undefined,
+    },
     { key: 'inbound', label: t('admin.tabs.inbound'), icon: ShieldCheck },
     { key: 'translation', label: t('admin.tabs.translation'), icon: Languages },
     { key: 'telegram', label: t('admin.tabs.telegram'), icon: Send },
@@ -103,6 +123,7 @@ export function AdminPage() {
       {activeTab === 'domains' && <DomainsSection />}
       {activeTab === 'users' && <UsersSection currentUserID={user?.id} />}
       {activeTab === 'addresses' && <AdminAddressesSection />}
+      {activeTab === 'address-approval' && <AdminAddressApprovalSection />}
       {activeTab === 'inbound' && <InboundSecuritySection />}
       {activeTab === 'translation' && <AdminTranslationSection />}
       {activeTab === 'telegram' && <AdminTelegramSection />}

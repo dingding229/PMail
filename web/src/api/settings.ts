@@ -1,5 +1,9 @@
 import { apiDelete, apiGet, apiPost, apiPut } from './client'
 import type {
+  AddressStatus,
+  AdminAddressRequestPage,
+  AdminAddressSettings,
+  AdminOverview,
   AdminTelegramStatus,
   AdminTelegramTestResult,
   AdminTelegramUpdatePayload,
@@ -14,6 +18,7 @@ import type {
   ClamAVStatus,
   InboundSettings,
   InboundSettingsUpdate,
+  MailboxAddress,
   MailDomain,
   MailRule,
   QueueItem,
@@ -150,4 +155,24 @@ export const userAIApi = {
   update: (payload: UserAIConfigInput) => apiPut<UserAIConfigView>('/api/settings/ai', payload),
   remove: () => apiDelete<null>('/api/settings/ai'),
   test: () => apiPost<UserAITestResult>('/api/settings/ai/test', {}),
+}
+
+export const adminAddressApprovalApi = {
+  getOverview: () => apiGet<AdminOverview>('/api/admin/overview'),
+  getSettings: () => apiGet<AdminAddressSettings>('/api/admin/address-settings'),
+  updateSettings: (payload: AdminAddressSettings) =>
+    apiPut<AdminAddressSettings>('/api/admin/address-settings', payload),
+  listRequests: (params: { status: AddressStatus; page?: number; page_size?: number }) => {
+    const search = new URLSearchParams()
+    search.set('status', params.status)
+    search.set('page', String(params.page ?? 1))
+    search.set('page_size', String(params.page_size ?? 20))
+    return apiGet<AdminAddressRequestPage>(`/api/admin/address-requests?${search.toString()}`)
+  },
+  approve: (id: number) => apiPost<MailboxAddress>(`/api/admin/address-requests/${id}/approve`, {}),
+  reject: (id: number, reason?: string) =>
+    apiPost<MailboxAddress>(
+      `/api/admin/address-requests/${id}/reject`,
+      reason && reason.trim() ? { reason: reason.trim() } : {},
+    ),
 }

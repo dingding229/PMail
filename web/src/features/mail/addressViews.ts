@@ -27,11 +27,13 @@ export function folderURL(segment: string, address: AddressFilter): string {
 }
 
 export function composeFrom(
-  addresses: readonly MailboxAddressMatch[],
+  addresses: readonly (MailboxAddressMatch & { status?: string })[],
   selection: AddressFilter,
   matched?: readonly MailboxAddressMatch[],
 ): string {
-  const sendable = addresses.filter((address) => address.can_send)
+  const sendable = addresses.filter(
+    (address) => address.can_send && (!address.status || address.status === 'active'),
+  )
   const primary = sendable.find((address) => address.is_primary) ?? sendable[0]
   // An explicitly selected matching address is preferred for multi-recipient
   // replies. A selection unrelated to the source must not change its reply identity.

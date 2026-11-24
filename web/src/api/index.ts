@@ -21,4 +21,5 @@ export {
   adminTranslationApi,
   userTranslationApi,
   userAIApi,
+  adminAddressApprovalApi,
 } from './settings'

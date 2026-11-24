@@ -52,6 +52,7 @@ const bundle = await build({
       } from './src/components/settings/proxyHelpers'
       import { computePurgeDaysLeft } from './src/features/mail/trashHelpers'
       import { EmailListPane } from './src/features/mail/EmailListPane'
+      import { composeFrom } from './src/features/mail/addressViews'
 
       export {
         act,
@@ -64,6 +65,7 @@ const bundle = await build({
         validateProxyDraft,
         computePurgeDaysLeft,
         EmailListPane,
+        composeFrom,
       }
     `,
   },
@@ -304,4 +306,15 @@ test('trash restore and empty trash require confirmation before permanent deleti
   assert.ok(confirmBtn, 'missing confirm empty button in dialog')
   await mod.act(async () => confirmBtn.click())
   assert.equal(emptyCalls, 1)
+})
+
+test('composeFrom ignores pending and rejected addresses even if selected', () => {
+  const addresses = [
+    { id: 1, address: 'admin@pmail.dev', is_primary: true, can_send: true, status: 'active' },
+    { id: 4, address: 'pending@pmail.dev', is_primary: false, can_send: true, status: 'pending' },
+    { id: 5, address: 'rejected@pmail.dev', is_primary: false, can_send: true, status: 'rejected' },
+  ]
+  assert.equal(mod.composeFrom(addresses, 4), 'admin@pmail.dev')
+  assert.equal(mod.composeFrom(addresses, 5), 'admin@pmail.dev')
+  assert.equal(mod.composeFrom(addresses, 1), 'admin@pmail.dev')
 })

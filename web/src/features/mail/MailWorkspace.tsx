@@ -307,7 +307,7 @@ export function MailWorkspace() {
   }, [addresses, rawEmails, user])
 
   const sendableAddresses = useMemo(
-    () => addresses.filter((a) => a.can_send),
+    () => addresses.filter((a) => a.can_send && (!a.status || a.status === 'active')),
     [addresses],
   )
 
@@ -746,7 +746,11 @@ export function MailWorkspace() {
       emails={emails}
       totalCount={totalCount}
       localDrafts={visibleLocalDrafts}
-      showAddressLabels={addressView === 'all' && (addressCounts?.addresses.length ?? addresses.length) > 1}
+      showAddressLabels={
+        addressView === 'all' &&
+        (addressCounts?.addresses.length ??
+          addresses.filter((a) => !a.status || a.status === 'active').length) > 1
+      }
       activeEmailId={activeEmailId}
       checkedIds={checkedIds}
       searchQuery={searchInput}

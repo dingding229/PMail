@@ -137,6 +137,13 @@ const MACHINE_ERROR_KEY_MAP: Record<string, string> = {
   ai_not_configured: 'translation.errors.aiNotConfigured',
   ai_network_blocked: 'translation.errors.aiNetworkBlocked',
   ai_busy: 'translation.errors.aiBusy',
+  address_pending_limit: 'settings.addresses.errors.pendingLimit',
+  address_reject_reason_invalid: 'admin.addressApproval.errors.rejectReasonInvalid',
+  invalid_domain: 'admin.addressApproval.errors.invalidDomain',
+  address_not_found: 'admin.addressApproval.errors.addressNotFound',
+  domain_not_found: 'admin.addressApproval.errors.domainNotFound',
+  address_already_reviewed: 'admin.addressApproval.errors.alreadyReviewed',
+  address_exists: 'admin.addressApproval.errors.addressExists',
 }
 
 function resolveApiErrorMessage(rawMessage: string | undefined, status: number): string {

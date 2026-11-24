@@ -57,7 +57,7 @@ export function SignaturesSection() {
   const { data: addresses = [] } = useAddressesQuery(true)
 
   const sendableAddresses = useMemo(
-    () => addresses.filter((a) => a.can_send),
+    () => addresses.filter((a) => a.can_send && (!a.status || a.status === 'active')),
     [addresses],
   )
   const addressMap = useMemo(

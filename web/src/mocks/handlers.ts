@@ -4,6 +4,8 @@ import { version as mockBuildVersion } from '../../package.json'
 import {
   SYSTEM_GROUP_IDS,
   type AddressFilter,
+  type AddressStatus,
+  type AdminAddressRequest,
   type AdminTelegramStatus,
   type AdminTelegramUpdatePayload,
   type AdminTranslationPolicy,
@@ -228,11 +230,140 @@ function looksForeignForChinese(text: string): boolean {
   return latin > 40 && latin > cjk * 2
 }
 
+let mockAddressApprovalRequired = true
+
+let mockAddressRequests: AdminAddressRequest[] = [
+  {
+    id: 4,
+    user_id: 1,
+    applicant: 'admin',
+    local_part: 'billing-ops',
+    domain_id: 1,
+    is_primary: false,
+    can_send: false,
+    status: 'pending',
+    requested_at: dayjs().subtract(2, 'hour').toISOString(),
+    reviewed_at: null,
+    reviewed_by: null,
+    reject_reason: '',
+    domain: 'pmail.dev',
+    address: 'billing-ops@pmail.dev',
+    created: dayjs().subtract(2, 'hour').toISOString(),
+  },
+  {
+    id: 901,
+    user_id: 2,
+    applicant: 'chenzhiyi',
+    local_part: 'design',
+    domain_id: 1,
+    is_primary: false,
+    can_send: false,
+    status: 'pending',
+    requested_at: dayjs().subtract(5, 'hour').toISOString(),
+    reviewed_at: null,
+    reviewed_by: null,
+    reject_reason: '',
+    domain: 'pmail.dev',
+    address: 'design@pmail.dev',
+    created: dayjs().subtract(5, 'hour').toISOString(),
+  },
+  {
+    id: 902,
+    user_id: 3,
+    applicant: 'sumingyuan',
+    local_part: 'releases',
+    domain_id: 1,
+    is_primary: false,
+    can_send: false,
+    status: 'pending',
+    requested_at: dayjs().subtract(1, 'day').toISOString(),
+    reviewed_at: null,
+    reviewed_by: null,
+    reject_reason: '',
+    domain: 'pmail.dev',
+    address: 'releases@pmail.dev',
+    created: dayjs().subtract(1, 'day').toISOString(),
+  },
+  {
+    id: 2,
+    user_id: 1,
+    applicant: 'admin',
+    local_part: 'lin',
+    domain_id: 1,
+    is_primary: false,
+    can_send: true,
+    status: 'active',
+    requested_at: '2026-09-10T10:30:00Z',
+    reviewed_at: '2026-09-10T10:35:00Z',
+    reviewed_by: 1,
+    reject_reason: '',
+    domain: 'pmail.dev',
+    address: 'lin@pmail.dev',
+    created: '2026-09-10T10:30:00Z',
+  },
+  {
+    id: 903,
+    user_id: 2,
+    applicant: 'chenzhiyi',
+    local_part: 'ux',
+    domain_id: 1,
+    is_primary: false,
+    can_send: true,
+    status: 'active',
+    requested_at: dayjs().subtract(4, 'day').toISOString(),
+    reviewed_at: dayjs().subtract(3, 'day').toISOString(),
+    reviewed_by: 1,
+    reject_reason: '',
+    domain: 'pmail.dev',
+    address: 'ux@pmail.dev',
+    created: dayjs().subtract(4, 'day').toISOString(),
+  },
+  {
+    id: 5,
+    user_id: 1,
+    applicant: 'admin',
+    local_part: 'postmaster',
+    domain_id: 1,
+    is_primary: false,
+    can_send: false,
+    status: 'rejected',
+    requested_at: dayjs().subtract(2, 'day').toISOString(),
+    reviewed_at: dayjs().subtract(1, 'day').toISOString(),
+    reviewed_by: 1,
+    reject_reason: '系统保留前缀，不支持作为个人收发别名',
+    domain: 'pmail.dev',
+    address: 'postmaster@pmail.dev',
+    created: dayjs().subtract(2, 'day').toISOString(),
+  },
+  {
+    id: 904,
+    user_id: 3,
+    applicant: 'sumingyuan',
+    local_part: 'security',
+    domain_id: 1,
+    is_primary: false,
+    can_send: false,
+    status: 'rejected',
+    requested_at: dayjs().subtract(5, 'day').toISOString(),
+    reviewed_at: dayjs().subtract(4, 'day').toISOString(),
+    reviewed_by: 1,
+    reject_reason: '安全通知地址由运维组统一管理',
+    domain: 'pmail.dev',
+    address: 'security@pmail.dev',
+    created: dayjs().subtract(5, 'day').toISOString(),
+  },
+]
+
+function countPendingAddressRequests(): number {
+  return mockAddressRequests.filter((r) => r.status === 'pending').length
+}
+
 let mockUserTelegramFilters: TelegramFilters = {
   group_ids: null,
   only_verification: false,
   include_spam: false,
   include_preview: true,
+  auto_translate: false,
   quiet_hours: {
     start: '23:00',
     end: '08:00',
@@ -1386,18 +1517,39 @@ export const handlers = [
     const u = mockUsers.find((x) => x.id === uid)
     const dom = mockDomains.find((d) => d.id === body.domain_id) ?? mockDomains[0]!
     if (!u) return fail('用户不存在', 100)
+    const forcePending =
+      typeof window !== 'undefined' && localStorage.getItem('pmail_mock_addr_pending') === '1'
+    const shouldBePending = forcePending || (mockAddressApprovalRequired && u.is_admin !== 1)
+    if (shouldBePending) {
+      const pendingCount = (u.addresses ?? []).filter((a) => a.status === 'pending').length
+      if (pendingCount >= 10) {
+        return fail('待审批地址数量已达上限', 100, 409, { code: 'address_pending_limit' })
+      }
+    }
+    const nowIso = new Date().toISOString()
     const addr: MailboxAddress = {
       id: nextAddressId++,
       user_id: uid,
       local_part: body.local_part.toLowerCase(),
       domain_id: dom.id,
-      is_primary: (u.addresses?.length ?? 0) === 0,
-      can_send: body.can_send ?? true,
+      is_primary: !shouldBePending && (u.addresses?.length ?? 0) === 0,
+      can_send: shouldBePending ? false : (body.can_send ?? true),
+      status: shouldBePending ? 'pending' : 'active',
+      requested_at: nowIso,
+      reviewed_at: shouldBePending ? null : nowIso,
+      reviewed_by: shouldBePending ? null : getMe().id,
+      reject_reason: '',
       domain: dom.name,
       address: `${body.local_part.toLowerCase()}@${dom.name}`,
-      created: new Date().toISOString(),
+      created: nowIso,
     }
     u.addresses = [...(u.addresses ?? []), addr]
+    if (shouldBePending) {
+      mockAddressRequests = [
+        { ...addr, status: 'pending', applicant: u.account },
+        ...mockAddressRequests,
+      ]
+    }
     return ok(addr)
   }),
 
@@ -1434,7 +1586,114 @@ export const handlers = [
         u.addresses = u.addresses.filter((a) => a.id !== body.id)
       }
     }
+    mockAddressRequests = mockAddressRequests.filter((r) => r.id !== body.id)
     return ok(null)
+  }),
+
+  /* ==================== Admin Overview & Address Approval (V7-C29) ==================== */
+  http.get('/api/admin/overview', async () => {
+    await delay(30)
+    return ok({
+      pending_address_requests: countPendingAddressRequests(),
+    })
+  }),
+
+  http.get('/api/admin/address-settings', async () => {
+    await delay(30)
+    return ok({
+      address_approval_required: mockAddressApprovalRequired,
+    })
+  }),
+
+  http.put('/api/admin/address-settings', async ({ request }) => {
+    await delay(80)
+    const body = (await request.json()) as { address_approval_required?: boolean }
+    if (typeof body.address_approval_required === 'boolean') {
+      mockAddressApprovalRequired = body.address_approval_required
+    }
+    return ok({
+      address_approval_required: mockAddressApprovalRequired,
+    })
+  }),
+
+  http.get('/api/admin/address-requests', async ({ request }) => {
+    await delay(50)
+    const url = new URL(request.url)
+    const status = (url.searchParams.get('status') || 'pending') as AddressStatus
+    const page = Math.max(1, Number(url.searchParams.get('page') || 1))
+    const pageSize = Math.min(100, Math.max(1, Number(url.searchParams.get('page_size') || 20)))
+    const filtered = mockAddressRequests.filter((r) => r.status === status)
+    const start = (page - 1) * pageSize
+    return ok({
+      items: filtered.slice(start, start + pageSize),
+      page,
+      page_size: pageSize,
+      total: filtered.length,
+      pending_address_requests: countPendingAddressRequests(),
+    })
+  }),
+
+  http.post('/api/admin/address-requests/:id/approve', async ({ params }) => {
+    await delay(100)
+    const id = Number(params.id)
+    const req = mockAddressRequests.find((r) => r.id === id)
+    if (!req) {
+      return fail('申请不存在', 100, 404, { code: 'address_not_found' })
+    }
+    if (req.status !== 'pending') {
+      return fail('该申请已审核', 100, 409, { code: 'address_already_reviewed' })
+    }
+    const nowIso = new Date().toISOString()
+    req.status = 'active'
+    req.can_send = true
+    req.reviewed_at = nowIso
+    req.reviewed_by = getMe().id
+    req.reject_reason = ''
+    for (const u of mockUsers) {
+      const addr = u.addresses?.find((a) => a.id === id)
+      if (addr) {
+        addr.status = 'active'
+        addr.can_send = true
+        addr.reviewed_at = nowIso
+        addr.reviewed_by = getMe().id
+        addr.reject_reason = ''
+      }
+    }
+    return ok(req)
+  }),
+
+  http.post('/api/admin/address-requests/:id/reject', async ({ params, request }) => {
+    await delay(100)
+    const id = Number(params.id)
+    const body = (await request.json().catch(() => ({}))) as { reason?: string }
+    const reason = (body.reason ?? '').trim()
+    if (Array.from(reason).length > 200) {
+      return fail('拒绝原因不能超过 200 字', 100, 400, { code: 'address_reject_reason_invalid' })
+    }
+    const req = mockAddressRequests.find((r) => r.id === id)
+    if (!req) {
+      return fail('申请不存在', 100, 404, { code: 'address_not_found' })
+    }
+    if (req.status !== 'pending') {
+      return fail('该申请已审核', 100, 409, { code: 'address_already_reviewed' })
+    }
+    const nowIso = new Date().toISOString()
+    req.status = 'rejected'
+    req.can_send = false
+    req.reviewed_at = nowIso
+    req.reviewed_by = getMe().id
+    req.reject_reason = reason
+    for (const u of mockUsers) {
+      const addr = u.addresses?.find((a) => a.id === id)
+      if (addr) {
+        addr.status = 'rejected'
+        addr.can_send = false
+        addr.reviewed_at = nowIso
+        addr.reviewed_by = getMe().id
+        addr.reject_reason = reason
+      }
+    }
+    return ok(req)
   }),
 
   /* ==================== Forward / Rules / Tokens / Queue ==================== */
@@ -1734,7 +1993,9 @@ export const handlers = [
     const records = Array.from(emailStore.values())
     const unread = records.filter((rec) => rec.type === 0 && rec.status === 0 && rec.group_id === 0 && !rec.is_read)
     return ok({
-      addresses: (getMe().addresses ?? []).map((a) => ({ ...a, unread: unread.filter((rec) => matchesMockAddress(rec, a.id)).length })),
+      addresses: (getMe().addresses ?? [])
+        .filter((a) => !a.status || a.status === 'active')
+        .map((a) => ({ ...a, unread: unread.filter((rec) => matchesMockAddress(rec, a.id)).length })),
       all_unread: unread.length,
       other: { unread: unread.filter((rec) => matchesMockAddress(rec, 'other')).length, has_mail: records.some((rec) => matchesMockAddress(rec, 'other')) },
     })

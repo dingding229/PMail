@@ -57,6 +57,8 @@ export interface AuthSessionUser {
   domains: string[]
 }
 
+export type AddressStatus = 'active' | 'pending' | 'rejected'
+
 export interface MailboxAddress {
   id: number
   user_id: number
@@ -64,10 +66,36 @@ export interface MailboxAddress {
   domain_id: number
   is_primary: boolean
   can_send: boolean
+  status?: AddressStatus
+  requested_at?: string | null
+  reviewed_at?: string | null
+  reviewed_by?: number | null
+  reject_reason?: string
   domain: string
   address: string
   created: string
   created_iso?: string
+}
+
+export interface AdminOverview {
+  pending_address_requests: number
+}
+
+export interface AdminAddressSettings {
+  address_approval_required: boolean
+}
+
+export interface AdminAddressRequest extends MailboxAddress {
+  status: AddressStatus
+  applicant: string
+}
+
+export interface AdminAddressRequestPage {
+  items: AdminAddressRequest[]
+  page: number
+  page_size: number
+  total: number
+  pending_address_requests: number
 }
 
 export interface UserProfile {
@@ -522,6 +550,7 @@ export interface TelegramFilters {
   only_verification: boolean
   include_spam: boolean
   include_preview: boolean
+  auto_translate?: boolean
   quiet_hours: TelegramQuietHours | null
 }
 

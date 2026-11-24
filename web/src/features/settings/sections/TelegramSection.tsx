@@ -78,6 +78,7 @@ export function TelegramSection() {
   const [onlyVerification, setOnlyVerification] = useState(false)
   const [includeSpam, setIncludeSpam] = useState(false)
   const [includePreview, setIncludePreview] = useState(true)
+  const [autoTranslate, setAutoTranslate] = useState(false)
   const [quietEnabled, setQuietEnabled] = useState(false)
   const [quietStart, setQuietStart] = useState('23:00')
   const [quietEnd, setQuietEnd] = useState('08:00')
@@ -101,6 +102,7 @@ export function TelegramSection() {
       setOnlyVerification(f.only_verification)
       setIncludeSpam(f.include_spam)
       setIncludePreview(f.include_preview)
+      setAutoTranslate(Boolean(f.auto_translate))
       if (f.quiet_hours) {
         setQuietEnabled(true)
         setQuietStart(f.quiet_hours.start || '23:00')
@@ -473,6 +475,21 @@ export function TelegramSection() {
                 <Switch checked={includePreview} onCheckedChange={setIncludePreview} />
               </div>
 
+              <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
+                <div className="space-y-0.5">
+                  <p className="text-[13px] font-medium text-[var(--ink-primary)]">
+                    {t('settings.telegram.autoTranslateLabel')}
+                  </p>
+                  <p className="text-[11.5px] text-[var(--ink-muted)]">
+                    {t('settings.telegram.autoTranslateDesc')}
+                  </p>
+                  <p className="text-[11.5px] text-[var(--ink-muted)]">
+                    {t('settings.telegram.autoTranslateAdminHint')}
+                  </p>
+                </div>
+                <Switch checked={autoTranslate} onCheckedChange={setAutoTranslate} />
+              </div>
+
               <div className="space-y-3 px-3.5 py-2.5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -529,6 +546,7 @@ export function TelegramSection() {
                     only_verification: onlyVerification,
                     include_spam: includeSpam,
                     include_preview: includePreview,
+                    auto_translate: autoTranslate,
                     quiet_hours: quietEnabled
                       ? { start: quietStart, end: quietEnd, tz: quietTz.trim() || 'UTC' }
                       : null,
