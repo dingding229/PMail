@@ -19,7 +19,6 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/testschema"
 	"github.com/Jinnrry/pmail/utils/array"
-	pcontext "github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/password"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
@@ -682,10 +681,7 @@ func TestIdleNotice(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = db.Instance.ID(link.ID).Delete(&models.UserEmail{}) })
-	ctx := &pcontext.Context{UserID: user.ID}
-	if err = IdleNotice(ctx, user.ID, &models.Email{Id: 1}); err != nil {
-		t.Fatal(err)
-	}
+	MailboxChanged(user.ID)
 
 	select {
 	case numMessages := <-updates:
