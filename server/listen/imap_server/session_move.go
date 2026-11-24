@@ -24,6 +24,5 @@ func (s *serverSession) Move(w *imapserver.MoveWriter, set imap.NumSet, dest str
 	if err := w.WriteCopyData(copied); err != nil {
 		return err
 	}
-	notifyUser(s.ctx.UserID)
 	return s.removeAnnounced(removed, w.WriteExpunge)
 }

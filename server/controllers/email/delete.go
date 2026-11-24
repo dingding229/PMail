@@ -4,6 +4,7 @@ import (
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/services/del_email"
+	"github.com/Jinnrry/pmail/services/mailevents"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
 	"net/http"
@@ -30,6 +31,7 @@ func EmailDelete(ctx *context.Context, w http.ResponseWriter, req *http.Request)
 		response.Localized(ctx, response.ServerError, "internal_error").FPrint(w)
 		return
 	}
+	mailevents.Publish(ctx.UserID)
 	response.NewSuccessResponse(i18n.T(ctx, "succ")).FPrint(w)
 
 }

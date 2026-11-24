@@ -77,7 +77,9 @@ func (s *serverSession) Store(w *imapserver.FetchWriter, set imap.NumSet, flags 
 	starred := flagChange(flags.Op, slices.Contains(flags.Flags, imap.FlagFlagged))
 	deleted := flagChange(flags.Op, slices.Contains(flags.Flags, imap.FlagDeleted))
 	var changed []mailboxEntry
+	modified := false
 	err := mailboxTx(s.ctx, func(tx *xorm.Session) error {
+		modified = false
 		b, err := findBox(tx, s.ctx.UserID, s.currentMailbox)
 		if err != nil {
 			return err
@@ -105,14 +107,21 @@ func (s *serverSession) Store(w *imapserver.FetchWriter, set imap.NumSet, flags 
 			return nil
 		}
 		for _, entry := range changed {
+			if (read == nil || (entry.row.IsRead == 1) == *read) && (starred == nil || entry.row.IsStarred == *starred) && (deleted == nil || entry.row.IMAPDeleted == *deleted) {
+				continue
+			}
 			if _, err := b.scope(tx).ID(entry.row.ID).Table(&models.UserEmail{}).Update(values); err != nil {
 				return err
 			}
+			modified = true
 		}
 		return nil
 	})
 	if err != nil {
 		return protocolNO(err)
+	}
+	if modified {
+		MailboxChanged(s.ctx.UserID)
 	}
 	if flags.Silent || w == nil {
 		return nil

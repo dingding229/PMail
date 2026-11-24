@@ -13,6 +13,7 @@ import (
 	"github.com/Jinnrry/pmail/services/address"
 	svccompose "github.com/Jinnrry/pmail/services/compose"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/mailevents"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/mailbudget"
@@ -236,6 +237,7 @@ func Send(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	defer mailevents.Publish(ctx.UserID)
 	e.MessageId = cast.ToInt64(modelEmail.Id)
 	e.MsgID = modelEmail.MsgID
 

@@ -68,7 +68,7 @@ func Allows(scope, method, path string) bool {
 	if scope != Read && scope != Send {
 		return false
 	}
-	if method == http.MethodGet && path == "/api/email/address_counts" {
+	if method == http.MethodGet && (path == "/api/email/address_counts" || path == "/api/email/changes") {
 		return true
 	}
 	if method == http.MethodGet || method == http.MethodHead {

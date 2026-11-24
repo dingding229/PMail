@@ -20,6 +20,7 @@ import (
 	svccompose "github.com/Jinnrry/pmail/services/compose"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/mailaddress"
+	"github.com/Jinnrry/pmail/services/mailevents"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -120,6 +121,7 @@ func SaveDraft(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	mailevents.Publish(ctx.UserID)
 	response.NewSuccessResponse(struct {
 		ID int `json:"id"`
 		models.EmailISOTimes
@@ -316,6 +318,7 @@ func DeleteDraft(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		draftError(ctx, w, err)
 		return
 	}
+	mailevents.Publish(ctx.UserID)
 	response.NewSuccessResponse(i18n.T(ctx, "succ")).FPrint(w)
 }
 

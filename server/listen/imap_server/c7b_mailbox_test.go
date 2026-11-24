@@ -9,6 +9,7 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/group"
+	"github.com/Jinnrry/pmail/services/mailevents"
 	"github.com/Jinnrry/pmail/testschema"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/emersion/go-imap/v2"
@@ -61,9 +62,17 @@ func TestC7bIMAPStoreExpungeScopesLinksAndUIDWatermark(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	versions := mailevents.Default
+	start, otherStart := versions.Version(s.ctx.UserID), versions.Version(other)
 	flags := &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{imap.FlagDeleted}}
 	if err := s.Store(nil, imap.SeqSetNum(2), flags, nil); err != nil {
 		t.Fatal(err)
+	}
+	if versions.Version(s.ctx.UserID) != start+1 {
+		t.Fatal("STORE didn't publish once")
+	}
+	if err := s.Store(nil, imap.SeqSetNum(2), flags, nil); err != nil || versions.Version(s.ctx.UserID) != start+1 {
+		t.Fatal("unchanged STORE published a change")
 	}
 	var seen models.UserEmail
 	if ok, err := e.ID(target).Get(&seen); err != nil || !ok || !seen.IMAPDeleted || seen.DeletedAt != nil {
@@ -73,6 +82,9 @@ func TestC7bIMAPStoreExpungeScopesLinksAndUIDWatermark(t *testing.T) {
 	set := imap.UIDSet{{Start: 1, Stop: math.MaxUint32}}
 	if err := s.expunge(set, func(n uint32) error { emitted = append(emitted, n); return nil }); err != nil {
 		t.Fatal(err)
+	}
+	if versions.Version(s.ctx.UserID) != start+2 || versions.Version(other) != otherStart {
+		t.Fatal("EXPUNGE did not publish to the correct owner")
 	}
 	if !reflect.DeepEqual(emitted, []uint32{2}) {
 		t.Fatalf("expunge responses: %v", emitted)
@@ -103,9 +115,13 @@ func TestC7bIMAPSparseCopyMoveAndOlderLinkArrival(t *testing.T) {
 	if _, err = s.Select("INBOX", nil); err != nil {
 		t.Fatal(err)
 	}
+	start := mailevents.Default.Version(s.ctx.UserID)
 	copied, _, err := s.transfer(imap.SeqSetNum(1, 3), "archive", false)
 	if err != nil || copied == nil || copied.SourceUIDs.String() != "1,3" {
 		t.Fatalf("COPY sparse set: %+v %v", copied, err)
+	}
+	if mailevents.Default.Version(s.ctx.UserID) != start+1 {
+		t.Fatal("COPY did not publish exactly once")
 	}
 	before, err := mailboxSnapshot(s.ctx, "archive")
 	if err != nil || len(before.items) != 2 {
@@ -114,6 +130,9 @@ func TestC7bIMAPSparseCopyMoveAndOlderLinkArrival(t *testing.T) {
 	_, removed, err := s.transfer(imap.SeqSetNum(2, 4), "archive", true)
 	if err != nil || len(removed) != 2 {
 		t.Fatalf("MOVE sparse set: %v %v", removed, err)
+	}
+	if mailevents.Default.Version(s.ctx.UserID) != start+2 {
+		t.Fatal("MOVE did not publish exactly once")
 	}
 	s.announced = nil
 	after, err := mailboxSnapshot(s.ctx, "archive")

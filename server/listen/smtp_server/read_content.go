@@ -181,9 +181,13 @@ func processIncomingDelivery(ctx *context.Context, email *parsemail.Email, dbEma
 		forward.Apply(ctx, user.ID, email, emailData)
 	}
 
+	// Rules and forwarding can move a committed copy. Publish its final
+	// mailbox placement before the optional Telegram notifications.
+	for _, user := range users {
+		imap_server.MailboxChanged(user.ID)
+	}
 	for _, user := range users {
 		inbound.Notify(user.ID, dbEmail.Id, info.recipient(user.ID))
-		_ = imap_server.IdleNotice(ctx, user.ID, dbEmail)
 	}
 }
 

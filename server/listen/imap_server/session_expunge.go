@@ -45,7 +45,7 @@ func (s *serverSession) expunge(set imap.NumSet, emit func(uint32) error) error 
 		return protocolNO(err)
 	}
 	if len(removed) > 0 {
-		notifyUser(s.ctx.UserID)
+		MailboxChanged(s.ctx.UserID)
 	}
 	return s.removeAnnounced(removed, emit)
 }

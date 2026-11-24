@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/controllers"
+	"github.com/Jinnrry/pmail/controllers/email"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/services/token"
@@ -87,12 +88,15 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 		publicRegister := r.URL.Path == "/api/register"
 		publicLogin := r.URL.Path == "/api/login" || r.URL.Path == "/api/login/2fa"
 		w.Header().Add("Vary", "Accept-Language, X-PMail-Lang")
-		if publicBootstrap || publicRegister {
+		liveUpdates := email.IsChangesPath(r.URL.Path)
+		if publicBootstrap || publicRegister || liveUpdates {
 			w.Header().Set("Cache-Control", "no-store")
 		}
 
 		ctx := i18n.ForRequest(r)
-		ctx.SetValue(context.LogID, id.GenLogID())
+		if !liveUpdates {
+			ctx.SetValue(context.LogID, id.GenLogID())
+		}
 		isInbound := controllers.InboundAPIPath(r.URL.Path) || controllers.C9Path(r.URL.Path) || controllers.TranslationAPIPath(r.URL.Path) || controllers.AddressApprovalAPIPath(r.URL.Path)
 		refuse := func(status, code int, key string) {
 			if isInbound {
@@ -177,6 +181,10 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 			} else if !publicLogin && !publicBootstrap {
 				if isInbound {
 					refuse(401, response.NeedLogin, "inbound_login_required")
+					return
+				}
+				if liveUpdates {
+					response.NewErrorResponse(response.NeedLogin, i18n.T(ctx, "inbound_login_required"), map[string]string{"code": "inbound_login_required"}).FPrintStatus(w, http.StatusUnauthorized)
 					return
 				}
 				response.Localized(ctx, response.NeedLogin, "login_exp").FPrint(w)

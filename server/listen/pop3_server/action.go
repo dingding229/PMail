@@ -9,6 +9,7 @@ import (
 
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
+	"github.com/Jinnrry/pmail/listen/imap_server"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/services/del_email"
@@ -222,5 +223,9 @@ func (d *maildrop) commit() error {
 	if len(ids) == 0 {
 		return nil
 	}
-	return del_email.TrashInbox(d.ctx, ids)
+	if err := del_email.TrashInbox(d.ctx, ids); err != nil {
+		return err
+	}
+	imap_server.MailboxChanged(d.ctx.UserID)
+	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/group"
+	"github.com/Jinnrry/pmail/services/mailevents"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
 	"net/http"
@@ -38,6 +39,7 @@ func Move(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		response.Localized(ctx, response.ServerError, "mail_move_failed").FPrint(w)
 		return
 	}
+	mailevents.Publish(ctx.UserID)
 	response.NewSuccessResponse(i18n.T(ctx, "succ")).FPrint(w)
 
 }

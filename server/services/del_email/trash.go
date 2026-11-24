@@ -10,6 +10,7 @@ import (
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/mailevents"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
@@ -227,6 +228,11 @@ func PurgeExpired(ctx stdctx.Context, now time.Time) (int64, error) {
 
 func purgeTrash(ctx stdctx.Context, owner int, condition string, arg int64) (int64, error) {
 	var total int64
+	defer func() {
+		if total > 0 {
+			mailevents.Publish(owner)
+		}
+	}()
 	for ctx.Err() == nil {
 		var deleted int64
 		err := db.Transaction(db.Instance, func(tx *xorm.Session) error {

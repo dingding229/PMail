@@ -715,6 +715,61 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
+  /api/email/changes:
+    get:
+      operationId: pollEmailChanges
+      tags: [Mail]
+      summary: Wait for the current user's mailbox to change
+      x-permission: user
+      description: |-
+        Long poll for only the caller's mailbox. An empty cursor or an epoch from another server process returns immediately with changed=true and no new-mail notifications. Reuse the returned cursor on the next request. The response is not wrapped in the usual success envelope.
+        New mail is counted once per message, only for received mail in Inbox or the caller's custom folders above the previous visible maximum ID. Sent, junk, trash and drafts are excluded. The cursor reports the current maximum ID visible anywhere in the caller's mailbox.
+        No change returns changed=false. Each user can have up to eight waiting polls; starting a ninth completes the oldest with changed=false and its original cursor. A server-wide limit of 4096 waiting polls can return HTTP 503. Disconnecting cancels the wait.
+      parameters:
+      - name: cursor
+        in: query
+        description: Opaque cursor returned by a previous poll, in epoch.version.max_id format. Leave empty for the initial call.
+        schema: {type: string, maxLength: 106, default: ''}
+      - name: wait
+        in: query
+        description: Maximum wait in seconds. Zero checks immediately without reserving a waiter slot.
+        schema: {type: integer, minimum: 0, maximum: 25, default: 25}
+      responses:
+        '200':
+          description: Poll result.
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MailChanges'}
+              example:
+                cursor: k3f9.42.10233
+                changed: true
+                new_count: 1
+                new_items:
+                - {id: 10233, subject: Example, from_name: Sender, from_address: sender@example.org, to_address: me@example.net, created: 1795500000000, group_id: 0}
+        '400':
+          description: Invalid query parameters (live_updates_invalid_cursor or live_updates_invalid_wait).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '401':
+          description: Sign-in required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500':
+          description: Internal error.
+        '503':
+          description: Too many waiting polls (live_updates_busy).
+          headers:
+            Retry-After:
+              schema: {type: integer, const: 1}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
   /api/email/address_counts:
     get:
       operationId: getMailboxAddressCounts
@@ -5991,6 +6046,31 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error404EmptyData'}
   schemas:
+    MailChanges:
+      type: object
+      required: [cursor, changed, new_count, new_items]
+      additionalProperties: false
+      properties:
+        cursor: {type: string}
+        changed: {type: boolean}
+        new_count: {type: integer, minimum: 0}
+        new_items:
+          type: array
+          maxItems: 5
+          description: Latest new messages by descending ID, with no body or hidden recipient fields.
+          items: {$ref: '#/components/schemas/MailChangeItem'}
+    MailChangeItem:
+      type: object
+      required: [id, subject, from_name, from_address, to_address, created, group_id]
+      additionalProperties: false
+      properties:
+        id: {type: integer, minimum: 1}
+        subject: {type: string}
+        from_name: {type: string}
+        from_address: {type: string}
+        to_address: {type: string, description: The first address in the message's To header or an empty string.}
+        created: {type: integer, format: int64, description: Unix milliseconds.}
+        group_id: {type: integer, description: Inbox or the selected custom folder ID.}
     C29AddressStatus:
       type: string
       enum: [active, pending, rejected]

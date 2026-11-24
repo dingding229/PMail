@@ -11,6 +11,7 @@ import (
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/inbound"
+	"github.com/Jinnrry/pmail/services/mailevents"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
 )
@@ -224,5 +225,6 @@ func MarkSpam(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		inboundErr(ctx, w, err)
 		return
 	}
+	mailevents.Publish(ctx.UserID)
 	inboundOK(w, "")
 }

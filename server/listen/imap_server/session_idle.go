@@ -5,8 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Jinnrry/pmail/models"
-	"github.com/Jinnrry/pmail/utils/context"
+	"github.com/Jinnrry/pmail/services/mailevents"
 	"github.com/emersion/go-imap/v2/imapserver"
 )
 
@@ -79,9 +78,10 @@ func (s *serverSession) Idle(w *imapserver.UpdateWriter, stop <-chan struct{}) e
 	}
 }
 
-func IdleNotice(_ *context.Context, userID int, email *models.Email) error {
-	if userID > 0 && email != nil && email.Id > 0 {
+// MailboxChanged announces committed mail changes to both IMAP IDLE and HTTP.
+func MailboxChanged(userID int) {
+	if userID > 0 {
 		notifyUser(userID)
+		mailevents.Publish(userID)
 	}
-	return nil
 }

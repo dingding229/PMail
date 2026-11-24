@@ -6,6 +6,7 @@ import (
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/services/del_email"
+	"github.com/Jinnrry/pmail/services/mailevents"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
 )
@@ -26,6 +27,9 @@ func RestoreTrash(ctx *context.Context, w http.ResponseWriter, r *http.Request) 
 		log.WithContext(ctx).Errorf("Restore Trash: %v", err)
 		response.Localized(ctx, response.ServerError, "mail_trash_restore_failed").FPrintStatus(w, http.StatusInternalServerError)
 		return
+	}
+	if n > 0 {
+		mailevents.Publish(ctx.UserID)
 	}
 	response.NewSuccessResponse(map[string]int64{"restored": n}).FPrint(w)
 }

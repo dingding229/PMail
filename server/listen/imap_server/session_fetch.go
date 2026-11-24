@@ -216,6 +216,12 @@ func bsMixedWithAttachments(alt *imap.BodyStructureMultiPart, extend bool, atts 
 }
 
 func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*response.EmailResponseData, options *imap.FetchOptions, readOnly ...bool) error {
+	modified := false
+	defer func() {
+		if modified {
+			MailboxChanged(ctx.UserID)
+		}
+	}()
 	for _, email := range emailList {
 		traEmail := parsemail.NewEmailFromModel(email.Email)
 		var emailContent []byte
@@ -283,8 +289,9 @@ func write(ctx *context.Context, w *imapserver.FetchWriter, emailList []*respons
 		for _, section := range options.BodySection {
 			if !section.Peek && email.IsRead == 0 && (len(readOnly) == 0 || !readOnly[0]) {
 				if email.LinkID > 0 {
-					if _, err := db.Instance.ID(email.LinkID).Where("user_id=?", ctx.UserID).Cols("is_read").Update(&models.UserEmail{IsRead: 1}); err == nil {
+					if n, err := db.Instance.ID(email.LinkID).Where("user_id=? AND (is_read<>1 OR is_read IS NULL)", ctx.UserID).Cols("is_read").Update(&models.UserEmail{IsRead: 1}); err == nil {
 						email.IsRead = 1
+						modified = modified || n > 0
 					}
 				}
 				break

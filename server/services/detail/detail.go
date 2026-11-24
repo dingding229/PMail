@@ -7,6 +7,7 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/services/list"
+	"github.com/Jinnrry/pmail/services/mailevents"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -101,10 +102,30 @@ func SetFlags(ctx *context.Context, ids []int, read, starred *bool) error {
 	if ctx.UserID <= 0 || len(ids) == 0 || len(values) == 0 {
 		return nil
 	}
+	var tests []string
+	var args []any
+	if read != nil {
+		tests = append(tests, "(is_read IS NULL OR is_read<>?)")
+		args = append(args, values["is_read"])
+	}
+	if starred != nil {
+		tests = append(tests, "is_starred<>?")
+		args = append(args, *starred)
+	}
+	changed := false
+	// Each batch commits independently; a later error must not hide an
+	// earlier successful write from other tabs.
+	defer func() {
+		if changed {
+			mailevents.Publish(ctx.UserID)
+		}
+	}()
 	for start := 0; start < len(ids); start += 500 {
-		if _, err := db.Instance.Table(&models.UserEmail{}).Where("user_id = ?", ctx.UserID).In("email_id", ids[start:min(start+500, len(ids))]).Update(values); err != nil {
+		n, err := db.Instance.Table(&models.UserEmail{}).Where("user_id=?", ctx.UserID).Where("("+strings.Join(tests, " OR ")+")", args...).In("email_id", ids[start:min(start+500, len(ids))]).Update(values)
+		if err != nil {
 			return err
 		}
+		changed = changed || n > 0
 	}
 	return nil
 }

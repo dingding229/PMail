@@ -18,6 +18,7 @@ import (
 	"github.com/Jinnrry/pmail/services/address"
 	svccompose "github.com/Jinnrry/pmail/services/compose"
 	"github.com/Jinnrry/pmail/services/detail"
+	"github.com/Jinnrry/pmail/services/mailevents"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/mailbudget"
@@ -116,6 +117,7 @@ func EmailForward(ctx *context.Context, w http.ResponseWriter, req *http.Request
 		response.Localized(ctx, response.ServerError, "mail_persist_failed").FPrint(w)
 		return
 	}
+	defer mailevents.Publish(ctx.UserID)
 	e.MessageId = int64(modelEmail.Id)
 	results, deliveryErr := send.Send(ctx, e)
 	result := summarizeDelivery(ctx, append(append([]*parsemail.User{}, to...), cc...), results, deliveryErr)

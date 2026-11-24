@@ -118,6 +118,9 @@ func (s *serverSession) transfer(set imap.NumSet, dest string, move bool) (*imap
 		}
 		return nil
 	})
+	if err == nil && copied != nil {
+		MailboxChanged(s.ctx.UserID)
+	}
 	return copied, removed, err
 }
 
@@ -129,6 +132,5 @@ func (s *serverSession) Copy(set imap.NumSet, dest string) (*imap.CopyData, erro
 	if err != nil {
 		return nil, protocolNO(err)
 	}
-	notifyUser(s.ctx.UserID)
 	return copied, nil
 }

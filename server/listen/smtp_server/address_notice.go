@@ -9,6 +9,7 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/i18n"
+	"github.com/Jinnrry/pmail/listen/imap_server"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	pctx "github.com/Jinnrry/pmail/utils/context"
@@ -56,5 +57,8 @@ func DeliverAddressReview(ctx context.Context, reviewed address.View) error {
 	msg.Size = len(wire)
 	row := storedEmail(msg, 0, int(consts.EmailTypeReceive), msg.MsgID, true, true)
 	_, _, err = persistInitialAuditWithQuota(locale, row, []int{reviewed.UserID}, nil, nil, []string{primary.Address})
+	if err == nil {
+		imap_server.MailboxChanged(reviewed.UserID)
+	}
 	return err
 }

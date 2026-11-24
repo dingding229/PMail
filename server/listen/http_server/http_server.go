@@ -51,6 +51,7 @@ func registerAppRoutes(mux *http.ServeMux, version string) {
 	mux.HandleFunc("/api/group/add", contextIterceptor(controllers.AddGroup))
 	mux.HandleFunc("/api/group/del", contextIterceptor(controllers.DelGroup))
 	mux.HandleFunc("/api/email/list", contextIterceptor(email.EmailList))
+	mux.HandleFunc("GET /api/email/changes", contextIterceptor(email.Changes))
 	mux.HandleFunc("GET /api/email/address_counts", contextIterceptor(email.AddressCounts))
 	mux.HandleFunc("/api/email/del", contextIterceptor(email.EmailDelete))
 	mux.HandleFunc("POST /api/email/restore", contextIterceptor(email.RestoreTrash))

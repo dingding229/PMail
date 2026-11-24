@@ -15,6 +15,7 @@ import (
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/mailevents"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/testschema"
 	pctx "github.com/Jinnrry/pmail/utils/context"
@@ -256,5 +257,30 @@ func TestCachedPOPOctetsMatchRETR(t *testing.T) {
 	raw, err := d.retr(1)
 	if err != nil || int64(len(raw)) != row.POPOctets {
 		t.Fatalf("RETR bytes=%d %v", len(raw), err)
+	}
+}
+
+func TestPOP3DeletionPublishesOnCommit(t *testing.T) {
+	owner := popFixture(t)
+	d, err := openMaildrop(owner, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+	before := mailevents.Default.Version(owner.ID)
+	if err := d.mark(1); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.mark(2); err != nil {
+		t.Fatal(err)
+	}
+	if mailevents.Default.Version(owner.ID) != before {
+		t.Fatal("DELE published before QUIT")
+	}
+	if err := d.commit(); err != nil {
+		t.Fatal(err)
+	}
+	if mailevents.Default.Version(owner.ID) != before+1 {
+		t.Fatal("POP3 QUIT didn't publish exactly once")
 	}
 }

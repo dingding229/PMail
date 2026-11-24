@@ -8,6 +8,7 @@ import (
 	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/del_email"
+	"github.com/Jinnrry/pmail/services/mailevents"
 	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/errors"
@@ -185,6 +186,9 @@ func DelGroup(ctx *context.Context, groupId int) (bool, error) {
 	}
 	if err := trans.Commit(); err != nil {
 		return false, errors.Wrap(err)
+	}
+	if num > 0 {
+		mailevents.Publish(ctx.UserID)
 	}
 	return num > 0, nil
 }
