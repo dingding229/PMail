@@ -180,6 +180,8 @@ var cn = map[string]string{
 	"dns_guide_ptr_fix":              "现有反解与邮件主机不一致或未设置；请在公网 IP 服务商处修正。",
 	"dns_guide_check_panel":          "核对 DNS 面板中的记录，并等待变更生效后刷新检测。",
 	"dns_guide_mx_foreign":           "存在不指向本服务器的 MX（例如 Cloudflare Email Routing 的 route*.mx.cloudflare.net）。本机暂时不可达时，邮件会投到那里而不进入 PMail；只用 PMail 收信时请删除这些 MX 或关闭对应的邮件转发服务。",
+	"dns_guide_alias_direct":         "已用 A/AAAA 记录直接指向本服务器，无需改为 CNAME。",
+	"dns_guide_alias_foreign":        "A/AAAA 记录指向了其他服务器。请改为本服务器的 IP，或将 CNAME 指向邮件主机。",
 	"dns_guide_mail_proxied":         "邮件主机解析到了其他地址，常见原因是 CDN 代理（如 Cloudflare 橙色云朵）。SMTP/IMAP/POP3 和证书申请都需要直连本机：请改为“仅 DNS”（灰色云朵）并指向本机 IP。",
 	"dns_guide_unknown_value":        "填写实际公网 IP",
 	"dns_guide_ptr":                  "请在 VPS 或公网 IP 服务商面板中，将公网 IP 的 PTR（反向 DNS）设为 %s；不要在正向域名区域添加。",

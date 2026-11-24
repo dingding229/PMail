@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -248,6 +249,89 @@ func TestGuideRecordAddressMatrix(t *testing.T) {
 			zone := renderZone(g, "en")
 			if strings.Contains(zone, " IN A ") || strings.Contains(zone, " IN AAAA ") || strings.Contains(zone, " IN PTR ") {
 				t.Fatal("exported an address without a value")
+			}
+		})
+	}
+}
+
+type aliasGuideDNS struct {
+	guideDNS
+	canonical string
+	cnameErr  error
+	ips       []netip.Addr
+	ipErr     error
+	ipQueries []string
+}
+
+func (r *aliasGuideDNS) LookupCNAME(_ context.Context, name string) (string, error) {
+	if r.canonical == "self" {
+		return name, r.cnameErr
+	}
+	return r.canonical, r.cnameErr
+}
+
+func (r *aliasGuideDNS) LookupNetIP(_ context.Context, network, host string) ([]netip.Addr, error) {
+	r.ipQueries = append(r.ipQueries, network+" "+host)
+	return r.ips, r.ipErr
+}
+
+func TestGuideMailAliasesAcceptDirectAddresses(t *testing.T) {
+	v4, v6 := netip.MustParseAddr("203.0.113.10"), netip.MustParseAddr("2001:db8::10")
+	foreign := netip.MustParseAddr("203.0.113.99")
+	missing := &net.DNSError{Err: "no such host", IsNotFound: true}
+	timeout := &net.DNSError{Err: "timeout", IsTimeout: true}
+	guide := buildGuide(models.Domain{Name: "example.test"}, guideKey{web: "mail.example.test"}, v4, v6)
+	for _, key := range []string{"imap_alias", "pop_alias", "autoconfig", "autodiscover"} {
+		t.Run(key, func(t *testing.T) {
+			base := getRecord(t, guide, key)
+			mailAlias := key == "imap_alias" || key == "pop_alias"
+			cases := []struct {
+				name, cname     string
+				cnameErr, ipErr error
+				ips             []netip.Addr
+				status, hint    string
+				actual          []string
+				lookup          bool
+			}{
+				{name: "correct CNAME", cname: strings.ToUpper(base.Value), status: "ok", actual: []string{strings.ToUpper(base.Value)}},
+				{name: "wrong CNAME not rescued by local A", cname: "wrong.example.test.", ips: []netip.Addr{v4}, status: "mismatch", hint: "dns_guide_check_panel", actual: []string{"wrong.example.test."}},
+				{name: "direct A", cname: "self", ips: []netip.Addr{v4}, status: "ok", hint: "dns_guide_alias_direct", actual: []string{v4.String()}, lookup: true},
+				{name: "direct AAAA", cname: "self", ips: []netip.Addr{v6}, status: "ok", hint: "dns_guide_alias_direct", actual: []string{v6.String()}, lookup: true},
+				{name: "direct dual stack after CNAME not found", cnameErr: missing, ips: []netip.Addr{v4, v6}, status: "ok", hint: "dns_guide_alias_direct", actual: []string{v4.String(), v6.String()}, lookup: true},
+				{name: "foreign A", cname: "self", ips: []netip.Addr{foreign}, status: "mismatch", hint: "dns_guide_alias_foreign", actual: []string{foreign.String()}, lookup: true},
+				{name: "mixed local and foreign addresses", cname: "self", ips: []netip.Addr{v4, foreign}, status: "mismatch", hint: "dns_guide_alias_foreign", actual: []string{v4.String(), foreign.String()}, lookup: true},
+				{name: "name absent", cnameErr: missing, ipErr: missing, status: "missing", hint: "dns_guide_check_panel", lookup: true},
+				{name: "CNAME timeout", cnameErr: timeout, ips: []netip.Addr{v4}, status: "error", hint: "dns_lookup_error"},
+				{name: "address timeout", cname: "self", ipErr: timeout, status: "error", hint: "dns_lookup_error", lookup: true},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					dns := &aliasGuideDNS{canonical: tc.cname, cnameErr: tc.cnameErr, ips: tc.ips, ipErr: tc.ipErr}
+					rec := base
+					checkGuideRecord(t.Context(), dns, &rec, guide.Domain, guide.MailHost, v4, v6, false)
+					if !mailAlias && tc.lookup {
+						tc.status, tc.hint, tc.actual, tc.lookup = "missing", "dns_guide_check_panel", nil, false
+					} else if mailAlias && tc.name == "wrong CNAME not rescued by local A" {
+						tc.hint = "dns_guide_mail_proxied"
+					}
+					if rec.Status != tc.status || rec.hint != tc.hint || !slices.Equal(rec.Actual, tc.actual) {
+						t.Fatalf("status=%q hint=%q actual=%v; want %q %q %v", rec.Status, rec.hint, rec.Actual, tc.status, tc.hint, tc.actual)
+					}
+					var wantQueries []string
+					if tc.lookup {
+						wantQueries = []string{"ip " + rec.FQDN}
+					}
+					if !slices.Equal(dns.ipQueries, wantQueries) || rec.Type != "CNAME" || rec.Value != base.Value {
+						t.Fatalf("queries=%v type=%q value=%q; expected %v CNAME %q", dns.ipQueries, rec.Type, rec.Value, wantQueries, base.Value)
+					}
+					if tc.hint == "dns_guide_alias_direct" || tc.hint == "dns_guide_alias_foreign" {
+						one := DNSGuide{MailHost: guide.MailHost, Records: []GuideRecord{rec}}
+						zh, en := localizeGuide(one, "zh-CN").Records[0].FixHint, localizeGuide(one, "en").Records[0].FixHint
+						if zh == "" || en == "" || zh == en || zh == tc.hint || en == tc.hint {
+							t.Fatalf("hint not localized: zh=%q en=%q", zh, en)
+						}
+					}
+				})
 			}
 		})
 	}

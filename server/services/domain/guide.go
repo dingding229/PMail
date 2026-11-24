@@ -318,7 +318,35 @@ func checkGuideRecord(ctx context.Context, r guideResolver, rec *GuideRecord, do
 	case "CNAME":
 		var found string
 		found, err = r.LookupCNAME(ctx, name)
-		if err == nil && fqdn(found) != fqdn(name) {
+		if (rec.Key == "imap_alias" || rec.Key == "pop_alias") &&
+			((err == nil && (found == "" || fqdn(found) == fqdn(name))) || dnsNotFound(err)) {
+			// LookupCNAME can return the queried name itself for a direct A/AAAA record.
+			var addresses []netip.Addr
+			addresses, err = r.LookupNetIP(ctx, "ip", name)
+			for _, addr := range addresses {
+				rec.Actual = append(rec.Actual, addr.String())
+			}
+			if err == nil && len(addresses) > 0 {
+				if !v4.IsValid() && !v6.IsValid() {
+					rec.Status = "error"
+					rec.hint = "dns_guide_no_ip"
+					return
+				}
+				// Every advertised address must be local: clients may select any of them.
+				match = true
+				for _, addr := range addresses {
+					if !addressPointsHere(addr, v4, v6) {
+						match = false
+						break
+					}
+				}
+				if match {
+					rec.hint = "dns_guide_alias_direct"
+				} else {
+					rec.hint = "dns_guide_alias_foreign"
+				}
+			}
+		} else if err == nil && fqdn(found) != fqdn(name) {
 			rec.Actual = append(rec.Actual, found)
 			match = fqdn(found) == rec.Value
 		}
@@ -402,11 +430,10 @@ func checkGuideRecord(ctx context.Context, r guideResolver, rec *GuideRecord, do
 			}
 		}
 	}
-	var dnsErr *net.DNSError
 	switch {
 	case match:
 		rec.Status = "ok"
-	case err != nil && (!errors.As(err, &dnsErr) || !dnsErr.IsNotFound):
+	case err != nil && !dnsNotFound(err):
 		rec.Status = "error"
 		rec.hint = "dns_lookup_error"
 	case len(rec.Actual) == 0:
@@ -420,6 +447,11 @@ func checkGuideRecord(ctx context.Context, r guideResolver, rec *GuideRecord, do
 	if rec.hint == "" && (rec.Status == "missing" || rec.Status == "mismatch") {
 		rec.hint = "dns_guide_check_panel"
 	}
+}
+
+func dnsNotFound(err error) bool {
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr) && dnsErr.IsNotFound
 }
 
 func txtTags(value string) map[string]string {
@@ -541,12 +573,16 @@ func mxPointsHere(ctx context.Context, r guideResolver, host string, v4, v6 neti
 		return false, false
 	}
 	for _, addr := range found {
-		addr = addr.Unmap()
-		if addr == v4 || addr == v6 {
+		if addressPointsHere(addr, v4, v6) {
 			return true, true
 		}
 	}
 	return false, true
+}
+
+func addressPointsHere(addr, v4, v6 netip.Addr) bool {
+	addr = addr.Unmap()
+	return addr.IsValid() && (addr == v4 || addr == v6)
 }
 
 // mailHostRecord marks records that SMTP/IMAP/POP3 clients and ACME HTTP-01
