@@ -1092,7 +1092,7 @@ const en = {
       checkNow: 'Check for Updates',
       checking: 'Checking…',
       upToDateTitle: 'You are up to date',
-      upToDateDesc: 'You are running the latest v0.x release.',
+      upToDateDesc: 'You are running the latest release, {{version}}. No update needed.',
       checkFailedTitle: 'Unable to check for updates',
       checkFailedDesc: 'Could not retrieve the latest release information. Check network connectivity or retry shortly.',
       latestUnknown: 'Unknown',

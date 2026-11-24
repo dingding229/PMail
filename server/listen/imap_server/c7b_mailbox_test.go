@@ -66,7 +66,7 @@ func TestC7bIMAPStoreExpungeScopesLinksAndUIDWatermark(t *testing.T) {
 		t.Fatal(err)
 	}
 	var seen models.UserEmail
-	if ok, err := e.ID(target).Get(&seen); err != nil || !ok || !seen.IMAPDeleted {
+	if ok, err := e.ID(target).Get(&seen); err != nil || !ok || !seen.IMAPDeleted || seen.DeletedAt != nil {
 		t.Fatalf("STORE did not only mark link: %+v %v", seen, err)
 	}
 	var emitted []uint32

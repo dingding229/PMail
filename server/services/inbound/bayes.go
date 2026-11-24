@@ -13,6 +13,7 @@ import (
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/del_email"
 	"xorm.io/xorm"
 )
 
@@ -286,6 +287,13 @@ func MarkSpam(ctx context.Context, owner int, ids []int, isSpam bool) error {
 			}
 			personal.Verdict = verdict
 			personal.Reasons = append(personal.Reasons, Reason{Code: reason})
+			var trash []int
+			if err := tx.Table(&models.UserEmail{}).Cols("id").Where("user_id=? AND email_id=? AND status=?", owner, id, consts.EmailStatusDel).Find(&trash); err != nil {
+				return err
+			}
+			if err := del_email.ClearTrashMetadata(tx, trash); err != nil {
+				return err
+			}
 			_, err = tx.Table(&models.UserEmail{}).Where("user_id=? AND email_id=? AND status<>?", owner, id, consts.EmailStatusDrafts).Update(map[string]any{"status": status, "group_id": 0, "inbound_spam": Storage(personal).String})
 			if err != nil {
 				return err

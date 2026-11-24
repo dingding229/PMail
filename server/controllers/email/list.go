@@ -5,10 +5,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/del_email"
 	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/services/list"
 	"github.com/Jinnrry/pmail/services/mailaddress"
@@ -23,7 +25,13 @@ type emailListResponse struct {
 	NextCursor  *string     `json:"next_cursor,omitempty"`
 }
 
+type trashTimestamps struct {
+	DeletedAt *int64 `json:"deleted_at"`
+	PurgeAt   *int64 `json:"purge_at"`
+}
+
 type emilItem struct {
+	*trashTimestamps
 	MailboxAddresses  []mailaddress.Address `json:"mailbox_addresses,omitempty"`
 	CatchAllAddresses []string              `json:"catch_all_addresses,omitempty"`
 	normalizedMail
@@ -126,6 +134,16 @@ func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	trash := tagInfo.Status == consts.EmailStatusDel && !tagInfo.Starred
+	var retention int
+	if trash && len(emailList) != 0 {
+		retention, err = del_email.Retention(req.Context())
+		if err != nil {
+			response.Localized(ctx, response.ServerError, "internal_error").FPrint(w)
+			return
+		}
+	}
+
 	for _, email := range emailList {
 		var sender User
 		_ = json.Unmarshal([]byte(email.Sender), &sender)
@@ -138,7 +156,16 @@ func EmailList(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 		var tos []User
 		_ = json.Unmarshal([]byte(email.To), &tos)
 
+		var timestamps *trashTimestamps
+		if trash {
+			timestamps = &trashTimestamps{DeletedAt: email.DeletedAt}
+			if email.DeletedAt != nil && retention > 0 {
+				deadline := *email.DeletedAt + int64(retention)*del_email.DayMillis
+				timestamps.PurgeAt = &deadline
+			}
+		}
 		lst = append(lst, &emilItem{
+			trashTimestamps:        timestamps,
 			MailboxAddresses:       matches[email.UeId],
 			CatchAllAddresses:      mailaddress.CatchAll(email.CatchAllAddresses.String),
 			normalizedMail:         normalizeMail(email.Email),

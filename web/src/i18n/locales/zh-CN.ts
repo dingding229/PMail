@@ -1092,7 +1092,7 @@ const zhCN = {
       checkNow: '检查更新',
       checking: '检查中…',
       upToDateTitle: '当前已是最新版本',
-      upToDateDesc: '你正在运行最新的 v0.x 发行版本，无需更新。',
+      upToDateDesc: '你正在运行最新的正式版本 {{version}}，无需更新。',
       checkFailedTitle: '无法确认是否有新版本',
       checkFailedDesc: '暂时无法获取最新发行版信息，请检查服务器网络或稍后重试。',
       latestUnknown: '未知',

@@ -902,6 +902,59 @@ paths:
                         confidence: 0.98
                         source: subject
         '403': {$ref: '#/components/responses/Forbidden'}
+  /api/email/restore:
+    post:
+      operationId: restoreTrashMail
+      tags: [Mail]
+      summary: Restore the caller's Trash copies to their original folders
+      description: IDs are email IDs. Unknown IDs, IDs owned by another user, and copies outside Trash are ignored. If the original group no longer exists or is foreign, the copy returns to Inbox. Legacy copies with no recorded status return to Sent or Inbox according to message type.
+      x-permission: owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids: {type: array, minItems: 1, items: {type: integer}}
+      responses:
+        '200':
+          description: Restored copy count. Legacy JSON validation or login errors may also use an HTTP 200 envelope with nonzero errorNo.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Envelope'}
+                - type: object
+                  properties:
+                    data:
+                      type: object
+                      required: [restored]
+                      properties:
+                        restored: {type: integer, minimum: 0}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/email/trash/empty:
+    post:
+      operationId: emptyTrash
+      tags: [Mail]
+      summary: Permanently delete the caller's Trash copies
+      description: No request body is required. Batches of up to 500 copies are committed independently. Copies in other folders or belonging to other users are not removed.
+      x-permission: owner
+      responses:
+        '200':
+          description: Deleted copy count. Legacy login errors may also use an HTTP 200 envelope with nonzero errorNo.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TrashDeleteResult'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500':
+          description: Emptying did not complete. The response count is the number of copies deleted by already committed batches.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TrashDeleteResult'}
   /api/email/del:
     post:
       operationId: deleteMail
@@ -3114,6 +3167,44 @@ paths:
           $ref: '#/components/responses/C8JsonMediaTypeRequired'
         '500':
           $ref: '#/components/responses/C8InboundInternalError'
+  /api/admin/trash:
+    get:
+      operationId: getTrashSettings
+      tags: [Mail]
+      summary: Read system Trash retention settings
+      x-permission: admin
+      responses:
+        '200':
+          description: Current retention settings.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TrashSettingsResult'}
+        '401': {$ref: '#/components/responses/C8InboundLoginRequired'}
+        '403': {$ref: '#/components/responses/C8InboundPermissionDenied'}
+        '500': {$ref: '#/components/responses/C8InboundInternalError'}
+    put:
+      operationId: setTrashSettings
+      tags: [Mail]
+      summary: Update system Trash retention settings
+      description: Changes are audited. The hourly cleanup uses the retention at the start of each run.
+      x-permission: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TrashSettings'}
+      responses:
+        '200':
+          description: Updated retention settings.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TrashSettingsResult'}
+        '400':
+          description: Invalid JSON or invalid retention (trash_retention_invalid).
+        '401': {$ref: '#/components/responses/C8InboundLoginRequired'}
+        '403': {$ref: '#/components/responses/C8InboundPermissionDenied'}
+        '415': {$ref: '#/components/responses/C8JsonMediaTypeRequired'}
+        '500': {$ref: '#/components/responses/C8InboundInternalError'}
   /api/admin/inbound:
     get:
       operationId: getInboundSettings
@@ -6065,6 +6156,32 @@ components:
           properties:
             policy: {type: string, enum: [none, quarantine, reject]}
         trusted_relay: {type: boolean}
+    TrashSettings:
+      type: object
+      required: [trash_retention_days]
+      properties:
+        trash_retention_days:
+          type: integer
+          minimum: 0
+          maximum: 3650
+          default: 30
+          description: Number of 24-hour periods to keep Trash copies. Zero disables automatic cleanup.
+    TrashSettingsResult:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          data: {$ref: '#/components/schemas/TrashSettings'}
+    TrashDeleteResult:
+      allOf:
+      - {$ref: '#/components/schemas/Envelope'}
+      - type: object
+        properties:
+          data:
+            type: object
+            required: [deleted]
+            properties:
+              deleted: {type: integer, minimum: 0}
     MailListItem:
       type: object
       required:
@@ -6096,6 +6213,14 @@ components:
       - to
       - error
       properties:
+        deleted_at:
+          type: [integer, 'null']
+          format: int64
+          description: Unix milliseconds at entry into Trash. Only present in Trash lists.
+        purge_at:
+          type: [integer, 'null']
+          format: int64
+          description: Only present in Trash lists. Null when retention is disabled or the deletion time is unavailable. Otherwise the cutoff in Unix milliseconds; the next hourly sweep that observes a strictly older deletion can purge it.
         mailbox_addresses:
           type: array
           items: {$ref: '#/components/schemas/MailboxAddressMatch'}

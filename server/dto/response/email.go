@@ -6,6 +6,7 @@ import (
 )
 
 type EmailResponseData struct {
+	DeletedAt         *int64         `xorm:"deleted_at" json:"-"`
 	CatchAllAddresses sql.NullString `xorm:"catch_all_addresses" json:"-"`
 	models.Email      `xorm:"extends"`
 	IsRead            int8           `json:"is_read"`

@@ -26,6 +26,9 @@ func TestC7bRuleMoveDoesNotChangeSharedEmailType(t *testing.T) {
 	if err := testschema.Sync(e); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := e.Insert(&models.User{ID: 7, Account: "move-owner"}, &models.User{ID: 8, Account: "move-other"}); err != nil {
+		t.Fatal(err)
+	}
 	msg := models.Email{Type: consts.EmailTypeReceive}
 	if _, err := e.Insert(&msg); err != nil {
 		t.Fatal(err)

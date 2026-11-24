@@ -13,7 +13,6 @@ import (
 	"github.com/Jinnrry/pmail/utils/errors"
 	log "github.com/sirupsen/logrus"
 	"strings"
-	"xorm.io/builder"
 )
 
 type GroupItem struct {
@@ -381,46 +380,15 @@ func getGroupNum(ctx *context.Context, groupName string, mustUnread bool) int {
 func Move2DefaultBox(ctx *context.Context, mailIds []int, groupName string) error {
 	switch groupName {
 	case "Deleted Messages":
-		err := del_email.DelEmail(ctx, mailIds, false)
-		if err != nil {
-			return err
-		}
+		return del_email.DelEmail(ctx, mailIds, false)
 	case "INBOX":
-		_, err := db.Instance.Table(&models.UserEmail{}).Where(builder.Eq{
-			"user_id":  ctx.UserID,
-			"email_id": mailIds,
-		}).Update(map[string]interface{}{
-			"status":   consts.EmailTypeReceive,
-			"group_id": 0,
-		})
-		return err
+		return del_email.MoveToDefault(ctx, mailIds, consts.EmailStatusWait)
 	case "Sent Messages":
-		_, err := db.Instance.Table(&models.UserEmail{}).Where(builder.Eq{
-			"user_id":  ctx.UserID,
-			"email_id": mailIds,
-		}).Update(map[string]interface{}{
-			"status":   consts.EmailStatusSent,
-			"group_id": 0,
-		})
-		return err
+		return del_email.MoveToDefault(ctx, mailIds, consts.EmailStatusSent)
 	case "Drafts":
-		_, err := db.Instance.Table(&models.UserEmail{}).Where(builder.Eq{
-			"user_id":  ctx.UserID,
-			"email_id": mailIds,
-		}).Update(map[string]interface{}{
-			"status":   consts.EmailStatusDrafts,
-			"group_id": 0,
-		})
-		return err
+		return del_email.MoveToDefault(ctx, mailIds, consts.EmailStatusDrafts)
 	case "Junk":
-		_, err := db.Instance.Table(&models.UserEmail{}).Where(builder.Eq{
-			"user_id":  ctx.UserID,
-			"email_id": mailIds,
-		}).Update(map[string]interface{}{
-			"status":   consts.EmailStatusJunk,
-			"group_id": 0,
-		})
-		return err
+		return del_email.MoveToDefault(ctx, mailIds, consts.EmailStatusJunk)
 	}
 	return nil
 }

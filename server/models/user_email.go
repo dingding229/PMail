@@ -15,6 +15,9 @@ type UserEmail struct {
 	IsStarred         bool           `xorm:"is_starred bool notnull default(false)" json:"is_starred"`
 	GroupId           int            `xorm:"group_id int notnull default(0) comment('分组id')" json:"group_id"`
 	Status            int8           `xorm:"status tinyint(4) notnull default(0) comment('0未发送或收件，1已发送，2发送失败，3删除 4草稿 5广告')" json:"status"` // 0未发送或收件，1已发送，2发送失败 3删除 4草稿箱(Drafts)  5骚扰邮件(Junk)
+	DeletedAt         *int64         `xorm:"deleted_at bigint index" json:"-"`
+	PrevStatus        *int8          `xorm:"prev_status tinyint" json:"-"`
+	PrevGroupID       *int           `xorm:"prev_group_id int" json:"-"`
 	InboundSpam       sql.NullString `xorm:"inbound_spam text" json:"-"`
 	// JSON array of actual envelope addresses delivered via catch-all to this owner.
 	CatchAllAddresses sql.NullString `xorm:"catch_all_addresses text" json:"-"`

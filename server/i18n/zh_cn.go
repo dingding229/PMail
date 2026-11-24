@@ -2,6 +2,9 @@ package i18n
 
 // #nosec G101 -- user-facing translations contain labels and errors about passwords/tokens, not credential values.
 var cn = map[string]string{
+	"mail_trash_restore_failed":      "无法从回收站还原邮件。",
+	"mail_trash_empty_failed":        "未能清空回收站。部分邮件可能已被删除。",
+	"trash_retention_invalid":        "回收站保留天数必须为 0 到 3650 之间的整数。",
 	"mail_address_forbidden":         "此邮箱地址不属于当前用户。",
 	"mail_address_invalid":           "邮箱地址筛选参数无效。",
 	"clamav_env_controlled":          "ClamAV 由 PMAIL_CLAMAV 环境变量控制。",

@@ -361,7 +361,9 @@ export function SystemUpdateSection() {
                 <CheckCircle2 className="h-4.5 w-4.5 shrink-0" />
                 <div>
                   <p className="font-medium">{t('admin.update.upToDateTitle')}</p>
-                  <p className="text-[12px] opacity-85">{t('admin.update.upToDateDesc')}</p>
+                  <p className="text-[12px] opacity-85">{t('admin.update.upToDateDesc', {
+                      version: info.current.startsWith('v') ? info.current : `v${info.current}`,
+                    })}</p>
                 </div>
               </div>
             )}

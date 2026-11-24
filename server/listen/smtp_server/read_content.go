@@ -16,6 +16,7 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/antivirus"
+	"github.com/Jinnrry/pmail/services/del_email"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/inbound"
@@ -67,6 +68,12 @@ func (d *inboundDelivery) recipient(uid int) *inbound.Analysis {
 }
 func initialLink(row *models.Email, uid, groupID int, score *inbound.Spam) models.UserEmail {
 	link := models.UserEmail{UserID: uid, EmailID: row.Id, GroupId: groupID, Status: row.Status, InboundSpam: inbound.Storage(score)}
+	if link.Status == consts.EmailStatusDel {
+		// Inbound spoof handling initially files the link in Trash.
+		from := link
+		from.Status = consts.EmailStatusWait
+		del_email.TrashCopy(&link, from, time.Now())
+	}
 	if link.Status == consts.EmailStatusWait && score != nil && score.Verdict == "spam" {
 		link.Status = consts.EmailStatusJunk
 		link.GroupId = 0
@@ -285,7 +292,7 @@ func (s *Session) Data(r io.Reader) error {
 		email.Authentication = parsemail.NewEmailAuthentication(SPFStatus, dkimStatus)
 
 		if spoofed {
-			email.Status = 3
+			email.Status = int(consts.EmailStatusDel)
 		}
 
 		delivery := inboundDelivery{antivirus: scanResult, envelope: inbound.Envelope{SourceIP: inbound.SourceIP(peer, emailData), MailFrom: s.From}}

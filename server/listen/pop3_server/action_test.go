@@ -182,6 +182,9 @@ func TestPOP3WireSequenceAndUpdate(t *testing.T) {
 	if found, err := db.Instance.ID(link.ID).Get(&trashed); err != nil || !found || trashed.Status != consts.EmailStatusDel {
 		t.Fatalf("QUIT did not apply mark: %+v, %v", trashed, err)
 	}
+	if trashed.DeletedAt == nil || trashed.PrevStatus == nil || *trashed.PrevStatus != consts.EmailStatusWait || trashed.PrevGroupID == nil || *trashed.PrevGroupID != 0 {
+		t.Fatalf("QUIT did not preserve the original placement: %+v", trashed)
+	}
 	if found, err := db.Instance.Where("email_id=? AND user_id=? AND group_id=22", 8, owner.ID).Get(&filed); err != nil || !found || filed.Status != consts.EmailStatusWait {
 		t.Fatalf("QUIT removed a link from a different folder: %+v, %v", filed, err)
 	}

@@ -11,10 +11,10 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/auth"
+	"github.com/Jinnrry/pmail/services/del_email"
 	"github.com/Jinnrry/pmail/services/mailstore"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/id"
-	"xorm.io/xorm"
 )
 
 var (
@@ -222,13 +222,5 @@ func (d *maildrop) commit() error {
 	if len(ids) == 0 {
 		return nil
 	}
-	return db.Transaction(db.Instance, func(tx *xorm.Session) error {
-		for start := 0; start < len(ids); start += 500 {
-			if _, err := tx.Table(&models.UserEmail{}).Where(inboxLink, d.ctx.UserID, consts.EmailStatusWait, models.INBOX).
-				In("email_id", ids[start:min(start+500, len(ids))]).Update(map[string]any{"status": consts.EmailStatusDel, "group_id": 0}); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	return del_email.TrashInbox(d.ctx, ids)
 }

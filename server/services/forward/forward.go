@@ -19,6 +19,7 @@ import (
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/del_email"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/services/quota"
@@ -227,7 +228,7 @@ func Apply(ctx *pcontext.Context, userID int, email *parsemail.Email, raw []byte
 	}
 	var relation models.UserEmail
 	found, err := db.Instance.Where("email_id=? AND user_id=?", email.MessageId, userID).Get(&relation)
-	if err != nil || !found || relation.Status == 3 {
+	if err != nil || !found || relation.Status == consts.EmailStatusDel {
 		return
 	}
 	allOK := true
@@ -237,7 +238,7 @@ func Apply(ctx *pcontext.Context, userID int, email *parsemail.Email, raw []byte
 		}
 	}
 	if allOK && !setting.KeepCopy {
-		if _, err := db.Instance.Table(&models.UserEmail{}).Where("email_id=? AND user_id=?", email.MessageId, userID).Cols("status").Update(map[string]interface{}{"status": consts.EmailStatusDel}); err != nil {
+		if err := del_email.DelEmail(&pcontext.Context{Context: ctx.Context, UserID: userID}, []int{int(email.MessageId)}, false); err != nil {
 			log.Errorf("mark forwarded copy deleted email=%d user=%d failed: %v", email.MessageId, userID, err)
 		}
 	}

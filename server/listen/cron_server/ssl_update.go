@@ -9,6 +9,7 @@ import (
 
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/services/auth"
+	"github.com/Jinnrry/pmail/services/del_email"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/services/setup/ssl"
@@ -27,14 +28,18 @@ const (
 func Start(ctx context.Context, cfg *config.Config, active *tls.Certificate) func(context.Context) error {
 	go certificateMaintenance(ctx, cfg, active)
 	go auth.RunCleanup(ctx)
+	trashDone := make(chan struct{})
+	go func() { defer close(trashDone); del_email.RunCleanup(ctx) }()
 	queueDone := queue.Start(ctx)
 	return func(wait context.Context) error {
-		select {
-		case <-queueDone:
-			return nil
-		case <-wait.Done():
-			return wait.Err()
+		for _, done := range []<-chan struct{}{queueDone, trashDone} {
+			select {
+			case <-done:
+			case <-wait.Done():
+				return wait.Err()
+			}
 		}
+		return nil
 	}
 }
 

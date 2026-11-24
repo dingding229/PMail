@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	"github.com/Jinnrry/pmail/models"
-	"github.com/Jinnrry/pmail/services/mailaddress"
+	"github.com/Jinnrry/pmail/services/del_email"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
@@ -29,41 +29,17 @@ func (s *serverSession) expunge(set imap.NumSet, emit func(uint32) error) error 
 		if err != nil {
 			return err
 		}
+		var purge []models.UserEmail
 		for _, item := range s.selectSet(state.items, set) {
-			if !item.row.IMAPDeleted {
-				continue
-			}
-			n, err := b.scope(tx).ID(item.row.ID).Where("imap_deleted=?", true).Delete(&models.UserEmail{})
-			if err != nil {
-				return err
-			}
-			if n > 0 {
-				if err := mailaddress.DeleteLinks(tx, []int{item.row.ID}); err != nil {
-					return err
-				}
+			if item.row.IMAPDeleted {
+				purge = append(purge, item.row)
 				removed = append(removed, item)
 			}
 		}
-		if len(removed) > 0 {
-			ids := make([]int, 0, len(removed))
-			for _, e := range removed {
-				ids = append(ids, e.row.EmailID)
-			}
-			sizes, err := quota.MessageSizes(tx, ids)
-			if err != nil {
-				return err
-			}
-			var delta int64
-			for _, id := range ids {
-				delta -= sizes[id]
-			}
-			if err = quota.Adjust(tx, s.ctx.UserID, delta); err != nil {
-				return err
-			}
-			_, err = syncMailbox(tx, b)
+		if _, err := del_email.PurgeLinks(tx, s.ctx.UserID, purge); err != nil {
 			return err
 		}
-		return err
+		return nil
 	})
 	if err != nil {
 		return protocolNO(err)

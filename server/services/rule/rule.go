@@ -3,11 +3,11 @@ package rule
 import (
 	"fmt"
 
-	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/del_email"
 	"github.com/Jinnrry/pmail/services/domain"
 	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/group"
@@ -85,7 +85,7 @@ func DoRule(ctx *context.Context, rule *dto.Rule, email *parsemail.Email, user *
 			}
 		}
 	case dto.DELETE:
-		_, err := db.Instance.Table(&models.UserEmail{}).Where("email_id=? and user_id=?", email.MessageId, rule.UserId).Cols("status").Update(map[string]interface{}{"status": consts.EmailStatusDel})
+		err := del_email.DelEmail(&context.Context{Context: ctx.Context, UserID: rule.UserId}, []int{int(email.MessageId)}, false)
 		if err != nil {
 			log.WithContext(ctx).Errorf("sqlERror :%v", err)
 		}

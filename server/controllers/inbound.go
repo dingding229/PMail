@@ -17,7 +17,7 @@ import (
 
 func InboundAPIPath(path string) bool {
 	switch path {
-	case "/api/email/spam", "/api/spam/rules", "/api/settings/spam", "/api/admin/inbound", "/api/admin/inbound/clamav", "/api/admin/inbound/clamav/update":
+	case "/api/email/spam", "/api/spam/rules", "/api/settings/spam", "/api/admin/inbound", "/api/admin/inbound/clamav", "/api/admin/inbound/clamav/update", "/api/admin/trash":
 		return true
 	}
 	return false

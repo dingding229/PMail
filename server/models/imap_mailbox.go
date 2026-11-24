@@ -13,7 +13,7 @@ func (IMAPMailbox) TableName() string { return "imap_mailbox" }
 
 type IMAPMailboxUID struct {
 	BoxID  int   `xorm:"box_id pk notnull index(uid_key)"`
-	LinkID int   `xorm:"link_id pk notnull"`
+	LinkID int   `xorm:"link_id pk notnull index"`
 	UID    int64 `xorm:"uid bigint notnull index(uid_key)"`
 }
 

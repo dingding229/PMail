@@ -2,6 +2,10 @@ package imap_server
 
 import (
 	"errors"
+	"time"
+
+	"github.com/Jinnrry/pmail/consts"
+	"github.com/Jinnrry/pmail/services/del_email"
 
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/mailaddress"
@@ -52,10 +56,14 @@ func (s *serverSession) transfer(set imap.NumSet, dest string, move bool) (*imap
 				added += sizes[id]
 			}
 		}
+		now := time.Now()
 		ar := make([]int, 0, len(selected))
 		for _, entry := range selected {
 			original := entry.row
 			next := models.UserEmail{UserID: s.ctx.UserID, EmailID: original.EmailID, IsRead: original.IsRead, IsStarred: original.IsStarred, InboundSpam: original.InboundSpam, IMAPDeleted: original.IMAPDeleted, GroupId: target.group, Status: target.status, CatchAllAddresses: original.CatchAllAddresses, AddressAttributed: true}
+			if target.status == consts.EmailStatusDel {
+				del_email.TrashCopy(&next, original, now)
+			}
 			if move {
 				next.IMAPDeleted = false
 			}
@@ -75,6 +83,9 @@ func (s *serverSession) transfer(set imap.NumSet, dest string, move bool) (*imap
 					return errors.New("source membership changed")
 				}
 				if err := mailaddress.DeleteLinks(tx, []int{original.ID}); err != nil {
+					return err
+				}
+				if err := del_email.ForgetUIDs(tx, []int{original.ID}); err != nil {
 					return err
 				}
 				removed = append(removed, entry)
