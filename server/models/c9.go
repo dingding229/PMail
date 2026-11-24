@@ -44,7 +44,7 @@ func (TelegramPreference) TableName() string { return "telegram_preference" }
 type TelegramPush struct {
 	ID       int    `xorm:"id pk autoincr"`
 	UserID   int    `xorm:"user_id notnull index unique(mail)"`
-	EmailID  int    `xorm:"email_id notnull unique(mail)"`
+	EmailID  int    `xorm:"email_id notnull unique(mail)"` // positive mail ID, negative address request ID
 	Binding  string `xorm:"binding varchar(40) notnull"`
 	Attempts int    `xorm:"attempts int notnull"`
 	Due      int64  `xorm:"due bigint notnull index"`

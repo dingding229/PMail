@@ -40,11 +40,11 @@ func TestEnvelopeAliasViewsInboxSearchOtherAndOutbound(t *testing.T) {
 	if err := address.Backfill(); err != nil {
 		t.Fatal(err)
 	}
-	alias1, err := address.Create(u.ID, domain.Default().ID, "one", true)
+	alias1, err := address.Create(t.Context(), u.ID, domain.Default().ID, "one", true, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	alias2, err := address.Create(u.ID, domain.Default().ID, "two", true)
+	alias2, err := address.Create(t.Context(), u.ID, domain.Default().ID, "two", true, true)
 	if err != nil {
 		t.Fatal(err)
 	}

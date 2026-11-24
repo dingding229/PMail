@@ -1928,14 +1928,304 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '500': {$ref: '#/components/responses/InternalError'}
+  /api/admin/overview:
+    get:
+      operationId: getAdminOverview
+      tags: [Addresses]
+      summary: Get the administrator navigation counts
+      x-permission: admin
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/C29AddressOverview'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Administrator permission required (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+  /api/admin/address-settings:
+    get:
+      operationId: getAddressApprovalSettings
+      tags: [Addresses]
+      summary: Get the address approval setting
+      x-permission: admin
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/C29AddressSettings'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Administrator permission required (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+    put:
+      operationId: setAddressApprovalSettings
+      tags: [Addresses]
+      summary: Change whether new aliases require approval
+      x-permission: admin
+      description: The change is audited and applies only to future address requests.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/C29AddressSettings'}
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/C29AddressSettings'}
+        '400':
+          description: Invalid request parameters (including address_reject_reason_invalid or invalid_domain).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Administrator permission required (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '413':
+          description: Request body too large.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '415':
+          description: Request body is not JSON.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+  /api/admin/address-requests:
+    get:
+      operationId: listAddressRequests
+      tags: [Addresses]
+      summary: List address requests
+      x-permission: admin
+      description: Active results include previously approved requests, not addresses provisioned directly. Results are ordered by most recent request first.
+      parameters:
+      - name: status
+        in: query
+        schema: {$ref: '#/components/schemas/C29AddressStatus', default: pending}
+      - name: page
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 1000000, default: 1}
+      - name: page_size
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/C29RequestPage'}
+        '400':
+          description: Invalid request parameters (including address_reject_reason_invalid or invalid_domain).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Administrator permission required (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+  /api/admin/address-requests/{id}/approve:
+    post:
+      operationId: approveAddressRequest
+      tags: [Addresses]
+      summary: Approve an address request
+      x-permission: admin
+      description: Verifies the current domain and reservation before activation. The result is audited.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, minimum: 1}
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/Address'}
+        '400':
+          description: Invalid request parameters (including address_reject_reason_invalid or invalid_domain).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Administrator permission required (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '404':
+          description: Request or configured domain not found (address_not_found, domain_not_found).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '409':
+          description: Request was already reviewed or its reservation was lost (address_already_reviewed, address_exists).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+  /api/admin/address-requests/{id}/reject:
+    post:
+      operationId: rejectAddressRequest
+      tags: [Addresses]
+      summary: Reject an address request
+      x-permission: admin
+      description: Releases the reservation immediately while retaining the decision for the applicant. The result is audited.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, minimum: 1}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/C29RejectReason'}
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/Address'}
+        '400':
+          description: Invalid request parameters (including address_reject_reason_invalid or invalid_domain).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Administrator permission required (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '404':
+          description: Request or configured domain not found (address_not_found, domain_not_found).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '409':
+          description: Request was already reviewed or its reservation was lost (address_already_reviewed, address_exists).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '413':
+          description: Request body too large.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '415':
+          description: Request body is not JSON.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
   /api/address/create:
     post:
       operationId: createAddress
       tags: [Addresses]
       summary: Create a mailbox alias
       x-permission: user
-      description: Admins can manage any user. Ordinary users can create their own aliases only when PMAIL_ALLOW_USER_ALIAS
-        is enabled.
+      description: Admins can manage any user and provision active addresses. Ordinary users can create their own aliases only when PMAIL_ALLOW_USER_ALIAS is enabled. When address approval is required (default), an ordinary user's new alias is reserved as pending and cannot be used until approved. The maximum is 10 pending requests per user.
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
@@ -1959,7 +2249,14 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
-        '409': {$ref: '#/components/responses/Conflict'}
+        '409':
+          description: Address already reserved, or at most 10 pending requests are allowed (data.code is address_pending_limit).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - {$ref: '#/components/schemas/C9Error'}
+                - {$ref: '#/components/schemas/Error100EmptyData'}
         '500': {$ref: '#/components/responses/InternalError'}
   /api/address/delete:
     post:
@@ -1967,7 +2264,7 @@ paths:
       tags: [Addresses]
       summary: Delete a mailbox alias
       x-permission: owner
-      description: Address owner or admin.
+      description: Address owner or admin. A pending or rejected request can be withdrawn with this endpoint.
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}
       - {$ref: '#/components/parameters/AcceptLanguage'}
@@ -5694,6 +5991,43 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error404EmptyData'}
   schemas:
+    C29AddressStatus:
+      type: string
+      enum: [active, pending, rejected]
+    C29AddressSettings:
+      type: object
+      required: [address_approval_required]
+      additionalProperties: false
+      properties:
+        address_approval_required: {type: boolean, default: true}
+    C29AddressOverview:
+      type: object
+      required: [pending_address_requests]
+      properties:
+        pending_address_requests: {type: integer, minimum: 0}
+    C29AddressRequest:
+      allOf:
+      - {$ref: '#/components/schemas/MailboxAddress'}
+      - type: object
+        required: [domain, address, applicant]
+        properties:
+          domain: {type: string}
+          address: {type: string}
+          applicant: {type: string, description: Applicant account name.}
+    C29RequestPage:
+      type: object
+      required: [items, page, page_size, total, pending_address_requests]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/C29AddressRequest'}}
+        page: {type: integer, minimum: 1, maximum: 1000000}
+        page_size: {type: integer, minimum: 1, maximum: 100}
+        total: {type: integer, minimum: 0}
+        pending_address_requests: {type: integer, minimum: 0}
+    C29RejectReason:
+      type: object
+      additionalProperties: false
+      properties:
+        reason: {type: string, maxLength: 200}
     C27ProxyFields:
       type: object
       required: [type, host, port]
@@ -7725,18 +8059,23 @@ components:
           items: {$ref: '#/components/schemas/DnsRecord'}
     MailboxAddress:
       type: object
-      required: [id, user_id, local_part, domain_id, is_primary, can_send, created]
+      required: [id, user_id, local_part, domain_id, is_primary, can_send, status, requested_at, reviewed_at, reviewed_by, reject_reason, created]
       properties:
         id: {type: integer}
         user_id: {type: integer}
         local_part: {type: string}
         domain_id: {type: integer}
         is_primary: {type: boolean}
-        can_send: {type: boolean}
+        can_send: {type: boolean, description: Always false for pending and rejected addresses.}
+        status: {$ref: '#/components/schemas/C29AddressStatus'}
+        requested_at: {$ref: '#/components/schemas/IsoTimestamp'}
+        reviewed_at: {$ref: '#/components/schemas/IsoTimestamp'}
+        reviewed_by: {type: [integer, 'null']}
+        reject_reason: {type: string, maxLength: 200}
         created: {type: string, format: date-time}
     Address:
       type: object
-      required: [created_iso, id, user_id, local_part, domain_id, is_primary, can_send, created, domain, address]
+      required: [created_iso, id, user_id, local_part, domain_id, is_primary, can_send, status, requested_at, reviewed_at, reviewed_by, reject_reason, created, domain, address]
       properties:
         created_iso: {$ref: '#/components/schemas/IsoTimestamp'}
         id: {type: integer}
@@ -7744,7 +8083,12 @@ components:
         local_part: {type: string}
         domain_id: {type: integer}
         is_primary: {type: boolean}
-        can_send: {type: boolean}
+        can_send: {type: boolean, description: Always false for pending and rejected addresses.}
+        status: {$ref: '#/components/schemas/C29AddressStatus'}
+        requested_at: {$ref: '#/components/schemas/IsoTimestamp'}
+        reviewed_at: {$ref: '#/components/schemas/IsoTimestamp'}
+        reviewed_by: {type: [integer, 'null']}
+        reject_reason: {type: string, maxLength: 200}
         created: {type: string, format: date-time}
         domain: {type: string}
         address: {type: string}

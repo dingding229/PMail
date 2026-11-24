@@ -34,7 +34,7 @@ func Validate(owner int, raw string) (Filter, error) {
 	if err != nil || id <= 0 || strconv.Itoa(id) != raw {
 		return Filter{}, ErrInvalid
 	}
-	ok, err := engine().ID(id).Where("user_id=?", owner).Exist(&models.MailboxAddress{})
+	ok, err := engine().ID(id).Where("user_id=? AND status=?", owner, models.AddressActive).Exist(&models.MailboxAddress{})
 	if err != nil {
 		return Filter{}, err
 	}
@@ -72,7 +72,7 @@ func (f Filter) Predicate() (string, []any) {
 	if f.ID <= 0 {
 		return "", nil
 	}
-	return `EXISTS (SELECT 1 FROM user_email_address x JOIN mailbox_address a ON a.id=x.address_id WHERE x.user_email_id=ue.id AND x.address_id=? AND a.user_id=ue.user_id)`, []any{f.ID}
+	return `EXISTS (SELECT 1 FROM user_email_address x JOIN mailbox_address a ON a.id=x.address_id WHERE x.user_email_id=ue.id AND x.address_id=? AND a.user_id=ue.user_id AND a.status='active')`, []any{f.ID}
 }
 
 type Choice struct {
@@ -92,7 +92,7 @@ type Counts struct {
 func Unread(owner int) (Counts, error) {
 	result := Counts{Addresses: []Choice{}}
 	var rows []row
-	if err := engine().SQL(`SELECT `+addressColumns+fromAddress+`WHERE a.user_id=? ORDER BY a.is_primary DESC,a.id`, owner).Find(&rows); err != nil {
+	if err := engine().SQL(`SELECT `+addressColumns+fromAddress+`WHERE a.user_id=? AND a.status='active' ORDER BY a.is_primary DESC,a.id`, owner).Find(&rows); err != nil {
 		return result, err
 	}
 	type unreadRow struct {

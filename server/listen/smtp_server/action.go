@@ -116,8 +116,8 @@ func (s *Session) Mail(from string, opts *smtp.MailOptions) error {
 	if err := s.validateSubmission(); err != nil {
 		return err
 	}
-	if s.Ctx.UserID > 0 && !s.Ctx.IsAdmin {
-		if _, err := address.SendAddress(s.Ctx.UserID, from); err != nil {
+	if s.Ctx.UserID > 0 {
+		if err := address.CheckSubmission(s.Ctx.UserID, from, s.Ctx.IsAdmin); err != nil {
 			return &smtp.SMTPError{Code: 550, EnhancedCode: smtp.EnhancedCode{5, 7, 1}, Message: "sender address is not owned by authenticated user"}
 		}
 	}

@@ -1,10 +1,12 @@
 package address
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/mail"
 	"strings"
+	"time"
 
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
@@ -108,7 +110,14 @@ func SeedPrimary(tx *xorm.Session, user models.User) error {
 
 func ToView(row models.MailboxAddress) View {
 	d, _ := domain.GetByID(row.DomainID)
-	return View{MailboxAddress: row, Domain: d.Name, Address: row.LocalPart + "@" + d.Name}
+	return makeView(row, d.Name)
+}
+
+func makeView(row models.MailboxAddress, name string) View {
+	if row.Status != models.AddressActive {
+		row.CanSend = false
+	}
+	return View{MailboxAddress: row, Domain: name, Address: row.LocalPart + "@" + name}
 }
 
 func List(userID int) ([]View, error) {
@@ -150,7 +159,7 @@ func ListByUsers(ids []int) (map[int][]View, error) {
 		}
 		for _, a := range rows {
 			name := domainNames[a.DomainID]
-			out[a.UserID] = append(out[a.UserID], View{MailboxAddress: a, Domain: name, Address: a.LocalPart + "@" + name})
+			out[a.UserID] = append(out[a.UserID], makeView(a, name))
 		}
 	}
 	return out, nil
@@ -158,7 +167,7 @@ func ListByUsers(ids []int) (map[int][]View, error) {
 
 func primary(userID int) (models.MailboxAddress, error) {
 	var row models.MailboxAddress
-	found, err := db.Instance.Where("user_id = ? AND is_primary = ?", userID, true).Get(&row)
+	found, err := db.Instance.Where("user_id = ? AND is_primary = ? AND status=?", userID, true, models.AddressActive).Get(&row)
 	if err != nil {
 		return row, err
 	}
@@ -189,7 +198,7 @@ func find(raw string) (models.MailboxAddress, bool, error) {
 		return models.MailboxAddress{}, false, nil
 	}
 	var row models.MailboxAddress
-	found, err := db.Instance.Where("local_part = ? AND domain_id = ?", local, d.ID).Get(&row)
+	found, err := db.Instance.Where("local_part = ? AND domain_id = ? AND reservation_key=0 AND status=?", local, d.ID, models.AddressActive).Get(&row)
 	return row, found, err
 }
 
@@ -240,7 +249,10 @@ func SendAddress(userID int, value string) (string, error) {
 }
 
 func insert(tx *xorm.Session, row *models.MailboxAddress) error {
-	ok, err := tx.Where("local_part = ? AND domain_id = ?", row.LocalPart, row.DomainID).Exist(&models.MailboxAddress{})
+	if row.Status == "" {
+		row.Status = models.AddressActive
+	}
+	ok, err := tx.Where("local_part = ? AND domain_id = ? AND reservation_key=0", row.LocalPart, row.DomainID).Exist(&models.MailboxAddress{})
 	if err != nil {
 		return err
 	}
@@ -254,30 +266,47 @@ func insert(tx *xorm.Session, row *models.MailboxAddress) error {
 	return err
 }
 
-func Create(userID, domainID int, raw string, canSend bool) (View, error) {
+func Create(ctx context.Context, userID, domainID int, raw string, canSend, bypassApproval bool) (View, error) {
 	local, err := NormalizeLocal(raw)
 	if err != nil {
 		return View{}, err
 	}
 	db.MailboxRegistry.Lock()
 	defer db.MailboxRegistry.Unlock()
-	if _, ok := domain.GetByID(domainID); !ok {
-		return View{}, domain.ErrNotFound
-	}
 	var row models.MailboxAddress
+	var d models.Domain
 	err = db.Transaction(db.Instance, func(tx *xorm.Session) error {
-		ok, err := tx.ID(userID).Exist(&models.User{})
+		tx.Context(ctx)
+		var err error
+		d, err = lockDomain(tx, domainID)
 		if err != nil {
 			return err
 		}
-		if !ok {
-			return ErrNotFound
+		if err = lockApplicant(tx, userID); err != nil {
+			return err
 		}
-		row = models.MailboxAddress{LocalPart: local, DomainID: domainID, UserID: userID, CanSend: canSend}
+		row = models.MailboxAddress{LocalPart: local, DomainID: domainID, UserID: userID, CanSend: canSend, Status: models.AddressActive}
+		if !bypassApproval {
+			required, err := approvalRequired(tx)
+			if err != nil {
+				return err
+			}
+			if required {
+				n, err := tx.Where("user_id=? AND status=?", userID, models.AddressPending).Count(&models.MailboxAddress{})
+				if err != nil {
+					return err
+				}
+				if n >= pendingLimit {
+					return ErrPendingLimit
+				}
+				requested := time.Now().UTC()
+				row.Status, row.RequestedAt = models.AddressPending, &requested
+			}
+		}
 		if err := insert(tx, &row); err != nil {
 			return err
 		}
-		// Xorm's insert can omit zero bool fields with defaults. Persist explicit false.
+		// Preserve an explicit receive-only setting even when Xorm applies a default.
 		if !canSend {
 			_, err = tx.ID(row.ID).Cols("can_send").Update(&row)
 		}
@@ -286,7 +315,30 @@ func Create(userID, domainID int, raw string, canSend bool) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	return ToView(row), nil
+	return makeView(row, d.Name), nil
+}
+
+// SMTP administrators retain their existing relay permissions, but cannot
+// submit from an inactive local address when there is no active claimant.
+func CheckSubmission(userID int, raw string, admin bool) error {
+	if !admin {
+		_, err := SendAddress(userID, raw)
+		return err
+	}
+	local, host, err := Split(raw)
+	if err != nil {
+		return nil
+	}
+	d, ok := domain.Get(host)
+	if !ok {
+		return nil
+	}
+	var row models.MailboxAddress
+	ok, err = db.Instance.Where("local_part=? AND domain_id=?", local, d.ID).Asc("reservation_key").Cols("status").Get(&row)
+	if err == nil && ok && row.Status != models.AddressActive {
+		return ErrInactive
+	}
+	return err
 }
 
 func owned(tx *xorm.Session, id, actor int, admin bool) (models.MailboxAddress, error) {
@@ -294,7 +346,7 @@ func owned(tx *xorm.Session, id, actor int, admin bool) (models.MailboxAddress, 
 	if !admin {
 		tx.Where("user_id = ?", actor)
 	}
-	found, err := tx.ID(id).Get(&row)
+	found, err := forUpdate(tx.ID(id)).Get(&row)
 	if err != nil {
 		return row, err
 	}
@@ -331,6 +383,9 @@ func SetPrimary(id, actor int, admin bool) error {
 		if err != nil {
 			return err
 		}
+		if row.Status != models.AddressActive {
+			return ErrInactive
+		}
 		if row.IsPrimary {
 			return nil
 		}
@@ -352,6 +407,9 @@ func SetCanSend(id, actor int, admin, canSend bool) error {
 		row, err := owned(tx, id, actor, admin)
 		if err != nil {
 			return err
+		}
+		if row.Status != models.AddressActive {
+			return ErrInactive
 		}
 		if row.IsPrimary && !canSend {
 			return ErrPrimary

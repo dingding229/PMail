@@ -127,6 +127,9 @@ func loadLink(ctx context.Context, uid, id int) (models.UserEmail, bool, error) 
 // Notify runs post-commit. The durable queue stores only IDs so a future
 // filter change cannot leak a queued preview or reuse a replaced binding.
 func Notify(uid, emailID int, a *inbound.Analysis) {
+	if emailID <= 0 {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	c, err := getConfig(ctx)
@@ -145,12 +148,17 @@ func Notify(uid, emailID int, a *inbound.Analysis) {
 	if err != nil || !ok || !matches(f, l, a, time.Now()) {
 		return
 	}
+	enqueuePush(ctx, b, emailID)
+}
+
+func enqueuePush(ctx context.Context, b models.TelegramBinding, ref int) {
+	uid := b.UserID
 	n, err := db.Instance.Context(ctx).Where("user_id=?", uid).Count(&models.TelegramPush{})
 	if err != nil || n >= 200 {
 		return
 	}
 	now := time.Now()
-	_, err = db.Instance.Context(ctx).Insert(&models.TelegramPush{UserID: uid, EmailID: emailID, Binding: b.Identity, Due: now.UnixMilli(), Expires: now.Add(24 * time.Hour).UnixMilli()})
+	_, err = db.Instance.Context(ctx).Insert(&models.TelegramPush{UserID: uid, EmailID: ref, Binding: b.Identity, Due: now.UnixMilli(), Expires: now.Add(24 * time.Hour).UnixMilli()})
 	if err != nil && !db.IsUniqueViolation(err) {
 		log.Warnf("telegram enqueue unavailable user_id=%d", uid)
 	}
@@ -339,6 +347,9 @@ func (w *worker) queueOnce(ctx context.Context) bool {
 		drop(ctx, row.ID)
 		return true
 	}
+	if row.EmailID < 0 {
+		return w.queueAddressRequest(ctx, row, c, b)
+	}
 	f, err := filters(ctx, row.UserID)
 	if err != nil {
 		return false
@@ -387,6 +398,61 @@ func (w *worker) queueOnce(ctx context.Context) bool {
 		}
 		e.Text = body.Text
 	}
+	return deliverPush(ctx, row, c, b, func() (*pushPayload, error) {
+		locale := &pctx.Context{Context: ctx, Lang: owner.Lang}
+		available := w.actions.available(ctx, row.UserID, e.Id, owner.Lang, e)
+		var translated *translation.Translation
+		if f.AutoTranslate && available.TranslationAvailable {
+			trCtx, cancel := context.WithTimeout(ctx, autoTranslateTimeout)
+			if tr, trErr := w.actions.translate(trCtx, row.UserID, owner.Lang, translation.TranslateRequest{ID: e.Id}); trErr == nil {
+				translated = &tr
+			}
+			cancel()
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			// Re-read preferences and mail link after an external call. A changed
+			// preview/quiet/group setting must be honored even on a leased row.
+			f, err = filters(ctx, row.UserID)
+			if err != nil {
+				return nil, err
+			}
+			l, ok, err = loadLink(ctx, row.UserID, row.EmailID)
+			if err != nil {
+				return nil, err
+			}
+			if a != nil {
+				a.Recipient = inbound.ReadDetail(e.InboundAnalysis, l.InboundSpam).Spam
+			}
+			if !ok || !matches(f, l, a, time.Now()) {
+				return nil, nil
+			}
+			if !f.AutoTranslate {
+				translated = nil
+			}
+			available = w.actions.available(ctx, row.UserID, e.Id, owner.Lang, e)
+			if !available.TranslationAvailable {
+				translated = nil
+			}
+		}
+		current, _, authorized, err := allowedCallback(ctx, b.ChatID, c.Generation, row.EmailID)
+		if err != nil {
+			return nil, err
+		}
+		if !authorized || current.Identity != row.Binding || current.UserID != row.UserID {
+			return nil, nil
+		}
+		return &pushPayload{text: formatMail(locale, e, l, a, f.IncludePreview, translated), markup: mailKeyboard(locale, e.Id, a, available)}, nil
+	})
+}
+
+type pushPayload struct {
+	text   string
+	markup *replyMarkup
+}
+
+func deliverPush(ctx context.Context, row models.TelegramPush, c models.TelegramConfig, b models.TelegramBinding, prepare func() (*pushPayload, error)) bool {
+	now := time.Now()
 	if next := messages.earliest(b.ChatID); time.Now().Before(next) {
 		reschedule(ctx, row, row.Attempts, next)
 		return true
@@ -399,48 +465,11 @@ func (w *worker) queueOnce(ctx context.Context) bool {
 	if err != nil || n != 1 {
 		return false
 	}
-	locale := &pctx.Context{Context: ctx, Lang: owner.Lang}
-	available := w.actions.available(ctx, row.UserID, e.Id, owner.Lang, e)
-	var translated *translation.Translation
-	if f.AutoTranslate && available.TranslationAvailable {
-		trCtx, cancel := context.WithTimeout(ctx, autoTranslateTimeout)
-		if tr, trErr := w.actions.translate(trCtx, row.UserID, owner.Lang, translation.TranslateRequest{ID: e.Id}); trErr == nil {
-			translated = &tr
-		}
-		cancel()
-		if ctx.Err() != nil {
-			return false
-		}
-		// Re-read preferences and mail link after an external call. A changed
-		// preview/quiet/group setting must be honored even on a leased row.
-		f, err = filters(ctx, row.UserID)
-		if err != nil {
-			return false
-		}
-		l, ok, err = loadLink(ctx, row.UserID, row.EmailID)
-		if err != nil {
-			return false
-		}
-		if a != nil {
-			a.Recipient = inbound.ReadDetail(e.InboundAnalysis, l.InboundSpam).Spam
-		}
-		if !ok || !matches(f, l, a, time.Now()) {
-			drop(ctx, row.ID)
-			return true
-		}
-		if !f.AutoTranslate {
-			translated = nil
-		}
-		available = w.actions.available(ctx, row.UserID, e.Id, owner.Lang, e)
-		if !available.TranslationAvailable {
-			translated = nil
-		}
-	}
-	current, _, authorized, err := allowedCallback(ctx, b.ChatID, c.Generation, row.EmailID)
+	payload, err := prepare()
 	if err != nil {
 		return false
 	}
-	if !authorized || current.Identity != row.Binding || current.UserID != row.UserID {
+	if payload == nil {
 		drop(ctx, row.ID)
 		return true
 	}
@@ -452,7 +481,7 @@ func (w *worker) queueOnce(ctx context.Context) bool {
 	api, err := clientFor(c)
 	if err == nil {
 		sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		err = api.sendMessage(sendCtx, b.ChatID, formatMail(locale, e, l, a, f.IncludePreview, translated), mailKeyboard(locale, e.Id, a, available), 0)
+		err = api.sendMessage(sendCtx, b.ChatID, payload.text, payload.markup, 0)
 		cancel()
 	}
 	if ctx.Err() != nil {

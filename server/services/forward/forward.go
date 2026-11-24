@@ -131,7 +131,9 @@ func ownAddresses(userID int) ([]string, error) {
 	}
 	out := make([]string, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, row.Address)
+		if row.Status == models.AddressActive {
+			out = append(out, row.Address)
+		}
 	}
 	return out, nil
 }

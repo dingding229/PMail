@@ -204,7 +204,7 @@ func SaveSignature(ctx context.Context, uid, id int, s Signature) (Signature, er
 			}
 		}
 		if len(s.Addresses) > 0 {
-			n, err := tx.Where("user_id=?", uid).In("id", s.Addresses).Count(&models.MailboxAddress{})
+			n, err := tx.Where("user_id=? AND status=?", uid, models.AddressActive).In("id", s.Addresses).Count(&models.MailboxAddress{})
 			if err != nil {
 				return err
 			}

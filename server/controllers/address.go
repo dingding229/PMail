@@ -1,11 +1,14 @@
 package controllers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/telegram"
 	"github.com/Jinnrry/pmail/services/user"
 	"github.com/Jinnrry/pmail/utils/context"
 )
@@ -80,10 +83,17 @@ func AddressCreate(ctx *context.Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 	canSend := body.CanSend == nil || *body.CanSend
-	row, err := address.Create(id, body.DomainID, body.LocalPart, canSend)
+	row, err := address.Create(r.Context(), id, body.DomainID, body.LocalPart, canSend, ctx.IsAdmin)
 	if err != nil {
-		serviceError(ctx, w, err)
+		if errors.Is(err, address.ErrPendingLimit) {
+			addressApprovalError(ctx, w, err)
+		} else {
+			serviceError(ctx, w, err)
+		}
 		return
+	}
+	if row.Status == models.AddressPending {
+		telegram.NotifyAddressRequest(row.ID)
 	}
 	success(w, apiAddress(row))
 }

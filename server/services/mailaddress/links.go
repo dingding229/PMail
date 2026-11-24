@@ -44,7 +44,7 @@ func loadCatalog(tx *xorm.Session, owners []int) (catalog, error) {
 		return c, nil
 	}
 	var rows []row
-	condition, args, err := builder.Select(addressColumns).From("mailbox_address a").Join("INNER", "domain d", "d.id=a.domain_id").Where(builder.In("a.user_id", owners)).ToSQL()
+	condition, args, err := builder.Select(addressColumns).From("mailbox_address a").Join("INNER", "domain d", "d.id=a.domain_id").Where(builder.In("a.user_id", owners).And(builder.Eq{"a.status": models.AddressActive})).ToSQL()
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func insert(tx *xorm.Session, link models.UserEmail, ids []int) error {
 		var existing models.MailboxAddress
 		// Lock only matched aliases. Alias deletion locks/deletes the address
 		// before removing mappings, so in-flight delivery cannot leave stale links.
-		query := `SELECT id FROM mailbox_address WHERE id=? AND user_id=?`
+		query := `SELECT id FROM mailbox_address WHERE id=? AND user_id=? AND status='active'`
 		switch tx.Engine().DriverName() {
 		case "postgres":
 			query += " FOR KEY SHARE"
@@ -193,7 +193,7 @@ func Views(owner int, ids []int) (map[int][]Address, error) {
 		return result, nil
 	}
 	var rows []row
-	q := builder.Select(addressColumns+`, x.user_email_id AS link_id`).From("user_email_address x").Join("INNER", "mailbox_address a", "a.id=x.address_id").Join("INNER", "domain d", "d.id=a.domain_id").Join("INNER", "user_email ue", "ue.id=x.user_email_id").Where(builder.Eq{"a.user_id": owner, "ue.user_id": owner}.And(builder.In("x.user_email_id", ids))).OrderBy("a.id")
+	q := builder.Select(addressColumns+`, x.user_email_id AS link_id`).From("user_email_address x").Join("INNER", "mailbox_address a", "a.id=x.address_id").Join("INNER", "domain d", "d.id=a.domain_id").Join("INNER", "user_email ue", "ue.id=x.user_email_id").Where(builder.Eq{"a.user_id": owner, "ue.user_id": owner, "a.status": models.AddressActive}.And(builder.In("x.user_email_id", ids))).OrderBy("a.id")
 	sql, args, err := q.ToSQL()
 	if err != nil {
 		return nil, err
@@ -211,7 +211,7 @@ func Views(owner int, ids []int) (map[int][]Address, error) {
 // owner's address registry. IMAP folder copies may share the same matches.
 func ForMessage(owner, email int) ([]Address, error) {
 	var rows []row
-	q := `SELECT DISTINCT ` + addressColumns + fromAddress + ` JOIN user_email_address x ON x.address_id=a.id JOIN user_email ue ON ue.id=x.user_email_id WHERE a.user_id=? AND ue.user_id=? AND ue.email_id=? ORDER BY a.is_primary DESC,a.id`
+	q := `SELECT DISTINCT ` + addressColumns + fromAddress + ` JOIN user_email_address x ON x.address_id=a.id JOIN user_email ue ON ue.id=x.user_email_id WHERE a.user_id=? AND ue.user_id=? AND ue.email_id=? AND a.status='active' ORDER BY a.is_primary DESC,a.id`
 	if err := engine().SQL(q, owner, owner, email).Find(&rows); err != nil {
 		return nil, err
 	}

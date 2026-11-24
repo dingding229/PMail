@@ -233,7 +233,11 @@ func Delete(id int) error {
 	defer db.MailboxRegistry.Unlock()
 	if err := db.Transaction(db.Instance, func(tx *xorm.Session) error {
 		var d models.Domain
-		ok, err := tx.ID(id).Get(&d)
+		q := tx.ID(id)
+		if tx.Engine().DriverName() != "sqlite" {
+			q.ForUpdate()
+		}
+		ok, err := q.Get(&d)
 		if err != nil {
 			return err
 		}

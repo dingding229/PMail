@@ -83,6 +83,7 @@ var serviceErrors = []struct {
 	{domain.ErrExists, 409, response.ParamsError, "domain_exists"},
 	{address.ErrExists, 409, response.ParamsError, "address_exists"},
 	{address.ErrPrimary, 409, response.ParamsError, "address_primary"},
+	{address.ErrInactive, 409, response.ParamsError, "address_inactive"},
 	{user.ErrExists, 409, response.ParamsError, "user_exists"},
 	{user.ErrLastAdmin, 409, response.ParamsError, "user_last_admin"},
 }

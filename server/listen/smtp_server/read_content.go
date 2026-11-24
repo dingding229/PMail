@@ -258,10 +258,8 @@ func (s *Session) Data(r io.Reader) error {
 		if email.From == nil {
 			return &smtp.SMTPError{Code: 550, Message: "missing sender"}
 		}
-		if !ctx.IsAdmin {
-			if _, err := address.SendAddress(ctx.UserID, email.From.EmailAddress); err != nil {
-				return oerrors.New("sender address is not authorized")
-			}
+		if err := address.CheckSubmission(ctx.UserID, email.From.EmailAddress, ctx.IsAdmin); err != nil {
+			return oerrors.New("sender address is not authorized")
 		}
 
 		return s.deliverOutgoingEmail(email, send.Send)
