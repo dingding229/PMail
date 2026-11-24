@@ -16,11 +16,11 @@ const (
 	mixedCodeWithNumericBodyPenalty = 0.12
 )
 
-var codeKeyword = regexp.MustCompile(`(?i)短信验证码|验证码|校验码|动态密码|动态码|确认码|安全码|登录码|授权码|取件码|\b(?:verification(?:\s+code)?|one[- ]time(?:\s+(?:code|password))?|security[ \t]+code|login[ \t]+code|confirmation[ \t]+code|passcode|OTP|2FA|PIN|code)\b`)
-var invalidSuffix = regexp.MustCompile(`(?i)^[ \t]*(?:[：:，,.-][ \t]*)?(?:无效|作废|已失效|已过期|invalid\b|expired\b|do not use\b)`)
+var codeKeyword = regexp.MustCompile(`(?i)短信验证码|簡訊驗證碼|验证码|驗證碼|校验码|校驗碼|认证码|認證碼|动态密码|動態密碼|动态码|動態碼|确认码|確認碼|安全码|安全碼|登录码|登錄碼|登入碼|授权码|授權碼|取件码|取件碼|認証コード|確認コード|認証番号|確認番号|ワンタイムパスワード|인증번호|인증 번호|인증코드|인증 코드|\b(?:verification(?:\s+code)?|one[- ]time(?:\s+(?:code|password))?|security[ \t]+code|login[ \t]+code|confirmation[ \t]+code|passcode|OTP|2FA|PIN|code)\b`)
+var invalidSuffix = regexp.MustCompile(`(?i)^[ \t]*(?:[：:，,.-][ \t]*)?(?:无效|無效|作废|作廢|已失效|已过期|已過期|invalid\b|expired\b|do not use\b)`)
 var contextualNumber = regexp.MustCompile(`(?i)(?:房间(?:号)?|会议(?:室|号)?|room|invoice(?:[ \t]+(?:no|number|id))?|reference(?:[ \t]+code)?)\s*[:：#-]?\s*[A-Za-z0-9-]{4,}|\b[A-Za-z]{2,10}-(?:19|20)[0-9]{2}\b`)
 var separateLine = regexp.MustCompile(`^[ \t:：=【】]*(?:是|为|is)?[ \t:：=【】]*(?:\n[ \t]*){1,3}$`)
-var strongSubject = regexp.MustCompile(`(?i)(?:验证码|校验码|动态密码|动态码|确认码|安全码|登录码|授权码|取件码|\b(?:sign[- ]in[ \t]+code|log[- ]?in[ \t]+code|verification[ \t]+code|security[ \t]+code|confirmation[ \t]+code|one[- ]time[ \t]+(?:code|password)|passcode|OTP|2FA|PIN)\b)`)
+var strongSubject = regexp.MustCompile(`(?i)(?:验证码|驗證碼|校验码|校驗碼|认证码|認證碼|动态密码|動態密碼|动态码|動態碼|确认码|確認碼|安全码|安全碼|登录码|登錄碼|登入碼|授权码|授權碼|取件码|取件碼|認証コード|確認コード|認証番号|確認番号|인증번호|인증 번호|인증코드|인증 코드|\b(?:sign[- ]in[ \t]+code|log[- ]?in[ \t]+code|verification[ \t]+code|security[ \t]+code|confirmation[ \t]+code|one[- ]time[ \t]+(?:code|password)|passcode|OTP|2FA|PIN)\b)`)
 
 // Generic “代码” is only a whole-line fallback when the subject has a strong verification label.
 var subjectFallbackLine = regexp.MustCompile(`(?i)^[ \t]*` +
@@ -36,12 +36,12 @@ var droppedCodes = []*regexp.Regexp{
 	regexp.MustCompile(`\b[0-9]{2,4}[./-][0-9]{1,2}[./-][0-9]{1,4}\b|\b[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\b`),
 	regexp.MustCompile(`(?i)(?:[¥￥$€£]|\b(?:usd|cny|rmb|eur)\s*)\s*[0-9][0-9,.]*|\b[0-9][0-9,.]*\s*(?:元|美元|人民币|usd\b|cny\b|rmb\b|eur\b)`),
 	regexp.MustCompile(`(?:\+\d{1,3}[ -]?)?\(?\d{2,4}\)?[ .-]\d{3,4}[ .-]\d{4}\b|\b\d{3,4}-\d{4,8}\b`),
-	regexp.MustCompile(`(?i)(?:\border\s*(?:number|no\.?|id|#)?|\b(?:contact|telephone|phone|mobile|tracking|invoice)(?:\s+(?:number|no\.?|id))?|订单号?|运单号?|手机号|联系电话|电话号码)\s*[:：#=]?\s*[A-Za-z0-9-]{4,}`),
+	regexp.MustCompile(`(?i)(?:\border\s*(?:number|no\.?|id|#)?|\b(?:contact|telephone|phone|mobile|tracking|invoice)(?:\s+(?:number|no\.?|id))?|订单号?|訂單號?|运单号?|運單號?|手机号|手機號|联系电话|聯絡電話|电话号码|電話號碼)\s*[:：#=]?\s*[A-Za-z0-9-]{4,}`),
 }
 var falseCodeKey = regexp.MustCompile(`(?i)(?:\b(?:postal|zip|order|error|status|product|discount|promo|coupon|country|area|tracking|reference|invoice|referral)\s+)$`)
-var codeExpiryTail = regexp.MustCompile(`(?i)^(?:\s*(?:minutes?|hours?|seconds?|days?)\b|\s*(?:分钟|小时|秒钟|天|年|月|日))`)
-var unrelatedBetween = regexp.MustCompile(`(?i)\b(?:expires?|valid for|order|invoice|tracking|phone|mobile|amount|date|time is|last code|old code|do not use)\b|(?:过期|有效期|剩余|请拨打|订单|运单|金额|旧码|之前)`)
-var quoteStart = regexp.MustCompile(`(?i)^(?:on .{1,180} wrote:|[- ]*(?:original|forwarded) message[- :]*|[- ]*(?:原始邮件|转发邮件)|在.{0,120}(?:写道|中写道)[：:]?|发件人[：:])`)
+var codeExpiryTail = regexp.MustCompile(`(?i)^(?:\s*(?:minutes?|hours?|seconds?|days?)\b|\s*(?:分钟|分鐘|小时|小時|秒钟|秒鐘|天|年|月|日))`)
+var unrelatedBetween = regexp.MustCompile(`(?i)\b(?:expires?|valid for|order|invoice|tracking|phone|mobile|amount|date|time is|last code|old code|do not use)\b|(?:过期|過期|有效期|剩余|剩餘|请拨打|請撥打|订单|訂單|运单|運單|金额|金額|旧码|舊碼|之前)`)
+var quoteStart = regexp.MustCompile(`(?i)^(?:on .{1,180} wrote:|[- ]*(?:original|forwarded) message[- :]*|[- ]*(?:原始邮件|原始郵件|转发邮件|轉寄郵件)|在.{0,120}(?:写道|中写道|寫道)[：:]?|发件人[：:]|寄件者[：:])`)
 
 func unquoted(s string) string {
 	var out strings.Builder
