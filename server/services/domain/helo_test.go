@@ -43,13 +43,13 @@ func TestGuidePTRUsesSharedHeloHost(t *testing.T) {
 	}
 	// guideDNS answers SMTP.Example.COM. for every address.
 	checkGuideRecord(context.Background(), guideDNS{}, &ptr, guide.Domain, guide.MailHost, ip, netip.Addr{}, false)
-	if ptr.Matches == nil || !*ptr.Matches {
+	if ptr.Matches == nil || !*ptr.Matches || ptr.Status != "ok" {
 		t.Fatalf("shared PTR not accepted: %+v", ptr)
 	}
 	t.Setenv("PMAIL_SMTP_HELO", "smtp.other.example")
 	ptr = getRecord(t, buildGuide(models.Domain{Name: "second.example", DkimSelector: "default"}, guideKey{web: "mail.second.example"}, ip, netip.Addr{}), "ptr")
 	checkGuideRecord(context.Background(), guideDNS{}, &ptr, "second.example", "smtp.second.example", ip, netip.Addr{}, false)
-	if ptr.Matches == nil || *ptr.Matches {
+	if ptr.Matches == nil || *ptr.Matches || ptr.Status != "mismatch" {
 		t.Fatalf("mismatched PTR accepted: %+v", ptr)
 	}
 }

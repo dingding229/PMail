@@ -374,9 +374,17 @@ func checkGuideRecord(ctx context.Context, r guideResolver, rec *GuideRecord, do
 				matched = matched && foundMatch
 			}
 		}
+		// Without a known server IP the record stays "advice": nothing to check.
 		if checked {
 			rec.Matches = &matched
-			if !matched {
+			switch {
+			case matched:
+				rec.Status = "ok"
+			case len(rec.Actual) == 0:
+				rec.Status = "missing"
+				rec.hint = "dns_guide_ptr_fix"
+			default:
+				rec.Status = "mismatch"
 				rec.hint = "dns_guide_ptr_fix"
 			}
 		}

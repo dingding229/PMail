@@ -117,7 +117,7 @@ func TestSPFAndProxyRecordChecks(t *testing.T) {
 	}
 	ptr := getRecord(t, guide, "ptr")
 	checkGuideRecord(context.Background(), fake, &ptr, domain, guide.MailHost, ip, netip.Addr{}, true)
-	if ptr.Status != "advice" || ptr.Matches == nil || !*ptr.Matches {
+	if ptr.Status != "ok" || ptr.Matches == nil || !*ptr.Matches {
 		t.Fatalf("PTR: %+v", ptr)
 	}
 }
