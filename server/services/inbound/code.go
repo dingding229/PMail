@@ -16,11 +16,11 @@ const (
 	mixedCodeWithNumericBodyPenalty = 0.12
 )
 
-var codeKeyword = regexp.MustCompile(`(?i)短信验证码|簡訊驗證碼|验证码|驗證碼|校验码|校驗碼|认证码|認證碼|动态密码|動態密碼|动态码|動態碼|确认码|確認碼|安全码|安全碼|登录码|登錄碼|登入碼|授权码|授權碼|取件码|取件碼|認証コード|確認コード|認証番号|確認番号|ワンタイムパスワード|인증번호|인증 번호|인증코드|인증 코드|\b(?:verification(?:\s+code)?|one[- ]time(?:\s+(?:code|password))?|security[ \t]+code|login[ \t]+code|confirmation[ \t]+code|passcode|OTP|2FA|PIN|code)\b`)
+var codeKeyword = regexp.MustCompile(`(?i)` + labelAlternation(multilingualLabels) + `|短信验证码|簡訊驗證碼|验证码|驗證碼|校验码|校驗碼|认证码|認證碼|动态密码|動態密碼|动态码|動態碼|确认码|確認碼|安全码|安全碼|登录码|登錄碼|登入碼|授权码|授權碼|取件码|取件碼|認証コード|確認コード|認証番号|確認番号|ワンタイムパスワード|인증번호|인증 번호|인증코드|인증 코드|\b(?:verification(?:\s+code)?|one[- ]time(?:\s+(?:code|password))?|security[ \t]+code|login[ \t]+code|confirmation[ \t]+code|passcode|OTP|2FA|PIN|code)\b`)
 var invalidSuffix = regexp.MustCompile(`(?i)^[ \t]*(?:[：:，,.-][ \t]*)?(?:无效|無效|作废|作廢|已失效|已过期|已過期|invalid\b|expired\b|do not use\b)`)
 var contextualNumber = regexp.MustCompile(`(?i)(?:房间(?:号)?|会议(?:室|号)?|room|invoice(?:[ \t]+(?:no|number|id))?|reference(?:[ \t]+code)?)\s*[:：#-]?\s*[A-Za-z0-9-]{4,}|\b[A-Za-z]{2,10}-(?:19|20)[0-9]{2}\b`)
 var separateLine = regexp.MustCompile(`^[ \t:：=【】]*(?:是|为|is)?[ \t:：=【】]*(?:\n[ \t]*){1,3}$`)
-var strongSubject = regexp.MustCompile(`(?i)(?:验证码|驗證碼|校验码|校驗碼|认证码|認證碼|动态密码|動態密碼|动态码|動態碼|确认码|確認碼|安全码|安全碼|登录码|登錄碼|登入碼|授权码|授權碼|取件码|取件碼|認証コード|確認コード|認証番号|確認番号|인증번호|인증 번호|인증코드|인증 코드|\b(?:sign[- ]in[ \t]+code|log[- ]?in[ \t]+code|verification[ \t]+code|security[ \t]+code|confirmation[ \t]+code|one[- ]time[ \t]+(?:code|password)|passcode|OTP|2FA|PIN)\b)`)
+var strongSubject = regexp.MustCompile(`(?i)(?:验证码|驗證碼|校验码|校驗碼|认证码|認證碼|动态密码|動態密碼|动态码|動態碼|确认码|確認碼|安全码|安全碼|登录码|登錄碼|登入碼|授权码|授權碼|取件码|取件碼|認証コード|確認コード|認証番号|確認番号|인증번호|인증 번호|인증코드|인증 코드|\b(?:sign[- ]in[ \t]+code|log[- ]?in[ \t]+code|verification[ \t]+code|security[ \t]+code|confirmation[ \t]+code|one[- ]time[ \t]+(?:code|password)|passcode|OTP|2FA|PIN)\b)|` + labelAlternation(multilingualStrongSubject))
 
 // Generic “代码” is only a whole-line fallback when the subject has a strong verification label.
 var subjectFallbackLine = regexp.MustCompile(`(?i)^[ \t]*` +
@@ -109,7 +109,7 @@ func findCodes(in, source string) []codeHit {
 		}
 	}
 	s := string(masked)
-	labels := codeKeyword.FindAllStringIndex(s, -1)
+	labels := slices.DeleteFunc(codeKeyword.FindAllStringIndex(s, -1), func(at []int) bool { return !labelBounded(s, at) })
 	if len(labels) == 0 {
 		return nil
 	}
@@ -239,7 +239,16 @@ func recognizeCode(email *parsemail.Email) *VerificationCode {
 		}
 	}
 	if best.value == "" {
-		return nil
+		// No label in a known language: fall back to how the code is presented.
+		from := ""
+		if email.From != nil {
+			from = email.From.EmailAddress
+		}
+		hit, ok := structuralCode(subject, body, email.HTML, from)
+		if !ok {
+			return nil
+		}
+		return &VerificationCode{Code: hit.value, Confidence: hit.confidence, Source: hit.source}
 	}
 	confidence := best.confidence
 	if len(distinct) == 1 {
