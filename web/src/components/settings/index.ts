@@ -16,3 +16,13 @@ export {
   DataTableCell,
 } from './DataTable'
 export { EmptyState, type EmptyStateProps } from './EmptyState'
+export { ProxyFields, type ProxyFieldsProps } from './ProxyFields'
+export {
+  createEmptyProxyDraft,
+  proxyViewToDraft,
+  isProxyDraftEmpty,
+  validateProxyDraft,
+  buildProxyInput,
+  type ProxyDraft,
+  type ProxyValidationErrors,
+} from './proxyHelpers'

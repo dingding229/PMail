@@ -6,6 +6,7 @@ import {
   Folder,
   Forward,
   KeyRound,
+  Languages,
   Palette,
   PenLine,
   Send,
@@ -25,6 +26,7 @@ import { SignaturesSection } from './sections/SignaturesSection'
 import { ForwardSection } from './sections/ForwardSection'
 import { RulesSection } from './sections/RulesSection'
 import { SpamSection } from './sections/SpamSection'
+import { TranslationAISection } from './sections/TranslationAISection'
 import { TelegramSection } from './sections/TelegramSection'
 import { GroupsSection } from './sections/GroupsSection'
 import { TokensSection } from './sections/TokensSection'
@@ -38,6 +40,7 @@ type SettingsTabKey =
   | 'forward'
   | 'rules'
   | 'spam'
+  | 'translation'
   | 'telegram'
   | 'groups'
   | 'tokens'
@@ -57,6 +60,7 @@ export function SettingsPage() {
     { key: 'forward', label: t('settings.tabs.forward'), icon: Forward },
     { key: 'rules', label: t('settings.tabs.rules'), icon: Filter },
     { key: 'spam', label: t('settings.tabs.spam'), icon: ShieldBan },
+    { key: 'translation', label: t('settings.tabs.translation'), icon: Languages },
     { key: 'telegram', label: t('settings.tabs.telegram'), icon: Send },
     { key: 'groups', label: t('settings.tabs.groups'), icon: Folder },
     { key: 'tokens', label: t('settings.tabs.tokens'), icon: KeyRound },
@@ -97,6 +101,7 @@ export function SettingsPage() {
       {activeTab === 'forward' && <ForwardSection />}
       {activeTab === 'rules' && <RulesSection />}
       {activeTab === 'spam' && <SpamSection />}
+      {activeTab === 'translation' && <TranslationAISection />}
       {activeTab === 'telegram' && <TelegramSection />}
       {activeTab === 'groups' && <GroupsSection />}
       {activeTab === 'tokens' && <TokensSection />}

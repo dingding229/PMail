@@ -9,6 +9,7 @@ import {
   MailOpen,
   Menu,
   RefreshCw,
+  RotateCcw,
   Search,
   ShieldBan,
   ShieldCheck,
@@ -22,6 +23,14 @@ import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -68,6 +77,10 @@ interface EmailListPaneProps {
   onBulkMarkRead: (ids: number[], isRead: boolean) => void
   onBulkStar: (ids: number[]) => void
   onBulkDelete: (ids: number[], forced: boolean) => void
+  onBulkRestore?: (ids: number[]) => void
+  onEmptyTrash?: () => void
+  emptyingTrash?: boolean
+  trashRetentionDays?: number
   onBulkMove: (ids: number[], groupId: number, label: string) => void
   onBulkMarkSpam: (ids: number[], isSpam: boolean) => void
   onPrefetchEmail: (id: number) => void
@@ -110,6 +123,10 @@ export function EmailListPane({
   onBulkMarkRead,
   onBulkStar,
   onBulkDelete,
+  onBulkRestore,
+  onEmptyTrash,
+  emptyingTrash = false,
+  trashRetentionDays,
   onBulkMove,
   onBulkMarkSpam,
   onPrefetchEmail,
@@ -118,6 +135,8 @@ export function EmailListPane({
   onDiscardDraft,
 }: EmailListPaneProps) {
   const { t, i18n } = useTranslation()
+  const [emptyTrashOpen, setEmptyTrashOpen] = useState(false)
+  const [confirmHardDelIds, setConfirmHardDelIds] = useState<number[] | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const [pullDistance, setPullDistance] = useState(0)
   const pullStartY = useRef<number | null>(null)
@@ -350,12 +369,30 @@ export function EmailListPane({
                     <ShieldBan className="h-3.5 w-3.5" />
                   )}
                 </Button>
+                {isInTrash && onBulkRestore && (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => onBulkRestore(selectedIdsArray)}
+                    aria-label={t('mail.trash.restore')}
+                    title={t('mail.trash.restore')}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    <span>{t('mail.trash.restore')}</span>
+                  </Button>
+                )}
                 <Button
                   variant="dangerGhost"
                   size="iconSm"
-                  onClick={() => onBulkDelete(selectedIdsArray, isInTrash)}
-                  aria-label={t('mail.actions.delete')}
-                  title={t('mail.actions.delete')}
+                  onClick={() => {
+                    if (isInTrash) {
+                      setConfirmHardDelIds(selectedIdsArray)
+                    } else {
+                      onBulkDelete(selectedIdsArray, false)
+                    }
+                  }}
+                  aria-label={isInTrash ? t('mail.actions.deleteForever') : t('mail.actions.delete')}
+                  title={isInTrash ? t('mail.actions.deleteForever') : t('mail.actions.delete')}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
@@ -402,6 +439,29 @@ export function EmailListPane({
           )}
         </div>
       </div>
+
+      {/* Trash Retention & Empty Banner */}
+      {isInTrash && (
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--border-hairline)] bg-[var(--warning-soft)]/50 px-3.5 py-2 text-[12px] text-[var(--ink-secondary)]">
+          <span className="min-w-0 flex-1 leading-snug">
+            {trashRetentionDays === 0
+              ? t('mail.trash.bannerNoAutoPurge')
+              : t('mail.trash.bannerRetention', { days: trashRetentionDays ?? 30 })}
+          </span>
+          {onEmptyTrash && (
+            <Button
+              type="button"
+              variant="dangerGhost"
+              size="xs"
+              disabled={emptyingTrash || (totalCount ?? emails.length) === 0}
+              onClick={() => setEmptyTrashOpen(true)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {t('mail.trash.emptyButton')}
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Pull to refresh indicator (Mobile) */}
       {isMobile && pullDistance > 8 && (
@@ -566,7 +626,10 @@ export function EmailListPane({
                       onToggleCheck={onToggleCheck}
                       onToggleStar={onToggleStar}
                       onSwipeToggleRead={(item) => onBulkMarkRead([item.id], !item.is_read)}
-                      onSwipeDelete={(item) => onBulkDelete([item.id], isInTrash)}
+                      onSwipeDelete={(item) => {
+                        if (isInTrash) setConfirmHardDelIds([item.id])
+                        else onBulkDelete([item.id], false)
+                      }}
                       onPrefetch={onPrefetchEmail}
                       onCancelPrefetch={onCancelPrefetch}
                     />
@@ -577,6 +640,80 @@ export function EmailListPane({
           </div>
         )}
       </div>
+
+      {/* Empty Trash Confirm Dialog */}
+      <Dialog open={emptyTrashOpen} onOpenChange={setEmptyTrashOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('mail.trash.emptyConfirmTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('mail.trash.emptyConfirmDesc', { count: totalCount ?? emails.length })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={emptyingTrash}
+              onClick={() => setEmptyTrashOpen(false)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              disabled={emptyingTrash}
+              onClick={() => {
+                setEmptyTrashOpen(false)
+                onEmptyTrash?.()
+              }}
+            >
+              {emptyingTrash && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {t('mail.trash.emptyConfirmAction')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Permanent Delete Confirm Dialog */}
+      <Dialog
+        open={confirmHardDelIds !== null}
+        onOpenChange={(open) => !open && setConfirmHardDelIds(null)}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('mail.trash.deleteForeverTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('mail.trash.deleteForeverDesc', { count: confirmHardDelIds?.length ?? 0 })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmHardDelIds(null)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              onClick={() => {
+                if (confirmHardDelIds && confirmHardDelIds.length > 0) {
+                  onBulkDelete(confirmHardDelIds, true)
+                }
+                setConfirmHardDelIds(null)
+              }}
+            >
+              {t('mail.actions.deleteForever')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

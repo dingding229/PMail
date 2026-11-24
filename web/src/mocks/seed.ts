@@ -17,6 +17,9 @@ export interface MockEmailRecord {
   type: number // 0 received, 1 sent
   status: number // 0 inbox, 1 sent, 3 deleted, 4 draft, 5 junk
   group_id: number
+  prev_status?: number
+  prev_group_id?: number
+  deleted_at?: number | null
   is_read: boolean
   is_starred?: boolean
   dangerous: boolean
@@ -715,6 +718,9 @@ def 汇总收件箱状态(total: int, unread: int) -> str:
       type: 0,
       status: 3,
       group_id: 0,
+      prev_status: 0,
+      prev_group_id: 0,
+      deleted_at: dayjs().subtract(3, 'day').valueOf(),
       is_read: true,
       dangerous: false,
       error: '',
@@ -727,8 +733,32 @@ def 汇总收件箱状态(total: int, unread: int) -> str:
       send_date: daysAgo(6),
       size: 1950,
       msg_id: '<trash-112@pmail.dev>',
-      text: '旧版发布工作流 已完成并归档构建产物。',
+      text: '旧版发布工作流已完成并归档构建产物。',
       html: '',
+      attachments: [],
+    },
+    {
+      id: 113,
+      type: 0,
+      status: 3,
+      group_id: 0,
+      prev_status: 0,
+      prev_group_id: 10,
+      deleted_at: dayjs().subtract(22, 'day').valueOf(),
+      is_read: false,
+      dangerous: false,
+      error: '',
+      subject: '季度域名续费提醒（已处理）',
+      from_name: 'Domain Registrar',
+      from_address: 'billing@registrar.example',
+      to: [{ Name: '林深', EmailAddress: 'admin@pmail.dev' }],
+      cc: [],
+      reply_to: [],
+      send_date: daysAgo(25),
+      size: 2680,
+      msg_id: '<trash-113@registrar.example>',
+      text: 'Your domain pmail.dev has been renewed for 1 year. Invoice #INV-2026-8841.',
+      html: '<p>Your domain <strong>pmail.dev</strong> has been renewed for 1 year. Invoice #INV-2026-8841.</p>',
       attachments: [],
     },
     {

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
@@ -13,26 +14,54 @@ import {
   Image as ImageIcon,
   Inbox,
   KeyRound,
+  Languages,
+  ListChecks,
   Mail,
   MailOpen,
   MoreHorizontal,
   Printer,
   Reply,
   ReplyAll,
+  RotateCcw,
   ShieldAlert,
   ShieldBan,
   ShieldCheck,
+  Sparkles,
   Star,
   Trash2,
 } from 'lucide-react'
-import { API_ERROR_NO, ApiError, SYSTEM_GROUP_IDS, type EmailDetail, type GroupOption } from '@/api'
-import { useEmailDetailQuery } from '@/hooks/useMailQueries'
+import {
+  API_ERROR_NO,
+  ApiError,
+  mailApi,
+  SYSTEM_GROUP_IDS,
+  type EmailAIExtractResult,
+  type EmailAISummaryResult,
+  type EmailDetail,
+  type EmailTranslationResult,
+  type GroupOption,
+  type TranslationEngine,
+  type TranslationLanguage,
+} from '@/api'
+import {
+  useEmailDetailQuery,
+  useUserAIQuery,
+  useUserTranslationPrefsQuery,
+} from '@/hooks/useMailQueries'
 import { formatMailFullTime, formatRelativeTime, pickDate } from '@/lib/date'
 import { formatBytes, resolveAddressList, resolveAttachmentsList } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,6 +79,9 @@ import { SenderAvatar } from '@/components/common/SenderAvatar'
 import { SandboxedHtmlFrame } from './SandboxedHtmlFrame'
 import { PlainTextMailView } from './PlainTextMailView'
 import { AttachmentSection } from './AttachmentSection'
+import { MailTranslationCard } from './MailTranslationCard'
+import { MailAIPanel } from './MailAIPanel'
+import { computePurgeDaysLeft } from './trashHelpers'
 import {
   formatAuthReason,
   formatAuthResultLabel,
@@ -75,9 +107,22 @@ interface ReadingPaneProps {
   onToggleStar: (id: number, nextStarred: boolean) => void
   onToggleRead: (id: number, nextRead: boolean) => void
   onDelete: (id: number, forced: boolean) => void
+  onRestore?: (id: number) => void
   onMove: (id: number, groupId: number, label: string) => void
   onMarkSpam: (id: number, isSpam: boolean) => void
 }
+
+const TRANSLATE_LANGUAGES: TranslationLanguage[] = [
+  'zh-CN',
+  'zh-TW',
+  'en',
+  'ja',
+  'ko',
+  'fr',
+  'de',
+  'es',
+  'ru',
+]
 
 export function ReadingPane({
   emailId,
@@ -95,17 +140,55 @@ export function ReadingPane({
   onToggleStar,
   onToggleRead,
   onDelete,
+  onRestore,
   onMove,
   onMarkSpam,
 }: ReadingPaneProps) {
   const { t, i18n } = useTranslation()
   const { data: email, isLoading, isError, error, refetch } = useEmailDetailQuery(emailId)
+  const { data: translationPrefs } = useUserTranslationPrefsQuery(true)
+  const { data: userAI } = useUserAIQuery(true)
 
   const [detailsExpanded, setDetailsExpanded] = useState(false)
   const [hasExternalImages, setHasExternalImages] = useState(false)
   const [externalImagesAllowed, setExternalImagesAllowed] = useState(false)
   const [codeCopied, setCodeCopied] = useState(false)
   const [expandedRiskExcerpts, setExpandedRiskExcerpts] = useState<Set<number>>(new Set())
+  const [confirmHardDelOpen, setConfirmHardDelOpen] = useState(false)
+
+  // Translation state
+  const [selectedLang, setSelectedLang] = useState<TranslationLanguage | ''>('')
+  const [selectedEngine, setSelectedEngine] = useState<TranslationEngine | ''>('')
+  const [translationResult, setTranslationResult] = useState<EmailTranslationResult | null>(null)
+  const [translationLoading, setTranslationLoading] = useState(false)
+  const [translationError, setTranslationError] = useState<string | null>(null)
+  const [showTranslation, setShowTranslation] = useState(true)
+  const autoTranslatedIdRef = useRef<number | null>(null)
+
+  // AI Summary & Extract state
+  const [summaryResult, setSummaryResult] = useState<EmailAISummaryResult | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
+  const [extractResult, setExtractResult] = useState<EmailAIExtractResult | null>(null)
+  const [extractLoading, setExtractLoading] = useState(false)
+  const [extractError, setExtractError] = useState<string | null>(null)
+  const autoSummarizedIdRef = useRef<number | null>(null)
+
+  const effectiveTargetLang: TranslationLanguage = useMemo(() => {
+    if (selectedLang) return selectedLang
+    if (translationPrefs?.target_lang) return translationPrefs.target_lang
+    return i18n.language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'
+  }, [selectedLang, translationPrefs?.target_lang, i18n.language])
+
+  const effectiveEngine: TranslationEngine | undefined = useMemo(() => {
+    if (selectedEngine) return selectedEngine
+    if (translationPrefs?.translate_engine) return translationPrefs.translate_engine
+    return undefined
+  }, [selectedEngine, translationPrefs?.translate_engine])
+
+  // Drop late translation/AI responses that belong to a previously opened message.
+  const currentEmailIdRef = useRef(emailId)
+  currentEmailIdRef.current = emailId
 
   // Reset per-message ephemeral states when switching messages
   useEffect(() => {
@@ -114,7 +197,124 @@ export function ReadingPane({
     setExternalImagesAllowed(false)
     setCodeCopied(false)
     setExpandedRiskExcerpts(new Set())
+    setConfirmHardDelOpen(false)
+    setTranslationResult(null)
+    setTranslationLoading(false)
+    setTranslationError(null)
+    setShowTranslation(true)
+    setSummaryResult(null)
+    setSummaryLoading(false)
+    setSummaryError(null)
+    setExtractResult(null)
+    setExtractLoading(false)
+    setExtractError(null)
+    autoTranslatedIdRef.current = null
+    autoSummarizedIdRef.current = null
   }, [emailId])
+
+  const runTranslate = useCallback(
+    async (opts?: {
+      targetLang?: TranslationLanguage
+      engine?: TranslationEngine
+      force?: boolean
+    }) => {
+      if (!email) return
+      const target = opts?.targetLang ?? effectiveTargetLang
+      const engine = opts?.engine ?? effectiveEngine
+      setTranslationLoading(true)
+      setTranslationError(null)
+      setShowTranslation(true)
+      try {
+        const res = await mailApi.translate({
+          id: email.id,
+          target_lang: target,
+          ...(engine ? { engine } : {}),
+          ...(opts?.force ? { force: true } : {}),
+        })
+        if (currentEmailIdRef.current !== email.id) return
+        setTranslationResult(res)
+      } catch (err) {
+        if (currentEmailIdRef.current !== email.id) return
+        const msg = err instanceof Error ? err.message : t('common.unknownError')
+        setTranslationError(msg)
+      } finally {
+        if (currentEmailIdRef.current === email.id) setTranslationLoading(false)
+      }
+    },
+    [email, effectiveTargetLang, effectiveEngine, t],
+  )
+
+  const runAI = useCallback(
+    async (action: 'summary' | 'extract', force = false) => {
+      if (!email) return
+      if (action === 'summary') {
+        setSummaryLoading(true)
+        setSummaryError(null)
+      } else {
+        setExtractLoading(true)
+        setExtractError(null)
+      }
+      try {
+        if (action === 'summary') {
+          const res = await mailApi.analyzeAI<EmailAISummaryResult>({
+            id: email.id,
+            action: 'summary',
+            lang: effectiveTargetLang,
+            ...(force ? { force: true } : {}),
+          })
+          if (currentEmailIdRef.current !== email.id) return
+          setSummaryResult(res)
+        } else {
+          const res = await mailApi.analyzeAI<EmailAIExtractResult>({
+            id: email.id,
+            action: 'extract',
+            lang: effectiveTargetLang,
+            ...(force ? { force: true } : {}),
+          })
+          if (currentEmailIdRef.current !== email.id) return
+          setExtractResult(res)
+        }
+      } catch (err) {
+        if (currentEmailIdRef.current !== email.id) return
+        const msg = err instanceof Error ? err.message : t('common.unknownError')
+        if (action === 'summary') setSummaryError(msg)
+        else setExtractError(msg)
+      } finally {
+        if (currentEmailIdRef.current === email.id) {
+          if (action === 'summary') setSummaryLoading(false)
+          else setExtractLoading(false)
+        }
+      }
+    },
+    [email, effectiveTargetLang, t],
+  )
+
+  // Auto-translate when user enabled auto_translate and email needs_translation
+  useEffect(() => {
+    if (
+      email &&
+      email.translation_available &&
+      email.needs_translation &&
+      translationPrefs?.auto_translate &&
+      autoTranslatedIdRef.current !== email.id
+    ) {
+      autoTranslatedIdRef.current = email.id
+      void runTranslate()
+    }
+  }, [email, translationPrefs?.auto_translate, runTranslate])
+
+  // Auto-summarize when user enabled ai_auto_summary and email ai_available
+  useEffect(() => {
+    if (
+      email &&
+      email.ai_available &&
+      translationPrefs?.ai_auto_summary &&
+      autoSummarizedIdRef.current !== email.id
+    ) {
+      autoSummarizedIdRef.current = email.id
+      void runAI('summary')
+    }
+  }, [email, translationPrefs?.ai_auto_summary, runAI])
 
   const copyVerificationCode = useCallback(
     async (code: string) => {
@@ -489,12 +689,112 @@ export function ReadingPane({
             </TooltipContent>
           </Tooltip>
 
+          {/* Translate Dropdown (only when translation_available) */}
+          {email.translation_available && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant={translationResult ? 'secondary' : 'ghost'}
+                  size="xs"
+                  aria-label={t('translation.button')}
+                  title={t('translation.button')}
+                >
+                  <Languages className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">{t('translation.button')}</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                {email.translation_engines && email.translation_engines.length > 1 && (
+                  <>
+                    <DropdownMenuLabel>{t('translation.chooseEngine')}</DropdownMenuLabel>
+                    {(['web', 'ai'] as const).map((eng) => {
+                      const active = (effectiveEngine ?? 'web') === eng
+                      return (
+                        <DropdownMenuItem
+                          key={eng}
+                          onClick={() => {
+                            setSelectedEngine(eng)
+                            void runTranslate({ engine: eng })
+                          }}
+                          className="justify-between"
+                        >
+                          <span>{t(`translation.engines.${eng}`)}</span>
+                          {active && <Check className="h-3.5 w-3.5 text-[var(--accent)]" />}
+                        </DropdownMenuItem>
+                      )
+                    })}
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                <DropdownMenuLabel>{t('translation.chooseLanguage')}</DropdownMenuLabel>
+                {TRANSLATE_LANGUAGES.map((lang) => {
+                  const active = effectiveTargetLang === lang
+                  return (
+                    <DropdownMenuItem
+                      key={lang}
+                      onClick={() => {
+                        setSelectedLang(lang)
+                        void runTranslate({ targetLang: lang })
+                      }}
+                      className="justify-between"
+                    >
+                      <span>{t(`translation.languages.${lang}`)}</span>
+                      {active && <Check className="h-3.5 w-3.5 text-[var(--accent)]" />}
+                    </DropdownMenuItem>
+                  )
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {/* AI Summary & Extract Buttons */}
+          {email.ai_available && (
+            <>
+              <Button
+                variant={summaryResult ? 'secondary' : 'ghost'}
+                size="xs"
+                disabled={summaryLoading}
+                onClick={() => void runAI('summary')}
+                title={t('ai.summaryButton')}
+              >
+                <Sparkles className="h-3.5 w-3.5 text-[var(--accent)]" />
+                <span className="hidden md:inline">{t('ai.summaryButton')}</span>
+              </Button>
+              <Button
+                variant={extractResult ? 'secondary' : 'ghost'}
+                size="xs"
+                disabled={extractLoading}
+                onClick={() => void runAI('extract')}
+                title={t('ai.extractButton')}
+              >
+                <ListChecks className="h-3.5 w-3.5 text-[var(--accent)]" />
+                <span className="hidden md:inline">{t('ai.extractButton')}</span>
+              </Button>
+            </>
+          )}
+
+          {/* Restore button when in Trash */}
+          {isInTrash && onRestore && (
+            <Button
+              variant="secondary"
+              size="xs"
+              onClick={() => onRestore(email.id)}
+              title={`${t('mail.trash.restore')} (z / u)`}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>{t('mail.trash.restore')}</span>
+            </Button>
+          )}
+
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="dangerGhost"
                 size="iconSm"
-                onClick={() => onDelete(email.id, isInTrash)}
+                onClick={() => {
+                  if (isInTrash) setConfirmHardDelOpen(true)
+                  else onDelete(email.id, false)
+                }}
                 aria-label={
                   isInTrash ? t('mail.actions.deleteForever') : t('mail.actions.delete')
                 }
@@ -936,6 +1236,69 @@ export function ReadingPane({
             </dl>
           )}
 
+          {/* Trash Info & Actions Banner */}
+          {isInTrash && (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-md)] border border-[var(--warning)]/35 bg-[var(--warning-soft)]/55 px-3.5 py-2.5 text-[12.5px]">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[var(--ink-primary)]">
+                {email.deleted_at != null && (
+                  <span>
+                    {t('mail.trash.deletedAt', {
+                      time: formatMailFullTime(
+                        new Date(email.deleted_at).toISOString(),
+                        i18n.language,
+                      ),
+                    })}
+                  </span>
+                )}
+                {computePurgeDaysLeft(email.purge_at) !== null && (
+                  <span className="font-medium text-[var(--warning)]">
+                    {t('mail.trash.purgeInDays', {
+                      days: computePurgeDaysLeft(email.purge_at) ?? 0,
+                    })}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {onRestore && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="xs"
+                    onClick={() => onRestore(email.id)}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    {t('mail.trash.restore')}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="dangerGhost"
+                  size="xs"
+                  onClick={() => setConfirmHardDelOpen(true)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {t('mail.actions.deleteForever')}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Subtle prompt to configure personal AI when permitted but not yet configured */}
+          {!email.ai_available && userAI?.ai_user_config_enabled && !userAI?.configured && (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-subtle)]/60 px-3.5 py-2 text-[12px] text-[var(--ink-secondary)]">
+              <span className="inline-flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-[var(--accent)]" />
+                <span>{t('ai.setupPrompt')}</span>
+              </span>
+              <Link
+                to="/settings/translation"
+                className="font-medium text-[var(--accent-ink)] hover:underline"
+              >
+                {t('ai.goToSettings')}
+              </Link>
+            </div>
+          )}
+
           {/* External Images Privacy Blocker Banner */}
           {hasHtml && hasExternalImages && !externalImagesAllowed && (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--surface-subtle)] px-3.5 py-2 text-[12.5px]">
@@ -954,8 +1317,40 @@ export function ReadingPane({
             </div>
           )}
 
-          {/* Message Body */}
+          {/* Message Body (+ Translation Card & AI Panels above body) */}
           <div className="mt-5 border-t border-[var(--border-hairline)] pt-5">
+            <MailTranslationCard
+              result={translationResult}
+              loading={translationLoading}
+              error={translationError}
+              showTranslation={showTranslation}
+              onToggleShow={() => setShowTranslation((v) => !v)}
+              onRetranslate={() => void runTranslate({ force: true })}
+              onClose={() => {
+                setTranslationResult(null)
+                setTranslationError(null)
+              }}
+            />
+
+            <MailAIPanel
+              summary={summaryResult}
+              summaryLoading={summaryLoading}
+              summaryError={summaryError}
+              extract={extractResult}
+              extractLoading={extractLoading}
+              extractError={extractError}
+              onRefreshSummary={() => void runAI('summary', true)}
+              onRefreshExtract={() => void runAI('extract', true)}
+              onCloseSummary={() => {
+                setSummaryResult(null)
+                setSummaryError(null)
+              }}
+              onCloseExtract={() => {
+                setExtractResult(null)
+                setExtractError(null)
+              }}
+            />
+
             {hasHtml ? (
               <SandboxedHtmlFrame
                 html={email.html}
@@ -1016,6 +1411,39 @@ export function ReadingPane({
           </div>
         </div>
       </article>
+
+      {/* Permanent Delete Confirm Dialog */}
+      <Dialog open={confirmHardDelOpen} onOpenChange={setConfirmHardDelOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('mail.trash.deleteForeverTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('mail.trash.deleteForeverDesc', { count: 1 })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmHardDelOpen(false)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              onClick={() => {
+                setConfirmHardDelOpen(false)
+                onDelete(email.id, true)
+              }}
+            >
+              {t('mail.actions.deleteForever')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

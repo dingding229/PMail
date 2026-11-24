@@ -273,18 +273,236 @@ export type InboundSettingsUpdate = Omit<InboundSettings, 'catch_all' | 'catch_a
   catch_all?: { enabled?: boolean; recipient_id?: number }
 }
 
+/* ==================== V7-C26 & C27: Structured Proxy, Trash, Translation, User AI ==================== */
+
+export type ProxyProtocol = 'http' | 'https' | 'socks5'
+
+export interface ProxyInput {
+  type: ProxyProtocol
+  host: string
+  port: number
+  username?: string
+  password?: string
+}
+
+export interface ProxyView {
+  type: ProxyProtocol
+  host: string
+  port: number
+  username?: string
+  password_set: boolean
+}
+
+export type ProxySource = 'env' | 'db' | 'none'
+
+export interface TrashSettings {
+  trash_retention_days: number
+}
+
+export interface TrashRestoreResult {
+  restored: number
+}
+
+export interface TrashDeleteResult {
+  deleted: number
+}
+
+export type TranslationLanguage =
+  | 'zh-CN'
+  | 'zh-TW'
+  | 'en'
+  | 'ja'
+  | 'ko'
+  | 'fr'
+  | 'de'
+  | 'es'
+  | 'ru'
+
+export type TranslationEngine = 'ai' | 'web'
+
+export type WebTranslationProvider = 'google_web' | 'edge_web' | 'deepl' | 'libretranslate'
+
+export type DeepLTier = 'auto' | 'free' | 'pro'
+
+export type AdminTranslationProxyMode = 'none' | 'custom' | 'telegram'
+
+export interface AdminTranslationPolicy {
+  web_enabled: boolean
+  ai_enabled: boolean
+  default_engine: TranslationEngine
+  provider: WebTranslationProvider
+  url?: string
+  deepl_tier?: DeepLTier
+  proxy_mode: AdminTranslationProxyMode
+  max_chars: number
+  daily_limit_per_user: number
+  timeout: number
+  ai_user_config_enabled: boolean
+  ai_allow_private_network: boolean
+  api_key_set: boolean
+  proxy: ProxyView | null
+}
+
+export interface AdminTranslationPolicyPatch {
+  web_enabled?: boolean
+  ai_enabled?: boolean
+  default_engine?: TranslationEngine
+  provider?: WebTranslationProvider
+  url?: string
+  deepl_tier?: DeepLTier
+  proxy_mode?: AdminTranslationProxyMode
+  max_chars?: number
+  daily_limit_per_user?: number
+  timeout?: number
+  ai_user_config_enabled?: boolean
+  ai_allow_private_network?: boolean
+  proxy?: ProxyInput
+  clear_proxy?: boolean
+  api_key?: string
+}
+
+export interface AdminTranslationTestResult {
+  subject: string
+  text: string
+  provider: WebTranslationProvider
+  latency_ms: number
+}
+
+export interface UserTranslationPreferences {
+  target_lang: TranslationLanguage | ''
+  auto_translate: boolean
+  translate_engine: TranslationEngine | ''
+  ai_auto_summary: boolean
+}
+
+export type UserAIProxyMode = 'none' | 'system' | 'custom'
+
+export interface UserAIConfigView {
+  configured: boolean
+  ai_user_config_enabled: boolean
+  ai_allow_private_network: boolean
+  api_key_set: boolean
+  base_url?: string
+  model?: string
+  timeout?: number
+  proxy_mode?: UserAIProxyMode
+  proxy: ProxyView | null
+}
+
+export interface UserAIConfigInput {
+  base_url: string
+  model: string
+  timeout?: number
+  proxy_mode?: UserAIProxyMode
+  api_key?: string
+  proxy?: ProxyInput
+  clear_proxy?: boolean
+}
+
+export interface UserAITestResult {
+  model: string
+  latency_ms: number
+}
+
+export interface EmailTranslateRequest {
+  id: number
+  target_lang?: TranslationLanguage
+  engine?: TranslationEngine
+  force?: boolean
+}
+
+export interface EmailTranslationResult {
+  subject: string
+  text: string
+  source_lang?: string
+  target_lang: TranslationLanguage
+  provider: WebTranslationProvider | 'openai_compatible'
+  engine: TranslationEngine
+  cached: boolean
+  truncated: boolean
+  model?: string
+}
+
+export interface EmailAIRequest {
+  id: number
+  action: 'summary' | 'extract'
+  lang?: TranslationLanguage
+  force?: boolean
+}
+
+export interface EmailAIActionItem {
+  text: string
+  due?: string
+}
+
+export interface EmailAIDateItem {
+  text: string
+  iso?: string
+}
+
+export interface EmailAIAmountItem {
+  text: string
+  value?: number
+  currency?: string
+}
+
+export interface EmailAILinkItem {
+  text: string
+  url: string
+}
+
+export interface EmailAICodeItem {
+  type: 'verification' | 'tracking' | 'order' | 'other'
+  value: string
+}
+
+export interface EmailAIContactItem {
+  name?: string
+  email?: string
+  phone?: string
+}
+
+export interface EmailAISummaryResult {
+  action: 'summary'
+  lang: TranslationLanguage
+  model: string
+  cached: boolean
+  truncated: boolean
+  summary: string
+  key_points: string[]
+}
+
+export interface EmailAIExtractResult {
+  action: 'extract'
+  lang: TranslationLanguage
+  model: string
+  cached: boolean
+  truncated: boolean
+  action_items: EmailAIActionItem[]
+  dates: EmailAIDateItem[]
+  amounts: EmailAIAmountItem[]
+  links: EmailAILinkItem[]
+  codes: EmailAICodeItem[]
+  contacts: EmailAIContactItem[]
+}
+
+export type EmailAIResult = EmailAISummaryResult | EmailAIExtractResult
+
 /* ==================== C9 Contract: Telegram, System Update, Signatures ==================== */
 
 export interface AdminTelegramStatus {
   configured: boolean
   bot_username: string | null
   proxy_set: boolean
+  proxy: ProxyView | null
+  proxy_source: ProxySource
   webhook_mode: 'polling'
 }
 
 export interface AdminTelegramUpdatePayload {
   bot_token?: string
-  proxy?: string | null
+  proxy?: ProxyInput | string | null
+  clear_proxy?: boolean
 }
 
 export interface AdminTelegramTestResult {
@@ -373,6 +591,8 @@ export interface SignatureInput {
 }
 
 export interface EmailListItem {
+  deleted_at?: number | null
+  purge_at?: number | null
   mailbox_addresses?: MailboxAddressMatch[]
   catch_all_addresses?: string[]
   id: number
@@ -419,6 +639,12 @@ export interface EmailAttachment {
 }
 
 export interface EmailDetail {
+  translation_available?: boolean
+  needs_translation?: boolean
+  translation_engines?: TranslationEngine[]
+  ai_available?: boolean
+  deleted_at?: number | null
+  purge_at?: number | null
   mailbox_addresses?: MailboxAddressMatch[]
   id: number
   type: number

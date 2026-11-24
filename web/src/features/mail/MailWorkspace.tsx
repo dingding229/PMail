@@ -28,16 +28,19 @@ import {
   queryKeys,
   useAddressesQuery,
   useAddressCountsQuery,
+  useAdminTrashQuery,
   useCreateGroupMutation,
   useDeleteEmailsMutation,
   useDeleteGroupMutation,
   useEmailDetailQuery,
   useEmailInfiniteList,
+  useEmptyTrashMutation,
   useGroupOptionsQuery,
   useMarkReadMutation,
   useMarkSpamMutation,
   useMoveEmailsMutation,
   usePrefetchEmailDetail,
+  useRestoreMailMutation,
   useSidebarGroupsQuery,
   useStarEmailsMutation,
   useUserMeQuery,
@@ -452,6 +455,37 @@ export function MailWorkspace() {
     [advanceSelectionAfterRemoval, markSpamMutation],
   )
 
+  const isInTrashFolder = activeFolder.kind === 'system' && activeFolder.key === 'trash'
+  const { data: trashSettings } = useAdminTrashQuery(isInTrashFolder && user?.is_admin === 1)
+  const restoreMutation = useRestoreMailMutation()
+  const emptyTrashMutation = useEmptyTrashMutation()
+
+  const handleRestoreEmails = useCallback(
+    (ids: number[]) => {
+      if (ids.length === 0) return
+      restoreMutation.mutate(ids)
+      setCheckedIds((prev) => {
+        const next = new Set(prev)
+        for (const id of ids) next.delete(id)
+        return next
+      })
+      if (activeEmailId !== null && ids.includes(activeEmailId)) {
+        const remaining = emails.filter((e) => !ids.includes(e.id))
+        setActiveEmailId(isDesktop && readingPanePosition !== 'off' ? (remaining[0]?.id ?? null) : null)
+      }
+    },
+    [restoreMutation, activeEmailId, emails, isDesktop, readingPanePosition],
+  )
+
+  const handleEmptyTrash = useCallback(() => {
+    emptyTrashMutation.mutate(undefined, {
+      onSuccess: () => {
+        setCheckedIds(new Set())
+        setActiveEmailId(null)
+      },
+    })
+  }, [emptyTrashMutation])
+
   const handleToggleStar = useCallback(
     (ids: number[], nextStarred: boolean) => {
       starMutation.mutate({ ids, starred: nextStarred })
@@ -578,6 +612,11 @@ export function MailWorkspace() {
         const isInTrash = activeFolder.kind === 'system' && activeFolder.key === 'trash'
         if (targets.length > 0) handleDeleteEmails(targets, isInTrash)
       },
+      onRestore: () => {
+        if (!isInTrashFolder) return
+        const targets = checkedIds.size > 0 ? Array.from(checkedIds) : activeEmailId ? [activeEmailId] : []
+        if (targets.length > 0) handleRestoreEmails(targets)
+      },
       onStar: () => {
         if (activeEmailId) {
           const currentStarred = Boolean(
@@ -649,6 +688,8 @@ export function MailWorkspace() {
       isMobile,
       handleSelectEmail,
       handleDeleteEmails,
+      handleRestoreEmails,
+      isInTrashFolder,
       handleToggleStar,
       activeListItem,
       handleOpenCompose,
@@ -733,6 +774,10 @@ export function MailWorkspace() {
       onBulkMarkRead={handleToggleRead}
       onBulkStar={(ids) => handleToggleStar(ids, true)}
       onBulkDelete={handleDeleteEmails}
+      onBulkRestore={handleRestoreEmails}
+      onEmptyTrash={handleEmptyTrash}
+      emptyingTrash={emptyTrashMutation.isPending}
+      trashRetentionDays={trashSettings?.trash_retention_days}
       onBulkMove={handleMoveEmails}
       onBulkMarkSpam={handleMarkSpam}
       onPrefetchEmail={prefetchEmail}
@@ -778,6 +823,7 @@ export function MailWorkspace() {
         onToggleStar={(id, nextStarred) => handleToggleStar([id], nextStarred)}
         onToggleRead={(id, nextRead) => handleToggleRead([id], nextRead)}
         onDelete={(id, forced) => handleDeleteEmails([id], forced)}
+        onRestore={(id) => handleRestoreEmails([id])}
         onMove={(id, groupId, label) => handleMoveEmails([id], groupId, label)}
         onMarkSpam={(id, isSpam) => handleMarkSpam([id], isSpam)}
       />

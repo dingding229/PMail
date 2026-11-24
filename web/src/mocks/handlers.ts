@@ -5,11 +5,19 @@ import {
   SYSTEM_GROUP_IDS,
   type AddressFilter,
   type AdminTelegramStatus,
+  type AdminTelegramUpdatePayload,
+  type AdminTranslationPolicy,
+  type AdminTranslationPolicyPatch,
   type AdminUpdateInfo,
   type AppPassword,
   type ApiTokenItem,
   type BootstrapResponse,
   type DomainDnsResponse,
+  type EmailAIExtractResult,
+  type EmailAIRequest,
+  type EmailAISummaryResult,
+  type EmailTranslateRequest,
+  type EmailTranslationResult,
   type GroupOption,
   type ClamAVStatus,
   type InboundSettings,
@@ -17,6 +25,8 @@ import {
   type MailboxAddress,
   type MailDomain,
   type MailRule,
+  type ProxyInput,
+  type ProxyView,
   type QueueItem,
   type SignatureInput,
   type SignatureRecord,
@@ -24,9 +34,14 @@ import {
   type SpamRuleInput,
   type SpamSettings,
   type TelegramFilters,
+  type TrashSettings,
+  type TranslationLanguage,
   type UpdateJobState,
+  type UserAIConfigInput,
+  type UserAIConfigView,
   type UserProfile,
   type UserTelegramStatus,
+  type UserTranslationPreferences,
 } from '@/api'
 import {
   buildSyntheticEmail,
@@ -102,12 +117,115 @@ let mockInboundSettings: InboundSettings = {
   catch_all_recipients: [{ id: 1, account: 'admin', name: 'Administrator' }],
 }
 
-/* ==================== C9 Contract Stores: Telegram, Update, Inline Images, Signatures ==================== */
+/* ==================== C9 & C26 & C27 Contract Stores ==================== */
+let mockTrashSettings: TrashSettings = {
+  trash_retention_days: 30,
+}
+
 let mockAdminTelegram: AdminTelegramStatus = {
   configured: true,
   bot_username: 'pmail_notify_bot',
-  proxy_set: false,
+  proxy_set: true,
+  proxy: {
+    type: 'socks5',
+    host: '127.0.0.1',
+    port: 1080,
+    username: 'tg-relay',
+    password_set: true,
+  },
+  proxy_source: 'db',
   webhook_mode: 'polling',
+}
+
+function getMockAdminTelegram(): AdminTelegramStatus {
+  const envOverride =
+    typeof window !== 'undefined' && localStorage.getItem('pmail_mock_tg_proxy_env') === '1'
+  if (envOverride) {
+    return {
+      ...mockAdminTelegram,
+      proxy_set: true,
+      proxy: {
+        type: 'socks5',
+        host: 'proxy.corp.internal',
+        port: 1080,
+        username: 'env-user',
+        password_set: true,
+      },
+      proxy_source: 'env',
+    }
+  }
+  return mockAdminTelegram
+}
+
+let mockAdminTranslation: AdminTranslationPolicy = {
+  web_enabled: true,
+  ai_enabled: true,
+  default_engine: 'web',
+  provider: 'edge_web',
+  url: '',
+  deepl_tier: 'auto',
+  proxy_mode: 'telegram',
+  max_chars: 8000,
+  daily_limit_per_user: 200,
+  timeout: 30,
+  ai_user_config_enabled: true,
+  ai_allow_private_network: false,
+  api_key_set: false,
+  proxy: null,
+}
+
+let mockUserTranslation: UserTranslationPreferences = {
+  target_lang: '',
+  auto_translate: false,
+  translate_engine: '',
+  ai_auto_summary: false,
+}
+
+let mockUserAI: UserAIConfigView = {
+  configured: true,
+  ai_user_config_enabled: true,
+  ai_allow_private_network: false,
+  api_key_set: true,
+  base_url: 'https://api.openai.com/v1',
+  model: 'gpt-4o-mini',
+  timeout: 30,
+  proxy_mode: 'system',
+  proxy: null,
+}
+
+function getMockUserAI(): UserAIConfigView {
+  const disabled =
+    typeof window !== 'undefined' && localStorage.getItem('pmail_mock_ai_disabled') === '1'
+  return {
+    ...mockUserAI,
+    ai_user_config_enabled: disabled ? false : mockAdminTranslation.ai_user_config_enabled,
+    ai_allow_private_network: mockAdminTranslation.ai_allow_private_network,
+  }
+}
+
+function applyProxyInput(current: ProxyView | null, input: ProxyInput): ProxyView {
+  const nextPasswordSet =
+    input.password === undefined
+      ? Boolean(current?.password_set)
+      : input.password.length > 0
+  return {
+    type: input.type,
+    host: input.host.trim(),
+    port: Number(input.port),
+    username: input.username?.trim() || '',
+    password_set: nextPasswordSet,
+  }
+}
+
+function computePurgeAt(deletedAt: number | null | undefined): number | null {
+  if (!deletedAt || mockTrashSettings.trash_retention_days <= 0) return null
+  return deletedAt + mockTrashSettings.trash_retention_days * 24 * 60 * 60 * 1000
+}
+
+function looksForeignForChinese(text: string): boolean {
+  const latin = (text.match(/[a-zA-Z]/g) ?? []).length
+  const cjk = (text.match(/[\u4e00-\u9fff]/g) ?? []).length
+  return latin > 40 && latin > cjk * 2
 }
 
 let mockUserTelegramFilters: TelegramFilters = {
@@ -951,11 +1069,17 @@ function matchesMockAddress(rec: MockEmailRecord, address?: AddressFilter) {
   return rec.mailbox_address_ids?.includes(address) ?? false
 }
 
-function toListItem(rec: MockEmailRecord) {
+function toListItem(rec: MockEmailRecord, includeTrashMeta = false) {
   const iso = dayjs(rec.send_date).isValid()
     ? dayjs(rec.send_date).toISOString()
     : new Date().toISOString()
   return {
+    ...(includeTrashMeta
+      ? {
+          deleted_at: rec.deleted_at ?? null,
+          purge_at: computePurgeAt(rec.deleted_at),
+        }
+      : {}),
     mailbox_addresses: mockMailboxAddresses(rec),
     catch_all_addresses: rec.catch_all_addresses,
     id: rec.id,
@@ -1683,7 +1807,10 @@ export const handlers = [
 
     const total = seedMatched.length
     const totalPage = Math.max(1, Math.ceil(total / pageSize))
-    const slice = seedMatched.slice((page - 1) * pageSize, page * pageSize).map(toListItem)
+    const isTrashList = tagObj.status === 3
+    const slice = seedMatched
+      .slice((page - 1) * pageSize, page * pageSize)
+      .map((item) => toListItem(item, isTrashList))
 
     return ok({ current_page: page, total_page: totalPage, total, list: slice })
   }),
@@ -1696,7 +1823,28 @@ export const handlers = [
     if (!rec) return fail('邮件不存在', 100, 404)
     rec.is_read = true
     if (rec.id >= 1000) readSyntheticOverrides.set(rec.id, true)
-    return ok({ ...toEmailDetail(rec), mailbox_addresses: mockMailboxAddresses(rec) })
+    const userAI = getMockUserAI()
+    const engines: ('web' | 'ai')[] = []
+    if (mockAdminTranslation.web_enabled) engines.push('web')
+    if (mockAdminTranslation.ai_enabled && userAI.ai_user_config_enabled && userAI.configured) {
+      engines.push('ai')
+    }
+    const aiAvailable = Boolean(userAI.ai_user_config_enabled && userAI.configured)
+    const isTrash = rec.status === 3
+    return ok({
+      ...toEmailDetail(rec),
+      mailbox_addresses: mockMailboxAddresses(rec),
+      ...(isTrash
+        ? {
+            deleted_at: rec.deleted_at ?? null,
+            purge_at: computePurgeAt(rec.deleted_at),
+          }
+        : {}),
+      translation_available: engines.length > 0,
+      needs_translation: looksForeignForChinese(`${rec.subject} ${rec.text}`),
+      translation_engines: engines,
+      ai_available: aiAvailable,
+    })
   }),
 
   http.post('/api/email/read', async ({ request }) => {
@@ -1778,13 +1926,54 @@ export const handlers = [
     for (const id of body.ids ?? []) {
       const rec = emailStore.get(id)
       if (rec) {
-        if (body.forcedDel || rec.status === 3) emailStore.delete(id)
-        else rec.status = 3
+        if (body.forcedDel || rec.status === 3) {
+          emailStore.delete(id)
+        } else {
+          rec.prev_status = rec.status
+          rec.prev_group_id = rec.group_id
+          rec.status = 3
+          rec.group_id = 0
+          rec.deleted_at = Date.now()
+        }
       } else if (id >= 1000) {
         deletedSyntheticIds.add(id)
       }
     }
     return ok('success')
+  }),
+
+  http.post('/api/email/restore', async ({ request }) => {
+    await delay(60)
+    if (!loggedIn) return fail('未登录', 403, 401)
+    const body = (await request.json()) as { ids?: number[] }
+    const seen = new Set<number>()
+    let restored = 0
+    for (const id of body.ids ?? []) {
+      if (seen.has(id)) continue
+      seen.add(id)
+      const rec = emailStore.get(id)
+      if (!rec || rec.status !== 3) continue
+      rec.status = rec.prev_status ?? (rec.type === 1 ? 1 : 0)
+      rec.group_id = rec.prev_group_id ?? 0
+      rec.deleted_at = null
+      rec.prev_status = undefined
+      rec.prev_group_id = undefined
+      restored++
+    }
+    return ok({ restored })
+  }),
+
+  http.post('/api/email/trash/empty', async () => {
+    await delay(90)
+    if (!loggedIn) return fail('未登录', 403, 401)
+    let deleted = 0
+    for (const [id, rec] of Array.from(emailStore.entries())) {
+      if (rec.status === 3) {
+        emailStore.delete(id)
+        deleted++
+      }
+    }
+    return ok({ deleted })
   }),
 
   http.post('/api/email/move', async ({ request }) => {
@@ -2027,27 +2216,43 @@ export const handlers = [
     return ok(mockInboundSettings)
   }),
 
-  /* ==================== C9 Contract: Telegram, Update, Inline Images, Signatures ==================== */
+  /* ==================== C9 & C26 & C27 Contract: Trash, Telegram, Translation, AI ==================== */
+  http.get('/api/admin/trash', async () => {
+    await delay(35)
+    return ok(mockTrashSettings)
+  }),
+
+  http.put('/api/admin/trash', async ({ request }) => {
+    await delay(80)
+    const body = (await request.json()) as Partial<TrashSettings>
+    const days = Number(body.trash_retention_days)
+    if (!Number.isInteger(days) || days < 0 || days > 3650) {
+      return fail('trash_retention_invalid', 100, 400)
+    }
+    mockTrashSettings = { trash_retention_days: days }
+    return ok(mockTrashSettings)
+  }),
+
   http.get('/api/admin/telegram', async () => {
     await delay(40)
-    return ok(mockAdminTelegram)
+    return ok(getMockAdminTelegram())
   }),
 
   http.put('/api/admin/telegram', async ({ request }) => {
     await delay(100)
-    const body = (await request.json()) as { bot_token?: string; proxy?: string | null }
+    const body = (await request.json()) as AdminTelegramUpdatePayload
     if (body.bot_token !== undefined) {
       if (body.bot_token === '') {
         mockAdminTelegram = {
           configured: false,
           bot_username: null,
           proxy_set: false,
+          proxy: null,
+          proxy_source: 'none',
           webhook_mode: 'polling',
         }
       } else if (body.bot_token.trim() === 'invalid' || !body.bot_token.includes(':')) {
-        return fail('Bot Token 无效，无法通过 Telegram getMe 校验', 100, 400, {
-          code: 'telegram_token_invalid',
-        })
+        return fail('telegram_token_invalid', 100, 400)
       } else {
         mockAdminTelegram = {
           ...mockAdminTelegram,
@@ -2056,13 +2261,269 @@ export const handlers = [
         }
       }
     }
-    if (body.proxy !== undefined) {
+    if (body.clear_proxy || body.proxy === null || body.proxy === '') {
       mockAdminTelegram = {
         ...mockAdminTelegram,
-        proxy_set: Boolean(body.proxy && body.proxy.trim()),
+        proxy_set: false,
+        proxy: null,
+        proxy_source: 'none',
+      }
+    } else if (body.proxy && typeof body.proxy === 'object') {
+      if (!body.proxy.host?.trim() || !body.proxy.port || body.proxy.port < 1 || body.proxy.port > 65535) {
+        return fail('telegram_proxy_invalid', 100, 400)
+      }
+      const nextProxy = applyProxyInput(mockAdminTelegram.proxy, body.proxy)
+      mockAdminTelegram = {
+        ...mockAdminTelegram,
+        proxy_set: true,
+        proxy: nextProxy,
+        proxy_source: 'db',
       }
     }
-    return ok(mockAdminTelegram)
+    return ok(getMockAdminTelegram())
+  }),
+
+  http.get('/api/admin/translation', async () => {
+    await delay(40)
+    return ok(mockAdminTranslation)
+  }),
+
+  http.put('/api/admin/translation', async ({ request }) => {
+    await delay(90)
+    const body = (await request.json()) as AdminTranslationPolicyPatch
+    const next: AdminTranslationPolicy = {
+      ...mockAdminTranslation,
+      ...(body.web_enabled !== undefined ? { web_enabled: body.web_enabled } : {}),
+      ...(body.ai_enabled !== undefined ? { ai_enabled: body.ai_enabled } : {}),
+      ...(body.default_engine !== undefined ? { default_engine: body.default_engine } : {}),
+      ...(body.provider !== undefined ? { provider: body.provider } : {}),
+      ...(body.url !== undefined ? { url: body.url } : {}),
+      ...(body.deepl_tier !== undefined ? { deepl_tier: body.deepl_tier } : {}),
+      ...(body.proxy_mode !== undefined ? { proxy_mode: body.proxy_mode } : {}),
+      ...(body.max_chars !== undefined ? { max_chars: body.max_chars } : {}),
+      ...(body.daily_limit_per_user !== undefined
+        ? { daily_limit_per_user: body.daily_limit_per_user }
+        : {}),
+      ...(body.timeout !== undefined ? { timeout: body.timeout } : {}),
+      ...(body.ai_user_config_enabled !== undefined
+        ? { ai_user_config_enabled: body.ai_user_config_enabled }
+        : {}),
+      ...(body.ai_allow_private_network !== undefined
+        ? { ai_allow_private_network: body.ai_allow_private_network }
+        : {}),
+    }
+    if (body.api_key !== undefined) {
+      next.api_key_set = body.api_key.trim().length > 0
+    }
+    if (body.clear_proxy) {
+      next.proxy = null
+    } else if (body.proxy) {
+      if (!body.proxy.host?.trim() || !body.proxy.port || body.proxy.port < 1 || body.proxy.port > 65535) {
+        return fail('translation_invalid', 100, 400)
+      }
+      next.proxy = applyProxyInput(mockAdminTranslation.proxy, body.proxy)
+    }
+    mockAdminTranslation = next
+    return ok(mockAdminTranslation)
+  }),
+
+  http.post('/api/admin/translation/test', async () => {
+    await delay(180)
+    return ok({
+      subject: 'PMail 翻译服务连接测试',
+      text: '你好，这是一条用于验证当前网页翻译服务商连通性的测试短句。',
+      provider: mockAdminTranslation.provider,
+      latency_ms: 214,
+    })
+  }),
+
+  http.get('/api/settings/translation', async () => {
+    await delay(35)
+    return ok(mockUserTranslation)
+  }),
+
+  http.put('/api/settings/translation', async ({ request }) => {
+    await delay(80)
+    const body = (await request.json()) as UserTranslationPreferences
+    mockUserTranslation = {
+      target_lang: body.target_lang ?? '',
+      auto_translate: Boolean(body.auto_translate),
+      translate_engine: body.translate_engine ?? '',
+      ai_auto_summary: Boolean(body.ai_auto_summary),
+    }
+    return ok(mockUserTranslation)
+  }),
+
+  http.get('/api/settings/ai', async () => {
+    await delay(40)
+    return ok(getMockUserAI())
+  }),
+
+  http.put('/api/settings/ai', async ({ request }) => {
+    await delay(100)
+    const current = getMockUserAI()
+    if (!current.ai_user_config_enabled) {
+      return fail('ai_config_disabled', 100, 409)
+    }
+    const body = (await request.json()) as UserAIConfigInput
+    if (!body.base_url?.trim() || !body.model?.trim()) {
+      return fail('translation_invalid', 100, 400)
+    }
+    const urlChanged = body.base_url.trim() !== (mockUserAI.base_url ?? '')
+    const nextKeySet =
+      body.api_key !== undefined
+        ? body.api_key.trim().length > 0
+        : urlChanged
+          ? false
+          : mockUserAI.api_key_set
+    let nextProxy = mockUserAI.proxy
+    if (body.clear_proxy || body.proxy_mode !== 'custom') {
+      nextProxy = null
+    } else if (body.proxy) {
+      if (!body.proxy.host?.trim() || !body.proxy.port || body.proxy.port < 1 || body.proxy.port > 65535) {
+        return fail('translation_invalid', 100, 400)
+      }
+      nextProxy = applyProxyInput(mockUserAI.proxy, body.proxy)
+    }
+    mockUserAI = {
+      ...mockUserAI,
+      configured: true,
+      base_url: body.base_url.trim(),
+      model: body.model.trim(),
+      timeout: body.timeout ?? 30,
+      proxy_mode: body.proxy_mode ?? 'none',
+      api_key_set: nextKeySet,
+      proxy: nextProxy,
+    }
+    return ok(getMockUserAI())
+  }),
+
+  http.delete('/api/settings/ai', async () => {
+    await delay(80)
+    mockUserAI = {
+      ...mockUserAI,
+      configured: false,
+      api_key_set: false,
+      base_url: '',
+      model: '',
+      timeout: 30,
+      proxy_mode: 'none',
+      proxy: null,
+    }
+    return ok(null)
+  }),
+
+  http.post('/api/settings/ai/test', async () => {
+    await delay(200)
+    const ai = getMockUserAI()
+    if (!ai.ai_user_config_enabled) return fail('ai_config_disabled', 100, 409)
+    if (!ai.configured) return fail('ai_not_configured', 100, 409)
+    return ok({
+      model: ai.model || 'gpt-4o-mini',
+      latency_ms: 342,
+    })
+  }),
+
+  http.post('/api/email/translate', async ({ request }) => {
+    await delay(260)
+    const errMode =
+      typeof window !== 'undefined' ? localStorage.getItem('pmail_mock_translate_err') : null
+    if (errMode) {
+      const status =
+        errMode === 'translation_daily_limit' || errMode === 'translation_upstream_rate_limited'
+          ? 429
+          : errMode === 'translation_disabled' || errMode === 'ai_not_configured'
+            ? 409
+            : errMode === 'translation_timeout'
+              ? 504
+              : 502
+      return fail(errMode, 100, status)
+    }
+    const body = (await request.json()) as EmailTranslateRequest
+    const rec = getOrCreateRecord(body.id)
+    if (!rec) return fail('translation_mail_not_found', 100, 404)
+    const engine = body.engine || mockUserTranslation.translate_engine || mockAdminTranslation.default_engine
+    const targetLang: TranslationLanguage = body.target_lang || mockUserTranslation.target_lang || 'zh-CN'
+    const isZh = targetLang.startsWith('zh')
+    const result: EmailTranslationResult = {
+      subject: isZh
+        ? `[译] ${rec.subject}`
+        : `[Translated] ${rec.subject}`,
+      text: isZh
+        ? `（已翻译为 ${targetLang}）\n\n您好，林深：\n\n这是对邮件「${rec.subject}」的纯文本译文示例。原始正文中的关键日期、链接与说明已完整保留，方便快速审阅与跟进。\n\n—— 译文仅按纯文本安全展示`
+        : `(Translated to ${targetLang})\n\nHello,\n\nThis is a plain-text translation preview for "${rec.subject}". Key dates, links, and details are preserved safely without HTML rendering.`,
+      source_lang: isZh ? 'en' : 'zh-CN',
+      target_lang: targetLang,
+      provider: engine === 'ai' ? 'openai_compatible' : mockAdminTranslation.provider,
+      engine,
+      cached: !body.force,
+      truncated: rec.text.length > mockAdminTranslation.max_chars,
+      ...(engine === 'ai' ? { model: mockUserAI.model || 'gpt-4o-mini' } : {}),
+    }
+    return ok(result)
+  }),
+
+  http.post('/api/email/ai', async ({ request }) => {
+    await delay(320)
+    const errMode =
+      typeof window !== 'undefined' ? localStorage.getItem('pmail_mock_ai_err') : null
+    if (errMode) {
+      const status = errMode === 'ai_busy' ? 429 : errMode === 'ai_not_configured' ? 409 : 502
+      return fail(errMode, 100, status)
+    }
+    const ai = getMockUserAI()
+    if (!ai.ai_user_config_enabled) return fail('ai_config_disabled', 100, 409)
+    if (!ai.configured) return fail('ai_not_configured', 100, 409)
+    const body = (await request.json()) as EmailAIRequest
+    const rec = getOrCreateRecord(body.id)
+    if (!rec) return fail('translation_mail_not_found', 100, 404)
+    const lang: TranslationLanguage = body.lang || mockUserTranslation.target_lang || 'zh-CN'
+    if (body.action === 'summary') {
+      const summaryRes: EmailAISummaryResult = {
+        action: 'summary',
+        lang,
+        model: ai.model || 'gpt-4o-mini',
+        cached: !body.force,
+        truncated: false,
+        summary: `该邮件来自 ${rec.from_name || rec.from_address}，围绕「${rec.subject}」同步了当前进展与需要确认的关键事项。建议在截止时间前完成审核并回复确认。`,
+        key_points: [
+          '核心议题已整理并附带验证步骤，需要收件人复核确认。',
+          '请在今日 18:00 前完成线上变更窗口与回归检查。',
+          '如遇异常或需延期，请直接回复原线程同步处理人。',
+        ],
+      }
+      return ok(summaryRes)
+    }
+    const extractRes: EmailAIExtractResult = {
+      action: 'extract',
+      lang,
+      model: ai.model || 'gpt-4o-mini',
+      cached: !body.force,
+      truncated: false,
+      action_items: [
+        { text: '复核并合并 PR #412 的前端交互改动', due: '2026-11-25 18:00' },
+        { text: '确认生产环境代理与限流配额配置', due: '本周五前' },
+      ],
+      dates: [
+        { text: '2026年11月25日 18:00', iso: '2026-11-25T18:00:00+08:00' },
+        { text: '2026年11月30日 账单截止日', iso: '2026-11-30' },
+      ],
+      amounts: [
+        { text: '¥ 1,280.00', value: 1280, currency: 'CNY' },
+      ],
+      links: [
+        { text: '查看 PR #412 详情', url: 'https://github.com/dingding229/PMail/pull/412' },
+        { text: 'PMail 官方文档', url: 'https://pmail.dev/docs/v7' },
+      ],
+      codes: [
+        { type: 'verification', value: rec.verification_code?.code || '849201' },
+        { type: 'order', value: 'INV-2026-8841' },
+      ],
+      contacts: [
+        { name: rec.from_name || '发件人', email: rec.from_address, phone: '+86 138-0013-8000' },
+      ],
+    }
+    return ok(extractRes)
   }),
 
   http.post('/api/admin/telegram/test', async () => {

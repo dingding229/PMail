@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -10,7 +10,11 @@ import {
   Send,
   Trash2,
 } from 'lucide-react'
-import { adminTelegramApi, type AdminTelegramTestResult } from '@/api'
+import {
+  adminTelegramApi,
+  type AdminTelegramTestResult,
+  type AdminTelegramUpdatePayload,
+} from '@/api'
 import { queryKeys } from '@/hooks/useMailQueries'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -25,11 +29,19 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
+  buildProxyInput,
+  createEmptyProxyDraft,
+  isProxyDraftEmpty,
+  ProxyFields,
+  proxyViewToDraft,
   SectionCard,
   SectionErrorState,
   SectionFooter,
   SectionHeader,
   SectionLoadingState,
+  validateProxyDraft,
+  type ProxyDraft,
+  type ProxyValidationErrors,
 } from '@/components/settings'
 
 export function AdminTelegramSection() {
@@ -43,29 +55,32 @@ export function AdminTelegramSection() {
 
   const [replacingToken, setReplacingToken] = useState(false)
   const [botToken, setBotToken] = useState('')
-  const [proxy, setProxy] = useState('')
+  const [proxyDraft, setProxyDraft] = useState<ProxyDraft>(createEmptyProxyDraft)
   const [proxyTouched, setProxyTouched] = useState(false)
+  const [proxyCleared, setProxyCleared] = useState(false)
+  const [proxyErrors, setProxyErrors] = useState<ProxyValidationErrors>({})
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
   const [testResult, setTestResult] = useState<AdminTelegramTestResult | null>(null)
 
+  const isEnvProxy = status?.proxy_source === 'env'
+
+  useEffect(() => {
+    if (!status) return
+    setProxyDraft(proxyViewToDraft(status.proxy))
+    setProxyTouched(false)
+    setProxyCleared(false)
+    setProxyErrors({})
+  }, [status])
+
   const saveMutation = useMutation({
-    mutationFn: () => {
-      const payload: { bot_token?: string; proxy?: string | null } = {}
-      if (!status?.configured || replacingToken) {
-        if (botToken.trim()) {
-          payload.bot_token = botToken.trim()
-        }
-      }
-      if (proxyTouched) {
-        payload.proxy = proxy.trim() ? proxy.trim() : null
-      }
-      return adminTelegramApi.update(payload)
-    },
+    mutationFn: (payload: AdminTelegramUpdatePayload) => adminTelegramApi.update(payload),
     onSuccess: (updated) => {
       queryClient.setQueryData(queryKeys.adminTelegram, updated)
       setBotToken('')
       setReplacingToken(false)
       setProxyTouched(false)
+      setProxyCleared(false)
+      setProxyErrors({})
       setTestResult(null)
       toast.success(t('admin.telegram.saved'))
     },
@@ -75,13 +90,13 @@ export function AdminTelegramSection() {
   })
 
   const clearMutation = useMutation({
-    mutationFn: () => adminTelegramApi.update({ bot_token: '', proxy: null }),
+    mutationFn: () => adminTelegramApi.update({ bot_token: '', clear_proxy: true }),
     onSuccess: (updated) => {
       queryClient.setQueryData(queryKeys.adminTelegram, updated)
       setBotToken('')
-      setProxy('')
       setReplacingToken(false)
       setProxyTouched(false)
+      setProxyCleared(false)
       setClearConfirmOpen(false)
       setTestResult(null)
       toast.success(t('admin.telegram.cleared'))
@@ -108,7 +123,32 @@ export function AdminTelegramSection() {
     },
   })
 
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault()
+    const payload: AdminTelegramUpdatePayload = {}
+    if (!status?.configured || replacingToken) {
+      if (botToken.trim()) {
+        payload.bot_token = botToken.trim()
+      }
+    }
+    if (!isEnvProxy && proxyTouched) {
+      if (proxyCleared || isProxyDraftEmpty(proxyDraft)) {
+        payload.clear_proxy = true
+      } else {
+        const errs = validateProxyDraft(proxyDraft)
+        if (errs.host || errs.port) {
+          setProxyErrors(errs)
+          return
+        }
+        payload.proxy = buildProxyInput(proxyDraft)
+      }
+    }
+    setProxyErrors({})
+    saveMutation.mutate(payload)
+  }
+
   const showTokenInput = !status?.configured || replacingToken
+  const hasChanges = Boolean(botToken.trim()) || (!isEnvProxy && proxyTouched)
 
   return (
     <SectionCard>
@@ -139,15 +179,9 @@ export function AdminTelegramSection() {
       ) : isLoading ? (
         <SectionLoadingState rows={2} rowHeight="h-16" />
       ) : (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            saveMutation.mutate()
-          }}
-          className="space-y-4"
-        >
+        <form onSubmit={handleSave} className="space-y-4">
           {/* Bot Token (write-only) */}
-          <div className="rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-4 space-y-3">
+          <div className="space-y-3 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Label htmlFor="tg_bot_token">{t('admin.telegram.tokenLabel')}</Label>
               {status?.configured && !replacingToken && (
@@ -205,24 +239,27 @@ export function AdminTelegramSection() {
             )}
           </div>
 
-          {/* Proxy URL */}
-          <div className="rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-4 space-y-2">
-            <Label htmlFor="tg_proxy">{t('admin.telegram.proxyLabel')}</Label>
-            <Input
-              id="tg_proxy"
-              value={proxy}
-              onChange={(e) => {
-                setProxy(e.target.value)
-                setProxyTouched(true)
-              }}
-              placeholder={t('admin.telegram.proxyPlaceholder')}
-            />
-            {status?.proxy_set && !proxyTouched && (
-              <p className="text-[12px] text-[var(--ink-muted)]">
-                {t('admin.telegram.proxySetHint')}
-              </p>
-            )}
-          </div>
+          {/* Structured Proxy Fields */}
+          <ProxyFields
+            idPrefix="tg_proxy"
+            value={proxyDraft}
+            onChange={(next) => {
+              setProxyDraft(next)
+              setProxyTouched(true)
+              setProxyCleared(false)
+              setProxyErrors({})
+            }}
+            errors={proxyErrors}
+            disabled={isEnvProxy}
+            disabledReason={isEnvProxy ? t('admin.telegram.proxyEnvControlled') : undefined}
+            canClearProxy={Boolean(status?.proxy_set) || !isProxyDraftEmpty(proxyDraft)}
+            onClearProxy={() => {
+              setProxyDraft(createEmptyProxyDraft())
+              setProxyTouched(true)
+              setProxyCleared(true)
+              setProxyErrors({})
+            }}
+          />
 
           {/* Test Result Banner */}
           {testResult && (
@@ -255,14 +292,7 @@ export function AdminTelegramSection() {
                 : t('admin.telegram.testButton')}
             </Button>
 
-            <Button
-              type="submit"
-              size="sm"
-              disabled={
-                saveMutation.isPending ||
-                (!botToken.trim() && !proxyTouched)
-              }
-            >
+            <Button type="submit" size="sm" disabled={saveMutation.isPending || !hasChanges}>
               {saveMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               {t('common.save')}
             </Button>

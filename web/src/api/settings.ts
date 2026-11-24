@@ -3,6 +3,9 @@ import type {
   AdminTelegramStatus,
   AdminTelegramTestResult,
   AdminTelegramUpdatePayload,
+  AdminTranslationPolicy,
+  AdminTranslationPolicyPatch,
+  AdminTranslationTestResult,
   AdminUpdateInfo,
   ApiTokenItem,
   DomainDnsResponse,
@@ -23,9 +26,14 @@ import type {
   TelegramBindCode,
   TelegramFilters,
   TokenCreatedResponse,
+  TrashSettings,
   UpdateApplyResponse,
   UpdateJobStatus,
+  UserAIConfigInput,
+  UserAIConfigView,
+  UserAITestResult,
   UserTelegramStatus,
+  UserTranslationPreferences,
 } from './types'
 
 export const forwardApi = {
@@ -117,4 +125,29 @@ export const signaturesApi = {
   update: (id: number, payload: SignatureInput) =>
     apiPut<SignatureRecord>(`/api/settings/signatures/${id}`, payload),
   remove: (id: number) => apiDelete<null>(`/api/settings/signatures/${id}`),
+}
+
+export const adminTrashApi = {
+  get: () => apiGet<TrashSettings>('/api/admin/trash'),
+  update: (payload: TrashSettings) => apiPut<TrashSettings>('/api/admin/trash', payload),
+}
+
+export const adminTranslationApi = {
+  get: () => apiGet<AdminTranslationPolicy>('/api/admin/translation'),
+  update: (payload: AdminTranslationPolicyPatch) =>
+    apiPut<AdminTranslationPolicy>('/api/admin/translation', payload),
+  test: () => apiPost<AdminTranslationTestResult>('/api/admin/translation/test', {}),
+}
+
+export const userTranslationApi = {
+  get: () => apiGet<UserTranslationPreferences>('/api/settings/translation'),
+  update: (payload: UserTranslationPreferences) =>
+    apiPut<UserTranslationPreferences>('/api/settings/translation', payload),
+}
+
+export const userAIApi = {
+  get: () => apiGet<UserAIConfigView>('/api/settings/ai'),
+  update: (payload: UserAIConfigInput) => apiPut<UserAIConfigView>('/api/settings/ai', payload),
+  remove: () => apiDelete<null>('/api/settings/ai'),
+  test: () => apiPost<UserAITestResult>('/api/settings/ai/test', {}),
 }

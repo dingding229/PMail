@@ -4,11 +4,13 @@ import {
   ArrowUpCircle,
   AtSign,
   Globe,
+  Languages,
   Send,
   SendToBack,
   Settings,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
   Users,
 } from 'lucide-react'
 import { useUserMeQuery } from '@/hooks/useMailQueries'
@@ -21,9 +23,20 @@ import { UsersSection } from './UsersSection'
 import { AdminAddressesSection } from './AdminAddressesSection'
 import { InboundSecuritySection } from './InboundSecuritySection'
 import { AdminTelegramSection } from './AdminTelegramSection'
+import { AdminTranslationSection } from './AdminTranslationSection'
+import { TrashSettingsSection } from './TrashSettingsSection'
 import { SystemUpdateSection } from './SystemUpdateSection'
 
-type AdminTabKey = 'domains' | 'users' | 'addresses' | 'inbound' | 'telegram' | 'update' | 'queue'
+type AdminTabKey =
+  | 'domains'
+  | 'users'
+  | 'addresses'
+  | 'inbound'
+  | 'translation'
+  | 'telegram'
+  | 'trash'
+  | 'update'
+  | 'queue'
 
 export function AdminPage() {
   const { t } = useTranslation()
@@ -36,7 +49,9 @@ export function AdminPage() {
     { key: 'users', label: t('admin.tabs.users'), icon: Users },
     { key: 'addresses', label: t('admin.tabs.addresses'), icon: AtSign },
     { key: 'inbound', label: t('admin.tabs.inbound'), icon: ShieldCheck },
+    { key: 'translation', label: t('admin.tabs.translation'), icon: Languages },
     { key: 'telegram', label: t('admin.tabs.telegram'), icon: Send },
+    { key: 'trash', label: t('admin.tabs.trash'), icon: Trash2 },
     { key: 'update', label: t('admin.tabs.update'), icon: ArrowUpCircle },
     { key: 'queue', label: t('admin.tabs.queue'), icon: SendToBack },
   ]
@@ -89,7 +104,9 @@ export function AdminPage() {
       {activeTab === 'users' && <UsersSection currentUserID={user?.id} />}
       {activeTab === 'addresses' && <AdminAddressesSection />}
       {activeTab === 'inbound' && <InboundSecuritySection />}
+      {activeTab === 'translation' && <AdminTranslationSection />}
       {activeTab === 'telegram' && <AdminTelegramSection />}
+      {activeTab === 'trash' && <TrashSettingsSection />}
       {activeTab === 'update' && <SystemUpdateSection />}
       {activeTab === 'queue' && <QueueSection scope="global" />}
     </SettingsLayout>

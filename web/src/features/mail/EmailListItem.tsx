@@ -17,6 +17,7 @@ import { cn } from '@/lib/cn'
 import { Checkbox } from '@/components/ui/checkbox'
 import { SenderAvatar } from '@/components/common/SenderAvatar'
 import type { ListDensity } from '@/lib/preferences'
+import { computePurgeDaysLeft } from './trashHelpers'
 
 interface EmailListItemProps {
   email: EmailListItemModel
@@ -128,6 +129,9 @@ export const EmailListItem = memo(function EmailListItem({
       : Boolean(email.dangerous)
   const paddingClass =
     density === 'compact' ? 'py-2' : density === 'spacious' ? 'py-4' : 'py-3'
+  const deletedDateIso =
+    email.deleted_at != null ? new Date(email.deleted_at).toISOString() : null
+  const purgeDaysLeft = computePurgeDaysLeft(email.purge_at)
 
   return (
     <div
@@ -374,6 +378,23 @@ export const EmailListItem = memo(function EmailListItem({
               </button>
             </div>
           </div>
+          {/* Row 4 (Trash only): deleted time & days until permanent purge */}
+          {(deletedDateIso || purgeDaysLeft !== null) && (
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[var(--ink-muted)]">
+              {deletedDateIso && (
+                <span>
+                  {t('mail.trash.deletedAt', {
+                    time: formatMailListTime(deletedDateIso, i18n.language),
+                  })}
+                </span>
+              )}
+              {purgeDaysLeft !== null && (
+                <span className="font-medium text-[var(--warning)]">
+                  {t('mail.trash.purgeInDays', { days: purgeDaysLeft })}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

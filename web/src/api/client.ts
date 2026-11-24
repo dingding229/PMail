@@ -121,6 +121,22 @@ const MACHINE_ERROR_KEY_MAP: Record<string, string> = {
   updater_disabled: 'admin.update.errors.updaterDisabled',
   inline_image_too_large: 'compose.inlineImage.errorTooLarge',
   inline_image_type: 'compose.inlineImage.errorType',
+  trash_retention_invalid: 'admin.trash.errors.retentionInvalid',
+  telegram_proxy_invalid: 'proxy.errors.invalid',
+  translation_disabled: 'translation.errors.disabled',
+  translation_daily_limit: 'translation.errors.dailyLimit',
+  translation_upstream_rate_limited: 'translation.errors.rateLimited',
+  translation_provider_failed: 'translation.errors.providerFailed',
+  translation_connection_failed: 'translation.errors.connectionFailed',
+  translation_upstream_auth: 'translation.errors.upstreamAuth',
+  translation_response_invalid: 'translation.errors.responseInvalid',
+  translation_timeout: 'translation.errors.timeout',
+  translation_invalid: 'translation.errors.invalid',
+  translation_mail_not_found: 'translation.errors.mailNotFound',
+  ai_config_disabled: 'translation.errors.aiConfigDisabled',
+  ai_not_configured: 'translation.errors.aiNotConfigured',
+  ai_network_blocked: 'translation.errors.aiNetworkBlocked',
+  ai_busy: 'translation.errors.aiBusy',
 }
 
 function resolveApiErrorMessage(rawMessage: string | undefined, status: number): string {

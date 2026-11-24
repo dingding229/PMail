@@ -6,6 +6,7 @@ export interface MailShortcutHandlers {
   onOpen: () => void
   onArchive: () => void
   onDelete: () => void
+  onRestore?: () => void
   onStar: () => void
   onReply: () => void
   onReplyAll: () => void
@@ -60,6 +61,13 @@ export function useKeyboardShortcuts(handlers: MailShortcutHandlers, disabled = 
         case '#':
           event.preventDefault()
           handlers.onDelete()
+          break
+        case 'z':
+        case 'u':
+          if (handlers.onRestore) {
+            event.preventDefault()
+            handlers.onRestore()
+          }
           break
         case 's':
           event.preventDefault()

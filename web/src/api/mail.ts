@@ -4,13 +4,20 @@ import type {
   AttachmentPreviewResponse,
   DraftSaveRequest,
   DraftSaveResponse,
+  EmailAIExtractResult,
+  EmailAIRequest,
+  EmailAISummaryResult,
   EmailDetail,
   EmailListRequest,
   EmailListResponse,
+  EmailTranslateRequest,
+  EmailTranslationResult,
   ForwardEmailRequest,
   InlineImageUploadResult,
   SendEmailRequest,
   SendEmailResponse,
+  TrashDeleteResult,
+  TrashRestoreResult,
 } from './types'
 
 const toIds = (value: number | number[]) => (Array.isArray(value) ? value : [value])
@@ -32,6 +39,20 @@ export const mailApi = {
 
   remove: (ids: number | number[], forcedDel = false) =>
     apiPost<string>('/api/email/del', { ids: toIds(ids), forcedDel }),
+
+  restore: (ids: number | number[]) =>
+    apiPost<TrashRestoreResult>('/api/email/restore', { ids: toIds(ids) }),
+
+  emptyTrash: () =>
+    apiPost<TrashDeleteResult>('/api/email/trash/empty', {}),
+
+  translate: (payload: EmailTranslateRequest, signal?: AbortSignal) =>
+    apiPost<EmailTranslationResult>('/api/email/translate', payload, { signal }),
+
+  analyzeAI: <T extends EmailAISummaryResult | EmailAIExtractResult>(
+    payload: EmailAIRequest,
+    signal?: AbortSignal,
+  ) => apiPost<T>('/api/email/ai', payload, { signal }),
 
   move: (ids: number | number[], groupId: number, groupName?: string) =>
     apiPost<string>('/api/email/move', {

@@ -17,4 +17,8 @@ export {
   userTelegramApi,
   adminUpdateApi,
   signaturesApi,
+  adminTrashApi,
+  adminTranslationApi,
+  userTranslationApi,
+  userAIApi,
 } from './settings'

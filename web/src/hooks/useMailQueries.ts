@@ -9,12 +9,15 @@ import {
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import {
+  adminTrashApi,
   adminUpdateApi,
   authApi,
   groupApi,
   mailApi,
   signaturesApi,
+  userAIApi,
   userApi,
+  userTranslationApi,
   SYSTEM_GROUP_IDS,
   type AddressFilter,
   type DraftSaveRequest,
@@ -50,8 +53,12 @@ export const queryKeys = {
   domains: ['admin', 'domains'] as const,
   adminInbound: ['admin', 'inbound'] as const,
   adminTelegram: ['admin', 'telegram'] as const,
+  adminTrash: ['admin', 'trash'] as const,
+  adminTranslation: ['admin', 'translation'] as const,
   adminUpdate: ['admin', 'update'] as const,
   userTelegram: ['settings', 'telegram'] as const,
+  userTranslation: ['settings', 'translation'] as const,
+  userAI: ['settings', 'ai'] as const,
   domainDns: (id: number) => ['admin', 'domains', 'dns', id] as const,
 }
 
@@ -97,6 +104,36 @@ export function useAdminUpdateQuery(enabled = true) {
     queryFn: () => adminUpdateApi.get(),
     enabled,
     staleTime: 5 * 60_000,
+    retry: false,
+  })
+}
+
+export function useAdminTrashQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.adminTrash,
+    queryFn: () => adminTrashApi.get(),
+    enabled,
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+}
+
+export function useUserTranslationPrefsQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.userTranslation,
+    queryFn: () => userTranslationApi.get(),
+    enabled,
+    staleTime: 2 * 60_000,
+    retry: false,
+  })
+}
+
+export function useUserAIQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.userAI,
+    queryFn: () => userAIApi.get(),
+    enabled,
+    staleTime: 2 * 60_000,
     retry: false,
   })
 }
@@ -546,6 +583,53 @@ export function useDeleteGroupMutation() {
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+    },
+  })
+}
+
+export function useRestoreMailMutation() {
+  const queryClient = useQueryClient()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: (ids: number[]) => mailApi.restore(ids),
+    onMutate: async (ids) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.emailListsRoot })
+      const idSet = new Set(ids)
+      const snapshots = updateEmailListsInCache(queryClient, (list) =>
+        list.filter((item) => !idSet.has(item.id)),
+      )
+      return { snapshots }
+    },
+    onError: (err, _vars, ctx) => {
+      if (ctx?.snapshots) restoreSnapshots(queryClient, ctx.snapshots)
+      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+    },
+    onSuccess: (res) => {
+      toast.success(t('mail.trash.restoredToast', { count: res.restored }))
+      void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.addressCounts })
+    },
+  })
+}
+
+export function useEmptyTrashMutation() {
+  const queryClient = useQueryClient()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: () => mailApi.emptyTrash(),
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+      void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+    },
+    onSuccess: (res) => {
+      toast.success(t('mail.trash.emptiedToast', { count: res.deleted }))
+      void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.addressCounts })
     },
   })
 }
