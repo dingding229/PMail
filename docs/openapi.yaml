@@ -6145,9 +6145,15 @@ components:
         web_enabled: {type: boolean, default: false}
         ai_enabled: {type: boolean, default: false, description: Enables AI translation only, not summary and extraction.}
         default_engine: {$ref: '#/components/schemas/C27Engine', default: web}
-        provider: {type: string, enum: [google_web, edge_web, deepl, libretranslate], default: google_web}
+        provider: {type: string, enum: [google_web, edge_web, deepl, libretranslate, mymemory], default: google_web, description: 'edge_web retains the existing ID and uses Microsoft (Bing) Web Translation.'}
         url: {type: string, maxLength: 512, description: LibreTranslate server URL, or full /translate endpoint.}
         deepl_tier: {type: string, enum: [auto, free, pro], default: auto, description: Auto selects the free endpoint when the key ends in :fx.}
+        mymemory_email:
+          type: string
+          anyOf: [{format: email}, {const: ''}]
+          maxLength: 254
+          default: ''
+          description: Optional contact email (empty clears). Returned unchanged as a normal administrator setting and sent only to MyMemory in the de parameter to increase its daily quota.
         proxy_mode: {type: string, enum: [none, custom, telegram], default: none}
         max_chars: {type: integer, minimum: 500, maximum: 50000, default: 8000, description: Combined subject and body in Unicode code points.}
         daily_limit_per_user: {type: integer, minimum: 0, default: 200, description: Zero means unlimited.}
@@ -6178,7 +6184,7 @@ components:
       properties:
         subject: {type: string}
         text: {type: string}
-        provider: {type: string, enum: [google_web, edge_web, deepl, libretranslate]}
+        provider: {type: string, enum: [google_web, edge_web, deepl, libretranslate, mymemory]}
         latency_ms: {type: integer, minimum: 0}
     C27AITest:
       type: object
@@ -6244,7 +6250,7 @@ components:
         text: {type: string, description: Untrusted plain text; never interpret as HTML.}
         source_lang: {type: string, maxLength: 24}
         target_lang: {$ref: '#/components/schemas/C27Language'}
-        provider: {type: string, enum: [google_web, edge_web, deepl, libretranslate, openai_compatible]}
+        provider: {type: string, enum: [google_web, edge_web, deepl, libretranslate, mymemory, openai_compatible]}
         engine: {$ref: '#/components/schemas/C27Engine'}
         cached: {type: boolean}
         truncated: {type: boolean}

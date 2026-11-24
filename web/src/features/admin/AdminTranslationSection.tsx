@@ -63,6 +63,7 @@ export function AdminTranslationSection() {
   const [webEnabled, setWebEnabled] = useState(false)
   const [provider, setProvider] = useState<WebTranslationProvider>('google_web')
   const [url, setUrl] = useState('')
+  const [myMemoryEmail, setMyMemoryEmail] = useState('')
   const [deeplTier, setDeeplTier] = useState<DeepLTier>('auto')
   const [apiKey, setApiKey] = useState('')
   const [replacingKey, setReplacingKey] = useState(false)
@@ -90,6 +91,7 @@ export function AdminTranslationSection() {
     setWebEnabled(policy.web_enabled)
     setProvider(policy.provider)
     setUrl(policy.url ?? '')
+    setMyMemoryEmail(policy.mymemory_email ?? '')
     setDeeplTier(policy.deepl_tier ?? 'auto')
     setApiKey('')
     setReplacingKey(false)
@@ -146,6 +148,7 @@ export function AdminTranslationSection() {
       web_enabled: webEnabled,
       provider,
       ...(provider === 'libretranslate' ? { url: url.trim() } : {}),
+      ...(provider === 'mymemory' ? { mymemory_email: myMemoryEmail.trim() } : {}),
       ...(provider === 'deepl' ? { deepl_tier: deeplTier } : {}),
       ai_enabled: aiEnabled,
       default_engine: defaultEngine,
@@ -232,6 +235,9 @@ export function AdminTranslationSection() {
                       <SelectItem value="edge_web">
                         {t('translation.providers.edge_web')}
                       </SelectItem>
+                      <SelectItem value="mymemory">
+                        {t('translation.providers.mymemory')}
+                      </SelectItem>
                       <SelectItem value="deepl">{t('translation.providers.deepl')}</SelectItem>
                       <SelectItem value="libretranslate">
                         {t('translation.providers.libretranslate')}
@@ -252,6 +258,25 @@ export function AdminTranslationSection() {
                         <SelectItem value="pro">{t('admin.translation.deeplTierPro')}</SelectItem>
                       </SelectContent>
                     </Select>
+                  </FormRow>
+                )}
+
+                {provider === 'mymemory' && (
+                  <FormRow
+                    label={t('admin.translation.myMemoryEmailLabel')}
+                    htmlFor="admin_tr_mymemory_email"
+                    description={t('admin.translation.myMemoryEmailHelp')}
+                    descriptionId="admin_tr_mymemory_email_help"
+                  >
+                    <Input
+                      id="admin_tr_mymemory_email"
+                      type="email"
+                      autoComplete="email"
+                      maxLength={254}
+                      value={myMemoryEmail}
+                      onChange={(e) => setMyMemoryEmail(e.target.value)}
+                      aria-describedby="admin_tr_mymemory_email_help"
+                    />
                   </FormRow>
                 )}
 

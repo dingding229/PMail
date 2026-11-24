@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -21,6 +23,24 @@ import (
 )
 
 func ptr[T any](v T) *T { return &v }
+
+// Even an unexpected fallback cannot reach a production provider in tests.
+func testService() *Service {
+	s := newService()
+	dial := s.dial
+	s.dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, ErrConnect
+		}
+		ip, err := netip.ParseAddr(host)
+		if err != nil || !ip.IsLoopback() {
+			return nil, ErrConnect
+		}
+		return dial(ctx, network, addr)
+	}
+	return s
+}
 
 func fixture(t *testing.T) (*Service, *xorm.Engine, int, int, models.Email) {
 	t.Helper()
@@ -44,7 +64,7 @@ func fixture(t *testing.T) (*Service, *xorm.Engine, int, int, models.Email) {
 	if _, err := e.Insert(&models.UserEmail{EmailID: mail.Id, UserID: a.ID}, &models.UserEmail{EmailID: mail.Id, UserID: b.ID}); err != nil {
 		t.Fatal(err)
 	}
-	return newService(), e, a.ID, b.ID, mail
+	return testService(), e, a.ID, b.ID, mail
 }
 
 func googleReply(w http.ResponseWriter, text string) {

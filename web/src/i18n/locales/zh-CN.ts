@@ -1528,7 +1528,9 @@ const zhCN = {
       deeplTierPro: '专业版（api.deepl.com）',
       libreUrlLabel: 'LibreTranslate 地址',
       libreUrlPlaceholder: 'https://translate.example.com',
-      unofficialNotice: '提示：Google 和 Edge 网页翻译为非官方接口，可能受上游变更或限流影响。',
+      myMemoryEmailLabel: '联系邮箱（可选，用于提高每日额度）',
+      myMemoryEmailHelp: '仅发给 MyMemory 用于提高额度。',
+      unofficialNotice: '提示：Google 和 Microsoft（Bing）网页翻译为非官方接口，可能受上游变更或限流影响。',
       apiKeyLabel: '服务商 API Key',
       apiKeyPlaceholder: '输入 API Key',
       apiKeyKeepHint: 'API Key 已安全存储，留空保存将保留原密钥。',
@@ -1603,9 +1605,10 @@ const zhCN = {
     },
     providers: {
       google_web: 'Google 网页',
-      edge_web: 'Edge 网页',
+      edge_web: 'Microsoft（Bing）网页翻译',
       deepl: 'DeepL',
       libretranslate: 'LibreTranslate',
+      mymemory: 'MyMemory',
       openai_compatible: 'AI 接口',
     },
     languages: {

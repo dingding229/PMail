@@ -166,6 +166,7 @@ let mockAdminTranslation: AdminTranslationPolicy = {
   provider: 'edge_web',
   url: '',
   deepl_tier: 'auto',
+  mymemory_email: '',
   proxy_mode: 'telegram',
   max_chars: 8000,
   daily_limit_per_user: 200,
@@ -2705,6 +2706,7 @@ export const handlers = [
       ...(body.provider !== undefined ? { provider: body.provider } : {}),
       ...(body.url !== undefined ? { url: body.url } : {}),
       ...(body.deepl_tier !== undefined ? { deepl_tier: body.deepl_tier } : {}),
+      ...(body.mymemory_email !== undefined ? { mymemory_email: body.mymemory_email.trim() } : {}),
       ...(body.proxy_mode !== undefined ? { proxy_mode: body.proxy_mode } : {}),
       ...(body.max_chars !== undefined ? { max_chars: body.max_chars } : {}),
       ...(body.daily_limit_per_user !== undefined

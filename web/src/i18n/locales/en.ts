@@ -1528,7 +1528,9 @@ const en = {
       deeplTierPro: 'Pro (api.deepl.com)',
       libreUrlLabel: 'LibreTranslate URL',
       libreUrlPlaceholder: 'https://translate.example.com',
-      unofficialNotice: 'Note: Google and Edge web translation use unofficial endpoints and may be rate-limited.',
+      myMemoryEmailLabel: 'Contact email (optional, raises daily quota)',
+      myMemoryEmailHelp: 'Sent only to MyMemory to increase the daily quota.',
+      unofficialNotice: 'Note: Google and Microsoft (Bing) web translation use unofficial endpoints and may be rate-limited.',
       apiKeyLabel: 'Provider API Key',
       apiKeyPlaceholder: 'Enter API key',
       apiKeyKeepHint: 'API key is stored securely. Leave blank to keep the existing key.',
@@ -1603,9 +1605,10 @@ const en = {
     },
     providers: {
       google_web: 'Google Web',
-      edge_web: 'Edge Web',
+      edge_web: 'Microsoft (Bing) Web Translation',
       deepl: 'DeepL',
       libretranslate: 'LibreTranslate',
+      mymemory: 'MyMemory',
       openai_compatible: 'AI Endpoint',
     },
     languages: {

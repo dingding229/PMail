@@ -348,7 +348,7 @@ export type TranslationLanguage =
 
 export type TranslationEngine = 'ai' | 'web'
 
-export type WebTranslationProvider = 'google_web' | 'edge_web' | 'deepl' | 'libretranslate'
+export type WebTranslationProvider = 'google_web' | 'edge_web' | 'deepl' | 'libretranslate' | 'mymemory'
 
 export type DeepLTier = 'auto' | 'free' | 'pro'
 
@@ -361,6 +361,7 @@ export interface AdminTranslationPolicy {
   provider: WebTranslationProvider
   url?: string
   deepl_tier?: DeepLTier
+  mymemory_email?: string
   proxy_mode: AdminTranslationProxyMode
   max_chars: number
   daily_limit_per_user: number
@@ -378,6 +379,7 @@ export interface AdminTranslationPolicyPatch {
   provider?: WebTranslationProvider
   url?: string
   deepl_tier?: DeepLTier
+  mymemory_email?: string
   proxy_mode?: AdminTranslationProxyMode
   max_chars?: number
   daily_limit_per_user?: number

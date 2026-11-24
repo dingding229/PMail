@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/Jinnrry/pmail/db"
@@ -28,14 +27,15 @@ type Service struct {
 	dial           dialFunc
 	systemTelegram func(context.Context) (*url.URL, error)
 	now            func() time.Time
-	edge           edgeCache
+	google         googlePreference
+	bing           bingCache
 	mu             sync.Mutex
 	running        map[int]int
 }
 
 func newService() *Service {
 	d := net.Dialer{Timeout: 5 * time.Second}
-	return &Service{end: endpoints{googleEndpoint, edgeAuthEndpoint, edgeEndpoint, deepLEndpoint, deepLFreeEndpoint}, resolver: net.DefaultResolver, dial: d.DialContext, systemTelegram: netproxy.SystemTelegram, now: time.Now, running: map[int]int{}}
+	return &Service{end: endpoints{google: googleEndpoint, googleBackup: googleBackupEndpoint, bingPage: bingPageEndpoint, bingTranslate: bingTranslateEndpoint, myMemory: myMemoryEndpoint, deepl: deepLEndpoint, deeplFree: deepLFreeEndpoint}, resolver: net.DefaultResolver, dial: d.DialContext, systemTelegram: netproxy.SystemTelegram, now: time.Now, running: map[int]int{}}
 }
 
 var Default = newService()
@@ -118,37 +118,6 @@ func Available(ctx context.Context, uid, id int, ui string, mail models.Email) A
 	}
 	return a
 }
-func differentScript(text, lang string) bool {
-	letters, matching, kana := 0, 0, 0
-	for _, r := range text {
-		if !unicode.IsLetter(r) {
-			continue
-		}
-		letters++
-		isKana := unicode.In(r, unicode.Hiragana, unicode.Katakana)
-		if isKana {
-			kana++
-		}
-		var match bool
-		switch lang {
-		case "zh-CN", "zh-TW":
-			match = unicode.Is(unicode.Han, r)
-		case "ja":
-			match = isKana || unicode.Is(unicode.Han, r)
-		case "ko":
-			match = unicode.Is(unicode.Hangul, r)
-		case "ru":
-			match = unicode.Is(unicode.Cyrillic, r)
-		default:
-			match = unicode.Is(unicode.Latin, r)
-		}
-		if match {
-			matching++
-		}
-	}
-	return letters >= 4 && (matching*100 < letters*35 || ((lang == "zh-CN" || lang == "zh-TW") && kana*4 > letters))
-}
-
 func owns(ctx context.Context, uid, id int) (bool, error) {
 	return db.Instance.Context(ctx).Where("user_id=? AND email_id=?", uid, id).Exist(&models.UserEmail{})
 }

@@ -91,19 +91,27 @@ func httpClient(timeout int, proxy *url.URL, dial dialFunc) *http.Client {
 // are ever returned verbatim. Keep status only for controlled fallback logic.
 func exchange(ctx context.Context, c *http.Client, method, endpoint string, body any, headers map[string]string) ([]byte, int, error) {
 	var reader io.Reader
+	contentType := ""
 	if body != nil {
 		p, err := json.Marshal(body)
 		if err != nil {
 			return nil, 0, ErrFormat
 		}
 		reader = bytes.NewReader(p)
+		contentType = "application/json"
 	}
+	return exchangeResponse(ctx, c, method, endpoint, reader, contentType, headers, false)
+}
+
+// A provider whose JSON error codes matter may inspect a small error payload.
+// The caller must map it to fixed errors and never expose it to clients.
+func exchangeResponse(ctx context.Context, c *http.Client, method, endpoint string, reader io.Reader, contentType string, headers map[string]string, readError bool) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, reader)
 	if err != nil {
 		return nil, 0, ErrInvalid
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -113,25 +121,38 @@ func exchange(ctx context.Context, c *http.Client, method, endpoint string, body
 		return nil, 0, transportError(err)
 	}
 	defer res.Body.Close()
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		switch res.StatusCode {
+	status := res.StatusCode
+	var providerErr error
+	if status < 200 || status >= 300 {
+		switch status {
 		case 401, 403, 407, 456:
-			return nil, res.StatusCode, ErrAuth
+			providerErr = ErrAuth
 		case 429:
-			return nil, res.StatusCode, ErrUpstreamRate
+			providerErr = ErrUpstreamRate
 		default:
-			return nil, res.StatusCode, ErrProvider
+			providerErr = ErrProvider
+		}
+		if !readError {
+			return nil, status, providerErr
 		}
 	}
-	data, err := io.ReadAll(io.LimitReader(res.Body, responseLimit+1))
-	if err != nil {
-		return nil, res.StatusCode, transportError(err)
+	budget := responseLimit
+	if providerErr != nil {
+		budget = 64 << 10
 	}
-	if len(data) > responseLimit {
-		return nil, res.StatusCode, ErrFormat
+	data, err := io.ReadAll(io.LimitReader(res.Body, int64(budget+1)))
+	if err != nil || len(data) > budget {
+		if providerErr != nil {
+			return nil, status, providerErr
+		}
+		if err != nil {
+			return nil, status, transportError(err)
+		}
+		return nil, status, ErrFormat
 	}
-	return data, res.StatusCode, nil
+	return data, status, providerErr
 }
+
 func transportError(err error) error {
 	var ne net.Error
 	switch {

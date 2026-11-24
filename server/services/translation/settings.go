@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"strconv"
 	"strings"
@@ -47,6 +48,7 @@ type Policy struct {
 	Provider              string `json:"provider"`
 	URL                   string `json:"url"`
 	DeepLTier             string `json:"deepl_tier"`
+	MyMemoryEmail         string `json:"mymemory_email"`
 	ProxyMode             string `json:"proxy_mode"` // none, telegram, custom
 	MaxChars              int    `json:"max_chars"`
 	DailyLimit            int    `json:"daily_limit_per_user"`
@@ -72,6 +74,7 @@ type PolicyPatch struct {
 	Provider              *string         `json:"provider"`
 	URL                   *string         `json:"url"`
 	DeepLTier             *string         `json:"deepl_tier"`
+	MyMemoryEmail         *string         `json:"mymemory_email"`
 	ProxyMode             *string         `json:"proxy_mode"`
 	Proxy                 *netproxy.Input `json:"proxy"`
 	ClearProxy            bool            `json:"clear_proxy"`
@@ -120,6 +123,16 @@ func SetPolicy(ctx context.Context, u PolicyPatch) (PolicyView, error) {
 	assign(&p.Provider, u.Provider)
 	assign(&p.URL, u.URL)
 	assign(&p.DeepLTier, u.DeepLTier)
+	if u.MyMemoryEmail != nil {
+		value := strings.TrimSpace(*u.MyMemoryEmail)
+		if value != "" {
+			addr, e := mail.ParseAddress(value)
+			if e != nil || addr.Name != "" || addr.Address != value || !netproxy.Safe(value, 254) {
+				return PolicyView{}, ErrInvalid
+			}
+		}
+		p.MyMemoryEmail = value
+	}
 	assign(&p.ProxyMode, u.ProxyMode)
 	assign(&p.MaxChars, u.MaxChars)
 	assign(&p.DailyLimit, u.DailyLimit)
@@ -130,7 +143,7 @@ func SetPolicy(ctx context.Context, u PolicyPatch) (PolicyView, error) {
 		return PolicyView{}, ErrInvalid
 	}
 	switch p.Provider {
-	case "google_web", "edge_web", "deepl", "libretranslate":
+	case "google_web", "edge_web", "deepl", "libretranslate", "mymemory":
 	default:
 		return PolicyView{}, ErrInvalid
 	}
