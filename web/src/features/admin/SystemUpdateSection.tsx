@@ -15,9 +15,11 @@ import {
   History,
   Loader2,
   RefreshCw,
+  Sparkles,
   Terminal,
 } from 'lucide-react'
 import { adminUpdateApi, ApiError } from '@/api'
+import { getUsedIconAttributions } from '@/lib/brandAvatars'
 import { formatMailFullTime } from '@/lib/date'
 import { queryKeys, useAdminUpdateQuery } from '@/hooks/useMailQueries'
 import { Badge } from '@/components/ui/badge'
@@ -484,6 +486,38 @@ export function SystemUpdateSection() {
           )}
         </SectionCard>
       )}
+
+      {/* Third-party Brand Icons Attribution */}
+      <SectionCard>
+        <SectionHeader
+          icon={Sparkles}
+          title={t('admin.update.thirdPartyIconsTitle')}
+          description={t('admin.update.thirdPartyIconsDesc')}
+        />
+        <div className="divide-y divide-[var(--border-hairline)] rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+          {getUsedIconAttributions().map((lib) => (
+            <div
+              key={lib.id}
+              className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-[12.5px]"
+            >
+              <div className="min-w-0">
+                <a
+                  href={lib.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-[var(--ink-primary)] hover:text-[var(--accent)] hover:underline"
+                >
+                  {lib.name}
+                </a>
+                <span className="ml-2 font-mono text-[11.5px] text-[var(--ink-muted)]">
+                  {lib.pkg}
+                </span>
+              </div>
+              <Badge variant="default">{lib.license}</Badge>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
 
       {/* Apply Update Confirm Dialog */}
       <Dialog open={confirmVersion !== null} onOpenChange={(open) => { if (!open) setConfirmVersion(null) }}>

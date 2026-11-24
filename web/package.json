@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "node --test scripts/*.test.mjs",
-    "i18n:check": "node scripts/i18n-check.mjs"
+    "i18n:check": "node scripts/i18n-check.mjs",
+    "build:brand-icons": "node scripts/build-brand-icons.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^7.0.8",
@@ -55,6 +56,12 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.26.0",
+    "@iconify-json/fa6-brands": "1.2.6",
+    "@iconify-json/logos": "1.2.20",
+    "@iconify-json/ri": "1.2.10",
+    "@iconify-json/simple-icons": "1.2.103",
+    "@iconify/utils": "3.1.7",
+    "@lobehub/icons-static-svg": "1.106.0",
     "@tailwindcss/vite": "^4.1.6",
     "@types/dompurify": "^3.2.0",
     "@types/node": "^22.15.17",

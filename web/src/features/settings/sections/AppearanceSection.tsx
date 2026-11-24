@@ -32,10 +32,12 @@ export function AppearanceSection() {
     readingPanePosition,
     autoRefresh,
     desktopNotifications,
+    showBrandAvatars,
     setListDensity,
     setReadingPanePosition,
     setAutoRefresh,
     setDesktopNotifications,
+    setShowBrandAvatars,
   } = usePreferences()
 
   const notificationSupported = typeof window !== 'undefined' && 'Notification' in window
@@ -264,6 +266,18 @@ export function AppearanceSection() {
         />
 
         <div className="divide-y divide-[var(--border-hairline)] rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+          <div className="flex items-center justify-between gap-4 px-4 py-3.5">
+            <div className="space-y-0.5">
+              <p className="text-[13.5px] font-medium text-[var(--ink-primary)]">
+                {t('settings.appearance.showBrandAvatarsLabel')}
+              </p>
+              <p className="text-[12px] text-[var(--ink-muted)]">
+                {t('settings.appearance.showBrandAvatarsDesc')}
+              </p>
+            </div>
+            <Switch checked={showBrandAvatars} onCheckedChange={setShowBrandAvatars} />
+          </div>
+
           <div className="flex items-center justify-between gap-4 px-4 py-3.5">
             <div className="space-y-0.5">
               <p className="text-[13.5px] font-medium text-[var(--ink-primary)]">

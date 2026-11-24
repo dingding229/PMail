@@ -30,6 +30,12 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     return raw === '1' || raw === 'true'
   })
 
+  const [showBrandAvatars, setShowBrandAvatarsState] = useState<boolean>(() => {
+    const raw = getRawStorage('show_brand_avatars')
+    if (raw === '0' || raw === 'false') return false
+    return true
+  })
+
   const setListDensity = (next: ListDensity) => {
     setListDensityState(next)
     setRawStorage('list_density', next)
@@ -50,6 +56,11 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     setRawStorage('desktop_notifications', next ? '1' : '0')
   }
 
+  const setShowBrandAvatars = (next: boolean) => {
+    setShowBrandAvatarsState(next)
+    setRawStorage('show_brand_avatars', next ? '1' : '0')
+  }
+
   return (
     <PreferencesContext.Provider
       value={{
@@ -57,10 +68,12 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         readingPanePosition,
         autoRefresh,
         desktopNotifications,
+        showBrandAvatars,
         setListDensity,
         setReadingPanePosition,
         setAutoRefresh,
         setDesktopNotifications,
+        setShowBrandAvatars,
       }}
     >
       {children}

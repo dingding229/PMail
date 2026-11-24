@@ -16,6 +16,7 @@ import { formatMailListTime, pickDate } from '@/lib/date'
 import { cn } from '@/lib/cn'
 import { Checkbox } from '@/components/ui/checkbox'
 import { SenderAvatar } from '@/components/common/SenderAvatar'
+import { isSenderAuthVerified } from '@/lib/brandAvatars'
 import type { ListDensity } from '@/lib/preferences'
 import { computePurgeDaysLeft } from './trashHelpers'
 
@@ -231,7 +232,15 @@ export const EmailListItem = memo(function EmailListItem({
                   : 'opacity-100 group-hover:opacity-0',
               )}
             >
-              <SenderAvatar name={senderName} email={senderEmail} size="sm" />
+              <SenderAvatar
+                name={senderName}
+                email={senderEmail}
+                size="sm"
+                verified={
+                  !isDraftOrSentMessage &&
+                  isSenderAuthVerified(email.auth_status, email.risk)
+                }
+              />
             </div>
             <div
               className={cn(

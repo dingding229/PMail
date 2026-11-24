@@ -76,6 +76,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { SenderAvatar } from '@/components/common/SenderAvatar'
+import { isSenderAuthVerified } from '@/lib/brandAvatars'
 import { SandboxedHtmlFrame } from './SandboxedHtmlFrame'
 import { PlainTextMailView } from './PlainTextMailView'
 import { AttachmentSection } from './AttachmentSection'
@@ -1034,11 +1035,36 @@ export function ReadingPane({
 
           {/* Sender & Recipients Header */}
           <div className="mt-5 flex items-start gap-3">
-            <SenderAvatar
-              name={email.from_name}
-              email={email.from_address}
-              size="lg"
-            />
+            <div className="relative shrink-0">
+              <SenderAvatar
+                name={email.from_name}
+                email={email.from_address}
+                size="lg"
+                verified={
+                  !isServerDraft &&
+                  email.status !== 1 &&
+                  email.type !== 1 &&
+                  isSenderAuthVerified(email.auth_status, email.risk)
+                }
+              />
+              {!isServerDraft &&
+                email.status !== 1 &&
+                email.type !== 1 &&
+                isSenderAuthVerified(email.auth_status, email.risk) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        aria-label={t('mail.security.verifiedSenderBadge')}
+                        title={t('mail.security.verifiedSenderTooltip')}
+                        className="absolute -bottom-0.5 -right-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border-2 border-[var(--surface-reading)] bg-[var(--success)] text-white"
+                      >
+                        <Check className="h-2.5 w-2.5 stroke-[3]" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('mail.security.verifiedSenderTooltip')}</TooltipContent>
+                  </Tooltip>
+                )}
+            </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
                 <div className="flex flex-wrap items-baseline gap-1.5 min-w-0">
