@@ -22,7 +22,7 @@ import {
 } from 'lucide-react'
 import { userApi, type UserProfile } from '@/api'
 import { formatBytes } from '@/lib/format'
-import { formatMailFullTime, pickDate } from '@/lib/date'
+import { formatMailFullTime, formatMailListTime, pickDate } from '@/lib/date'
 import { queryKeys } from '@/hooks/useMailQueries'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -229,9 +229,40 @@ export function UsersSection({ currentUserID }: { currentUserID?: number }) {
     })
   }
 
-  const renderQuotaBar = (u: UserProfile) => {
+  const renderQuotaBar = (u: UserProfile, compact = false) => {
     const quotaBytes = (u.quota_mb ?? 0) * 1024 * 1024
     const pct = quotaBytes > 0 ? Math.min(100, Math.round((u.used_bytes / quotaBytes) * 100)) : 0
+    if (compact) {
+      return (
+        <div
+          className="w-[82px] space-y-1"
+          title={`${formatBytes(u.used_bytes)} / ${quotaBytes > 0 ? `${u.quota_mb} MB` : t('common.unlimited')}`}
+        >
+          <div className="leading-tight tabular-nums">
+            <p className="text-[12px] font-medium text-[var(--ink-primary)]">
+              {formatBytes(u.used_bytes)}
+            </p>
+            <p className="text-[11px] text-[var(--ink-muted)]">
+              {quotaBytes > 0 ? `${u.quota_mb} MB` : t('common.unlimited')}
+            </p>
+          </div>
+          {quotaBytes > 0 && (
+            <div className="h-1 w-full overflow-hidden rounded-full bg-[var(--surface-subtle)]">
+              <div
+                style={{ width: `${pct}%` }}
+                className={`h-full rounded-full ${
+                  pct >= 90
+                    ? 'bg-[var(--danger)]'
+                    : pct >= 75
+                      ? 'bg-[var(--warning)]'
+                      : 'bg-[var(--accent)]'
+                }`}
+              />
+            </div>
+          )}
+        </div>
+      )
+    }
     return (
       <div className="min-w-[130px] space-y-1">
         <div className="flex items-center justify-between text-[11.5px] tabular-nums text-[var(--ink-secondary)]">
@@ -297,34 +328,42 @@ export function UsersSection({ currentUserID }: { currentUserID?: number }) {
           <DataTable className="hidden md:block">
             <DataTableHead>
               <tr>
-                <DataTableHeaderCell className="px-3">{t('admin.users.account')}</DataTableHeaderCell>
-                <DataTableHeaderCell className="px-3 whitespace-nowrap">{t('common.status')}</DataTableHeaderCell>
-                <DataTableHeaderCell className="px-3 whitespace-nowrap">{t('security.status2fa')}</DataTableHeaderCell>
-                <DataTableHeaderCell className="px-3 whitespace-nowrap">{t('admin.users.quota')}</DataTableHeaderCell>
-                <DataTableHeaderCell className="px-3 whitespace-nowrap">{t('admin.users.lastLogin')}</DataTableHeaderCell>
-                <DataTableHeaderCell align="right" className="px-3 whitespace-nowrap">{t('common.actions')}</DataTableHeaderCell>
+                <DataTableHeaderCell className="px-2.5">{t('admin.users.account')}</DataTableHeaderCell>
+                <DataTableHeaderCell className="px-2.5 whitespace-nowrap">{t('common.status')}</DataTableHeaderCell>
+                <DataTableHeaderCell className="px-2.5 whitespace-nowrap">{t('security.status2fa')}</DataTableHeaderCell>
+                <DataTableHeaderCell className="px-2.5 whitespace-nowrap">{t('admin.users.quota')}</DataTableHeaderCell>
+                <DataTableHeaderCell className="px-2.5 whitespace-nowrap">{t('admin.users.lastLogin')}</DataTableHeaderCell>
+                <DataTableHeaderCell
+                  align="right"
+                  className="sticky right-0 z-10 bg-[var(--surface-subtle)] px-2.5 whitespace-nowrap shadow-[-1px_0_0_var(--border-hairline)]"
+                >
+                  {t('common.actions')}
+                </DataTableHeaderCell>
               </tr>
             </DataTableHead>
             <DataTableBody>
-              {users.map((u) => (
-                <DataTableRow key={u.id}>
-                  <DataTableCell className="px-3">
-                    <div className="flex items-center gap-2.5">
+              {users.map((u) => {
+                const lastLoginRaw = pickDate(u.last_login_at_iso, u.last_login_at)
+                const accountTitle = `${u.display_name || u.name} (${u.account})`
+                return (
+                <DataTableRow key={u.id} className="group">
+                  <DataTableCell className="px-2.5">
+                    <div className="flex items-center gap-2">
                       <SenderAvatar
                         name={u.display_name || u.name}
                         email={u.account}
                         size="sm"
                       />
-                      <div className="min-w-0">
+                      <div className="min-w-0 max-w-[155px] xl:max-w-[185px]" title={accountTitle}>
                         <div className="flex items-center gap-1.5">
-                          <span className="whitespace-nowrap font-medium text-[var(--ink-primary)]">
+                          <span className="truncate font-medium text-[var(--ink-primary)]">
                             {u.display_name || u.name}
                           </span>
                           {u.is_admin === 1 && (
                             <Badge variant="accent">{t('admin.users.roleAdmin')}</Badge>
                           )}
                         </div>
-                        <p className="whitespace-nowrap font-mono text-[11.5px] text-[var(--ink-muted)]">
+                        <p className="truncate font-mono text-[11.5px] text-[var(--ink-muted)]">
                           {u.account} ·{' '}
                           {t('admin.users.addressesCount', {
                             count: u.addresses?.length ?? 0,
@@ -333,24 +372,27 @@ export function UsersSection({ currentUserID }: { currentUserID?: number }) {
                       </div>
                     </div>
                   </DataTableCell>
-                  <DataTableCell className="px-3 whitespace-nowrap">
+                  <DataTableCell className="px-2.5 whitespace-nowrap">
                     <Badge variant={u.disabled === 1 ? 'danger' : 'success'}>
                       {u.disabled === 1
                         ? t('admin.users.statusDisabled')
                         : t('admin.users.statusActive')}
                     </Badge>
                   </DataTableCell>
-                  <DataTableCell className="px-3 whitespace-nowrap">{renderFactorStatus(u)}</DataTableCell>
-                  <DataTableCell className="px-3">{renderQuotaBar(u)}</DataTableCell>
-                  <DataTableCell className="px-3 whitespace-nowrap text-[12px] tabular-nums text-[var(--ink-muted)]">
-                    {pickDate(u.last_login_at_iso, u.last_login_at)
-                      ? formatMailFullTime(
-                          pickDate(u.last_login_at_iso, u.last_login_at),
-                          i18n.language,
-                        )
+                  <DataTableCell className="px-2.5 whitespace-nowrap">{renderFactorStatus(u)}</DataTableCell>
+                  <DataTableCell className="px-2.5">{renderQuotaBar(u, true)}</DataTableCell>
+                  <DataTableCell
+                    className="px-2.5 whitespace-nowrap text-[12px] tabular-nums text-[var(--ink-muted)]"
+                    title={lastLoginRaw ? formatMailFullTime(lastLoginRaw, i18n.language) : undefined}
+                  >
+                    {lastLoginRaw
+                      ? formatMailListTime(lastLoginRaw, i18n.language)
                       : t('common.never')}
                   </DataTableCell>
-                  <DataTableCell align="right" className="px-3 whitespace-nowrap">
+                  <DataTableCell
+                    align="right"
+                    className="sticky right-0 z-10 bg-[var(--surface-canvas)] px-2.5 whitespace-nowrap shadow-[-1px_0_0_var(--border-hairline)] group-hover:bg-[var(--surface-hover)]"
+                  >
                     <div className="flex items-center justify-end gap-0.5">
                       <Button
                         variant="ghost"
@@ -419,7 +461,8 @@ export function UsersSection({ currentUserID }: { currentUserID?: number }) {
                     </div>
                   </DataTableCell>
                 </DataTableRow>
-              ))}
+                )
+              })}
             </DataTableBody>
           </DataTable>
 

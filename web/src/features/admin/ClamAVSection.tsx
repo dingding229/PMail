@@ -88,9 +88,6 @@ export function ClamAVSection() {
         }
         title={t('admin.inbound.clamav.title')}
         titleId="clamav-label"
-        description={
-          <span id="clamav-description">{t('admin.inbound.clamav.description')}</span>
-        }
         badge={
           data && currentMeta ? (
             <div className="flex flex-wrap items-center gap-1.5">
@@ -124,7 +121,12 @@ export function ClamAVSection() {
             id="clamav-enabled"
             aria-labelledby="clamav-label"
             aria-describedby={
-              data?.env_controlled ? 'clamav-description clamav-env' : 'clamav-description'
+              [
+                !data?.enabled ? 'clamav-description' : null,
+                data?.env_controlled ? 'clamav-env' : null,
+              ]
+                .filter(Boolean)
+                .join(' ') || undefined
             }
             checked={data?.enabled ?? false}
             disabled={!data || data.env_controlled || toggle.isPending}
@@ -176,7 +178,10 @@ export function ClamAVSection() {
 
           {/* First-time activation note when not yet running */}
           {!data.enabled && (
-            <div className="flex items-start gap-2.5 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] px-3.5 py-3 text-[12.5px] text-[var(--ink-secondary)]">
+            <div
+              id="clamav-description"
+              className="flex items-start gap-2.5 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] px-3.5 py-3 text-[12.5px] text-[var(--ink-secondary)]"
+            >
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" />
               <div className="min-w-0 space-y-0.5">
                 <p className="font-medium text-[var(--ink-primary)]">
