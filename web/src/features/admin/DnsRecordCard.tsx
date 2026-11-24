@@ -156,7 +156,7 @@ export function DnsRecordCard({ record, checking = false }: DnsRecordCardProps) 
   return (
     <div
       className={cn(
-        'rounded-[var(--radius-md)] border bg-[var(--surface-canvas)] p-4 transition-all duration-200 space-y-3',
+        'min-w-0 rounded-[var(--radius-md)] border bg-[var(--surface-canvas)] p-4 transition-all duration-200 space-y-3',
         checking
           ? 'border-[var(--accent)]/60 ring-2 ring-[var(--accent-ring)]'
           : record.status === 'ok'
@@ -193,7 +193,7 @@ export function DnsRecordCard({ record, checking = false }: DnsRecordCardProps) 
 
       {/* Localized Description */}
       {record.description && (
-        <p className="text-[12.5px] leading-relaxed text-[var(--ink-secondary)]">
+        <p className="min-w-0 text-[12.5px] leading-relaxed text-[var(--ink-secondary)] [overflow-wrap:anywhere]">
           {record.description}
         </p>
       )}
@@ -377,7 +377,7 @@ export function DnsRecordCard({ record, checking = false }: DnsRecordCardProps) 
       {record.fix_hint && (
         <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--warning)]/25 bg-[var(--warning-soft)]/70 px-3 py-2 text-[12px] leading-relaxed text-[var(--ink-primary)]">
           <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--warning)]" />
-          <span>{record.fix_hint}</span>
+          <span className="min-w-0 [overflow-wrap:anywhere]">{record.fix_hint}</span>
         </div>
       )}
     </div>
