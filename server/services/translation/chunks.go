@@ -1,6 +1,7 @@
 package translation
 
 import (
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -128,20 +129,85 @@ func scriptProfile(text string) (s scripts) {
 	return s
 }
 
+// noise removes URLs, mail addresses and long codes, which are Latin even in
+// a Chinese or Japanese mail and would make it look foreign.
+var noise = regexp.MustCompile(`(?i)\b(?:https?://|www\.)\S+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\b[\w-]*\d[\w-]{5,}\b`)
+
+// languageUnits counts comparable units: one per Han or kana character, one
+// per word for scripts that separate words with spaces. Counting Latin by
+// letters made an English word weigh about five Chinese characters.
+type languageUnits struct{ total, han, kana, hangul, cyrillic, latin int }
+
+func countUnits(text string) (u languageUnits) {
+	text = noise.ReplaceAllString(text, " ")
+	var run rune // script of the current word: 'L' Latin, 'C' Cyrillic, 'K' Hangul
+	runLen := 0
+	for _, r := range text {
+		switch {
+		case unicode.Is(unicode.Han, r):
+			u.han++
+			u.total++
+			run = 0
+		case unicode.In(r, unicode.Hiragana, unicode.Katakana):
+			u.kana++
+			u.total++
+			run = 0
+		case unicode.Is(unicode.Hangul, r):
+			if run != 'K' {
+				u.hangul++
+				u.total++
+			}
+			run = 'K'
+		case unicode.Is(unicode.Cyrillic, r):
+			if run != 'C' {
+				u.cyrillic++
+				u.total++
+			}
+			run = 'C'
+		case unicode.Is(unicode.Latin, r):
+			// A very long token (no spaces, German compounds) counts one
+			// unit per 8 letters.
+			if run != 'L' || runLen%8 == 0 {
+				u.latin++
+				u.total++
+			}
+			if run != 'L' {
+				runLen = 0
+			}
+			runLen++
+			run = 'L'
+		case unicode.IsLetter(r) || unicode.IsMark(r):
+			// other scripts: keep the current run
+		default:
+			run = 0
+		}
+	}
+	return u
+}
+
+// differentScript reports whether text is mostly written in a script other
+// than the target language's, so it should be offered for translation.
 func differentScript(text, lang string) bool {
-	s := scriptProfile(text)
-	matching := s.latin
+	u := countUnits(text)
+	if u.total < 4 {
+		return false
+	}
+	matching := u.latin
 	switch lang {
 	case "zh-CN", "zh-TW":
-		matching = s.han
+		// Japanese uses Han too; kana marks it as foreign for Chinese readers.
+		if u.kana*4 > u.han+u.kana {
+			return true
+		}
+		matching = u.han
 	case "ja":
-		matching = s.kana + s.han
+		matching = u.kana + u.han
 	case "ko":
-		matching = s.hangul
+		matching = u.hangul
 	case "ru":
-		matching = s.cyrillic
+		matching = u.cyrillic
 	}
-	return s.letters >= 4 && (matching*100 < s.letters*35 || ((lang == "zh-CN" || lang == "zh-TW") && s.kana*4 > s.letters))
+	return matching*100 < u.total*35
 }
 
 // The existing script heuristic can distinguish non-Latin writing systems,

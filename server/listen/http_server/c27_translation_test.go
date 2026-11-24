@@ -62,7 +62,7 @@ func TestTranslationRoutesAuthorizationAvailabilityAndAccountCleanup(t *testing.
 	call(member, "GET", policy, "", "", 403, "inbound_permission_denied")
 	call(http.DefaultClient, "PUT", "/api/settings/ai", `{}`, raw, 403, "inbound_permission_denied")
 	call(admin, "PUT", policy, `{"web_enabled":true,"ai_enabled":true}`, "", 200, "")
-	mail := models.Email{Subject: "test"}
+	mail := models.Email{Subject: "Your weekly account summary is ready to view"}
 	if _, err := f.db.Insert(&mail); err != nil {
 		t.Fatal(err)
 	}
