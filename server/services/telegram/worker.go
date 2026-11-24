@@ -18,6 +18,7 @@ import (
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/inbound"
+	"github.com/Jinnrry/pmail/services/translation"
 	pctx "github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
 )
@@ -91,7 +92,7 @@ func publicLink(id int) string {
 	u.RawQuery = q.Encode()
 	return u.String()
 }
-func formatMail(ctx *pctx.Context, row models.Email, l models.UserEmail, a *inbound.Analysis, preview bool) string {
+func formatMail(ctx *pctx.Context, row models.Email, l models.UserEmail, a *inbound.Analysis, preview bool, tr *translation.Translation) string {
 	esc := func(s string, n int) string { return html.EscapeString(truncate(s, n)) }
 	label := func(k string) string { return esc(i18n.T(ctx, k), 100) }
 	from := row.FromAddress
@@ -99,7 +100,6 @@ func formatMail(ctx *pctx.Context, row models.Email, l models.UserEmail, a *inbo
 		from = row.FromName + " <" + from + ">"
 	}
 	text := "<b>" + label("telegram_mail_from") + "</b> " + esc(from, 220) + "\n<b>" + label("telegram_mail_subject") + "</b> " + esc(row.Subject, 240)
-	safe := a != nil && a.Risk != nil && a.Risk.Level == "none"
 	if a != nil && a.Risk != nil && a.Risk.Level != "none" {
 		text += "\n⚠ " + label("telegram_mail_risk") + " " + esc(a.Risk.Level, 16)
 	}
@@ -109,9 +109,10 @@ func formatMail(ctx *pctx.Context, row models.Email, l models.UserEmail, a *inbo
 	if a != nil && a.VerificationCode != nil {
 		text += "\n" + label("telegram_mail_code") + " <code>" + esc(a.VerificationCode.Code, 8) + "</code>"
 	}
-	if preview && safe && row.Text.Valid && strings.TrimSpace(row.Text.String) != "" {
+	if canPreview(preview, row, a) {
 		text += "\n\n" + esc(strings.TrimSpace(row.Text.String), 300)
 	}
+	text += autoPreview(ctx, tr, canPreview(preview, row, a))
 	if href := publicLink(row.Id); href != "" {
 		text += "\n<a href=\"" + html.EscapeString(href) + "\">" + label("telegram_open_mail") + "</a>"
 	}
@@ -163,18 +164,28 @@ type limiter struct {
 
 var messages = limiter{chat: map[int64]time.Time{}}
 
+func maxTime(times ...time.Time) time.Time {
+	var latest time.Time
+	for _, t := range times {
+		if t.After(latest) {
+			latest = t
+		}
+	}
+	return latest
+}
+func (l *limiter) readyAt(id int64) time.Time {
+	return maxTime(l.chat[id], l.next, l.pause)
+}
+func (l *limiter) earliest(id int64) time.Time {
+	l.Lock()
+	defer l.Unlock()
+	return l.readyAt(id)
+}
 func (l *limiter) allow(id int64, t time.Time) (bool, time.Time) {
 	l.Lock()
 	defer l.Unlock()
-	limit := l.chat[id]
-	if l.next.After(limit) {
-		limit = l.next
-	}
-	if l.pause.After(limit) {
-		limit = l.pause
-	}
-	if t.Before(limit) {
-		return false, limit
+	if ready := l.readyAt(id); t.Before(ready) {
+		return false, ready
 	}
 	if len(l.chat) >= 4096 {
 		for k, v := range l.chat {
@@ -245,7 +256,7 @@ func wait(ctx context.Context, d time.Duration) {
 	case <-timer.C:
 	}
 }
-func pollOnce(ctx context.Context) error {
+func (w *worker) pollOnce(ctx context.Context) error {
 	c, err := getConfig(ctx)
 	if err != nil {
 		return err
@@ -255,7 +266,7 @@ func pollOnce(ctx context.Context) error {
 		return err
 	}
 	var rows []update
-	if err = api.call(ctx, "getUpdates", map[string]any{"offset": c.Offset, "timeout": 25, "limit": 50, "allowed_updates": []string{"message"}}, &rows); err != nil {
+	if err = api.call(ctx, "getUpdates", map[string]any{"offset": c.Offset, "timeout": 25, "limit": 50, "allowed_updates": []string{"message", "callback_query"}}, &rows); err != nil {
 		return err
 	}
 	for _, upd := range rows {
@@ -289,6 +300,9 @@ func pollOnce(ctx context.Context) error {
 				}
 			}
 		}
+		if q := upd.Callback; q != nil {
+			w.dispatchCallback(ctx, api, c.Generation, q)
+		}
 		c.Offset = upd.ID + 1
 		if _, err = db.Instance.Context(ctx).Table(&models.TelegramConfig{}).ID(1).Where("generation=? AND next_offset<?", c.Generation, c.Offset).Update(map[string]any{"next_offset": c.Offset}); err != nil {
 			return err
@@ -302,7 +316,7 @@ func drop(ctx context.Context, id int) {
 func reschedule(ctx context.Context, row models.TelegramPush, attempt int, when time.Time) {
 	_, _ = db.Instance.Context(ctx).Table(&models.TelegramPush{}).ID(row.ID).Update(map[string]any{"due": when.UnixMilli(), "attempts": attempt})
 }
-func queueOnce(ctx context.Context) bool {
+func (w *worker) queueOnce(ctx context.Context) bool {
 	now := time.Now()
 	var row models.TelegramPush
 	found, err := db.Instance.Context(ctx).Where("due<=?", now.UnixMilli()).Asc("due", "id").Get(&row)
@@ -373,30 +387,72 @@ func queueOnce(ctx context.Context) bool {
 		}
 		e.Text = body.Text
 	}
-	if ok, next := messages.allow(b.ChatID, now); !ok {
+	if next := messages.earliest(b.ChatID); time.Now().Before(next) {
 		reschedule(ctx, row, row.Attempts, next)
-		return true
-	}
-	current, found, err := binding(ctx, c, row.UserID)
-	if err != nil {
-		return false
-	}
-	if !found || current.Identity != row.Binding {
-		drop(ctx, row.ID)
 		return true
 	}
 	// Persist the attempt and a lease before sending. Restart may retry a
 	// previously accepted message, but cannot exceed the attempt limit.
 	attempt := row.Attempts + 1
 	n, err := db.Instance.Context(ctx).Table(&models.TelegramPush{}).ID(row.ID).
-		Where("due=? AND attempts=?", row.Due, row.Attempts).Update(map[string]any{"due": now.Add(20 * time.Second).UnixMilli(), "attempts": attempt})
+		Where("due=? AND attempts=?", row.Due, row.Attempts).Update(map[string]any{"due": now.Add(30 * time.Second).UnixMilli(), "attempts": attempt})
 	if err != nil || n != 1 {
 		return false
+	}
+	locale := &pctx.Context{Context: ctx, Lang: owner.Lang}
+	available := w.actions.available(ctx, row.UserID, e.Id, owner.Lang, e)
+	var translated *translation.Translation
+	if f.AutoTranslate && available.TranslationAvailable {
+		trCtx, cancel := context.WithTimeout(ctx, autoTranslateTimeout)
+		if tr, trErr := w.actions.translate(trCtx, row.UserID, owner.Lang, translation.TranslateRequest{ID: e.Id}); trErr == nil {
+			translated = &tr
+		}
+		cancel()
+		if ctx.Err() != nil {
+			return false
+		}
+		// Re-read preferences and mail link after an external call. A changed
+		// preview/quiet/group setting must be honored even on a leased row.
+		f, err = filters(ctx, row.UserID)
+		if err != nil {
+			return false
+		}
+		l, ok, err = loadLink(ctx, row.UserID, row.EmailID)
+		if err != nil {
+			return false
+		}
+		if a != nil {
+			a.Recipient = inbound.ReadDetail(e.InboundAnalysis, l.InboundSpam).Spam
+		}
+		if !ok || !matches(f, l, a, time.Now()) {
+			drop(ctx, row.ID)
+			return true
+		}
+		if !f.AutoTranslate {
+			translated = nil
+		}
+		available = w.actions.available(ctx, row.UserID, e.Id, owner.Lang, e)
+		if !available.TranslationAvailable {
+			translated = nil
+		}
+	}
+	current, _, authorized, err := allowedCallback(ctx, b.ChatID, c.Generation, row.EmailID)
+	if err != nil {
+		return false
+	}
+	if !authorized || current.Identity != row.Binding || current.UserID != row.UserID {
+		drop(ctx, row.ID)
+		return true
+	}
+	if ok, next := messages.allow(b.ChatID, time.Now()); !ok {
+		// No Bot API send was attempted; throttling doesn't consume a retry.
+		reschedule(ctx, row, row.Attempts, next)
+		return true
 	}
 	api, err := clientFor(c)
 	if err == nil {
 		sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		err = api.send(sendCtx, b.ChatID, formatMail(&pctx.Context{Context: ctx, Lang: owner.Lang}, e, l, a, f.IncludePreview))
+		err = api.sendMessage(sendCtx, b.ChatID, formatMail(locale, e, l, a, f.IncludePreview, translated), mailKeyboard(locale, e.Id, a, available), 0)
 		cancel()
 	}
 	if ctx.Err() != nil {
@@ -427,11 +483,12 @@ func queueOnce(ctx context.Context) bool {
 	return true
 }
 func Start(ctx context.Context) <-chan struct{} {
+	w := newWorker()
 	var wg sync.WaitGroup
 	done := make(chan struct{})
 	wg.Go(func() {
 		for ctx.Err() == nil {
-			if err := pollOnce(ctx); err != nil {
+			if err := w.pollOnce(ctx); err != nil {
 				delay := 3 * time.Second
 				var api *botError
 				if errors.As(err, &api) && api.Status == 429 {
@@ -452,13 +509,16 @@ func Start(ctx context.Context) <-chan struct{} {
 				_, _ = db.Instance.Context(ctx).Where("expires<=?", now.Unix()).Delete(&models.TelegramCode{})
 				last = now
 			}
-			if queueOnce(ctx) {
+			if w.queueOnce(ctx) {
 				wait(ctx, 40*time.Millisecond)
 			} else {
 				wait(ctx, 500*time.Millisecond)
 			}
 		}
 	})
+	for range callbackWorkers {
+		wg.Go(func() { w.callbackLoop(ctx) })
+	}
 	go func() { wg.Wait(); close(done) }()
 	return done
 }

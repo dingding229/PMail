@@ -38,8 +38,10 @@ type WorkerClient struct {
 	http  *http.Client
 }
 type user struct {
-	Username string `json:"username"`
-	IsBot    bool   `json:"is_bot"`
+	ID           int64  `json:"id"`
+	LanguageCode string `json:"language_code"`
+	Username     string `json:"username"`
+	IsBot        bool   `json:"is_bot"`
 }
 type chat struct {
 	ID       int64  `json:"id"`
@@ -48,12 +50,44 @@ type chat struct {
 	Last     string `json:"last_name"`
 	Username string `json:"username"`
 }
+type message struct {
+	ID   int    `json:"message_id"`
+	Chat chat   `json:"chat"`
+	Text string `json:"text"`
+}
+type callbackQuery struct {
+	ID      string   `json:"id"`
+	From    user     `json:"from"`
+	Message *message `json:"message"`
+	Data    string   `json:"data"`
+}
 type update struct {
-	ID      int64 `json:"update_id"`
-	Message *struct {
-		Chat chat   `json:"chat"`
-		Text string `json:"text"`
-	} `json:"message"`
+	ID       int64          `json:"update_id"`
+	Message  *message       `json:"message"`
+	Callback *callbackQuery `json:"callback_query"`
+}
+
+type copyTextButton struct {
+	Text string `json:"text"`
+}
+type inlineButton struct {
+	Text         string          `json:"text"`
+	CopyText     *copyTextButton `json:"copy_text,omitempty"`
+	CallbackData string          `json:"callback_data,omitempty"`
+}
+type replyMarkup struct {
+	Keyboard [][]inlineButton `json:"inline_keyboard"`
+}
+type replyParameters struct {
+	MessageID int `json:"message_id"`
+}
+type outgoingMessage struct {
+	ChatID         int64            `json:"chat_id"`
+	Text           string           `json:"text"`
+	ParseMode      string           `json:"parse_mode"`
+	PreviewOptions map[string]bool  `json:"link_preview_options"`
+	Markup         *replyMarkup     `json:"reply_markup,omitempty"`
+	Reply          *replyParameters `json:"reply_parameters,omitempty"`
 }
 
 func newClient(token string, proxy *url.URL) (*WorkerClient, error) {
@@ -141,5 +175,19 @@ func (c *WorkerClient) me(ctx context.Context) (string, error) {
 	return u.Username, nil
 }
 func (c *WorkerClient) send(ctx context.Context, id int64, text string) error {
-	return c.call(ctx, "sendMessage", map[string]any{"chat_id": id, "text": text, "parse_mode": "HTML", "link_preview_options": map[string]bool{"is_disabled": true}}, nil)
+	return c.sendMessage(ctx, id, text, nil, 0)
+}
+
+func (c *WorkerClient) sendMessage(ctx context.Context, id int64, text string, markup *replyMarkup, replyTo int) error {
+	body := outgoingMessage{ChatID: id, Text: text, ParseMode: "HTML", PreviewOptions: map[string]bool{"is_disabled": true}, Markup: markup}
+	if replyTo > 0 {
+		body.Reply = &replyParameters{MessageID: replyTo}
+	}
+	return c.call(ctx, "sendMessage", body, nil)
+}
+
+func (c *WorkerClient) answer(ctx context.Context, queryID, text string) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	return c.call(ctx, "answerCallbackQuery", map[string]string{"callback_query_id": queryID, "text": text}, nil)
 }

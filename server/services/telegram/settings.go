@@ -48,6 +48,7 @@ type Filters struct {
 	OnlyVerification bool        `json:"only_verification"`
 	IncludeSpam      bool        `json:"include_spam"`
 	IncludePreview   bool        `json:"include_preview"`
+	AutoTranslate    bool        `json:"auto_translate"`
 	Quiet            *QuietHours `json:"quiet_hours"`
 }
 type UserStatus struct {

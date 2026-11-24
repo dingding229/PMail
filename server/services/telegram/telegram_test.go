@@ -20,6 +20,7 @@ import (
 )
 
 func TestFakeBotBindingQueueRetryAndStop(t *testing.T) {
+	worker := newWorker()
 	engine, err := xorm.NewEngine("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +97,7 @@ func TestFakeBotBindingQueueRetryAndStop(t *testing.T) {
 		t.Fatal("binding code is not hashed")
 	}
 	response = fmt.Sprintf(`[{"update_id":1,"message":{"chat":{"id":123,"type":"group"},"text":"/start %s"}},{"update_id":2,"message":{"chat":{"id":123,"type":"private","first_name":"Example"},"text":"/start %s"}}]`, b.Code, b.Code)
-	if err = pollOnce(ctx); err != nil {
+	if err = worker.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if u, err := UserGet(ctx, uid.ID); err != nil || !u.Bound {
@@ -124,7 +125,7 @@ func TestFakeBotBindingQueueRetryAndStop(t *testing.T) {
 	}
 	Notify(uid.ID, mail.Id, inbound.FromStorage(mail.InboundAnalysis))
 	behavior = 429
-	if !queueOnce(ctx) {
+	if !worker.queueOnce(ctx) {
 		t.Fatal("no queued delivery")
 	}
 	if !strings.Contains(sent, "<code>412983</code>") || strings.Contains(sent, "<subject>") || !strings.Contains(sent, "&lt;subject&gt;") {
@@ -143,7 +144,7 @@ func TestFakeBotBindingQueueRetryAndStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	behavior = 403
-	if !queueOnce(ctx) {
+	if !worker.queueOnce(ctx) {
 		t.Fatal("blocked push not processed")
 	}
 	if u, err := UserGet(ctx, uid.ID); err != nil || u.Bound {
@@ -154,7 +155,7 @@ func TestFakeBotBindingQueueRetryAndStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	response = fmt.Sprintf(`[{"update_id":3,"message":{"chat":{"id":123,"type":"private"},"text":"/start %s"}},{"update_id":4,"message":{"chat":{"id":123,"type":"private"},"text":"/stop"}}]`, b.Code)
-	if err = pollOnce(ctx); err != nil || receivedOffset != 3 {
+	if err = worker.pollOnce(ctx); err != nil || receivedOffset != 3 {
 		t.Fatalf("durable polling offset=%d %v", receivedOffset, err)
 	}
 	if u, err := UserGet(ctx, uid.ID); err != nil || u.Bound {

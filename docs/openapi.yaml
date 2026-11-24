@@ -4225,6 +4225,7 @@ paths:
                 $ref: '#/components/schemas/C9Error'
     put:
       operationId: c9TelegramPut
+      description: Replaces notification filters. If automatic translation is enabled, the push worker uses the same translation service and quotas as the web client. The service receives the mail subject and text; preview settings govern what is included in the Telegram notification.
       tags:
       - Telegram
       x-permission: user
@@ -6009,6 +6010,10 @@ components:
           type: boolean
         include_preview:
           type: boolean
+        auto_translate:
+          type: boolean
+          default: false
+          description: Add the translated subject using the user's translation engine (or the administrator default) when available. The translated body is included only when the original preview would be shown; a failed translation still sends the original notification. Omission means false.
         quiet_hours:
           oneOf:
           - $ref: '#/components/schemas/C9QuietHours'
