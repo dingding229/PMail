@@ -418,7 +418,7 @@ func (w *worker) queueOnce(ctx context.Context) bool {
 		locale := &pctx.Context{Context: ctx, Lang: owner.Lang}
 		available := w.actions.available(ctx, row.UserID, e.Id, owner.Lang, e)
 		var translated *translation.Translation
-		if f.AutoTranslate && available.TranslationAvailable {
+		if f.AutoTranslate && available.TranslationAvailable && available.NeedsTranslation {
 			trCtx, cancel := context.WithTimeout(ctx, autoTranslateTimeout)
 			if tr, trErr := w.actions.translate(trCtx, row.UserID, owner.Lang, translation.TranslateRequest{ID: e.Id}); trErr == nil {
 				translated = &tr
@@ -447,7 +447,7 @@ func (w *worker) queueOnce(ctx context.Context) bool {
 				translated = nil
 			}
 			available = w.actions.available(ctx, row.UserID, e.Id, owner.Lang, e)
-			if !available.TranslationAvailable {
+			if !available.TranslationAvailable || !available.NeedsTranslation {
 				translated = nil
 			}
 		}

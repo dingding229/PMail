@@ -59,7 +59,8 @@ func mailKeyboard(ctx *pctx.Context, id int, a *inbound.Analysis, available tran
 	if id > 0 {
 		var row []inlineButton
 		arg := strconv.Itoa(id)
-		if available.TranslationAvailable {
+		// Mail already in the reader's language gets no translate button.
+		if available.TranslationAvailable && available.NeedsTranslation {
 			row = append(row, inlineButton{Text: i18n.T(ctx, "telegram_translate"), CallbackData: "tr:" + arg})
 		}
 		if available.AIAvailable {

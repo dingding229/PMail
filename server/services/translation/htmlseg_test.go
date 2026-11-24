@@ -1,12 +1,14 @@
 package translation
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/Jinnrry/pmail/dto/parsemail"
+	"github.com/Jinnrry/pmail/models"
 )
 
 const sampleHTML = `<div style="padding:8px"><h1>Weekly <b>report</b></h1>` +
@@ -142,5 +144,43 @@ func TestSanitizerKeepsNoTranslateMarkers(t *testing.T) {
 	d := parseHTMLSegments(clean)
 	if d == nil || len(d.segments) != 2 {
 		t.Fatalf("protected paragraphs must not be segments: %+v", d)
+	}
+}
+
+func TestTargetLanguageDefaultsToServerLanguage(t *testing.T) {
+	t.Setenv("PMAIL_DEFAULT_LANG", "")
+	if got, _ := targetLanguage("", "", ""); got != "zh-CN" {
+		t.Fatalf("empty account language should use the server default, got %q", got)
+	}
+	t.Setenv("PMAIL_DEFAULT_LANG", "en")
+	if got, _ := targetLanguage("", "", ""); got != "en" {
+		t.Fatalf("got %q", got)
+	}
+	if got, _ := targetLanguage("", "ja", "en"); got != "ja" {
+		t.Fatalf("preference must win, got %q", got)
+	}
+}
+
+func TestAvailableReadsBodyForHeaderOnlyMail(t *testing.T) {
+	s, e, a, _, mail := fixture(t)
+	_ = s
+	t.Setenv("PMAIL_DEFAULT_LANG", "")
+	if _, err := SetPolicy(t.Context(), PolicyPatch{WebEnabled: ptr(true)}); err != nil {
+		t.Fatal(err)
+	}
+	zh := models.Email{Subject: "Weekly", Text: sql.NullString{String: "你好，这是一封中文邮件，请查收附件中的报告。", Valid: true}}
+	if _, err := e.Insert(&zh); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Insert(&models.UserEmail{EmailID: zh.Id, UserID: a}); err != nil {
+		t.Fatal(err)
+	}
+	got := Available(t.Context(), a, zh.Id, "", models.Email{Subject: zh.Subject})
+	if !got.TranslationAvailable || got.NeedsTranslation {
+		t.Fatalf("Chinese body must not need translation: %+v", got)
+	}
+	got = Available(t.Context(), a, mail.Id, "", models.Email{Subject: mail.Subject})
+	if !got.NeedsTranslation {
+		t.Fatalf("English body needs translation: %+v", got)
 	}
 }

@@ -39,7 +39,7 @@ func TestInlineKeyboardJSONCombinations(t *testing.T) {
 			if withCode {
 				analysis = &inbound.Analysis{VerificationCode: &inbound.VerificationCode{Code: "123456"}}
 			}
-			markup := mailKeyboard(ctx, id, analysis, translation.Availability{TranslationAvailable: web, AIAvailable: ai})
+			markup := mailKeyboard(ctx, id, analysis, translation.Availability{TranslationAvailable: web, NeedsTranslation: web, AIAvailable: ai})
 			wire, err := json.Marshal(outgoingMessage{Markup: markup})
 			if err != nil {
 				t.Fatal(err)
@@ -410,7 +410,7 @@ func TestAutoTranslatePushPreviewAndFailureFallback(t *testing.T) {
 				t.Fatalf("preference was not persisted: %v", err)
 			}
 			w.actions.available = func(context.Context, int, int, string, models.Email) translation.Availability {
-				return translation.Availability{TranslationAvailable: true}
+				return translation.Availability{TranslationAvailable: true, NeedsTranslation: true}
 			}
 			calls := 0
 			w.actions.translate = func(ctx context.Context, _ int, _ string, _ translation.TranslateRequest) (translation.Translation, error) {
@@ -522,5 +522,16 @@ func TestBrokenPushPreferenceDoesNotBlockOtherRecipients(t *testing.T) {
 	_, sent := bot.snapshot()
 	if len(sent) != 1 || sent[0].ChatID != testChatID+1 {
 		t.Fatal("healthy recipient did not receive exactly one push")
+	}
+}
+
+func TestNoTranslateButtonForMailInReaderLanguage(t *testing.T) {
+	ctx := &pctx.Context{Context: t.Context(), Lang: "zh-CN"}
+	markup := mailKeyboard(ctx, 7, nil, translation.Availability{TranslationAvailable: true, NeedsTranslation: false, AIAvailable: true})
+	if markup == nil || len(markup.Keyboard) != 1 || len(markup.Keyboard[0]) != 1 || markup.Keyboard[0][0].CallbackData != "ai:7" {
+		t.Fatalf("only the AI button should remain: %+v", markup)
+	}
+	if markup := mailKeyboard(ctx, 7, nil, translation.Availability{TranslationAvailable: true}); markup != nil && len(markup.Keyboard) != 0 {
+		t.Fatalf("no buttons expected: %+v", markup)
 	}
 }

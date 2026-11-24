@@ -16,6 +16,7 @@ import (
 
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/netproxy"
 	"xorm.io/xorm"
@@ -72,6 +73,12 @@ func targetLanguage(request, preference, ui string) (string, error) {
 	if preference != "" {
 		return language(preference)
 	}
+	// Background callers such as Telegram pushes carry the account language,
+	// which is empty unless the user picked one. Use the server default
+	// language then, not English.
+	if strings.TrimSpace(ui) == "" {
+		ui = i18n.Default()
+	}
 	if l, e := language(ui); e == nil {
 		return l, nil
 	}
@@ -110,6 +117,14 @@ func Available(ctx context.Context, uid, id int, ui string, mail models.Email) A
 	if a.TranslationAvailable {
 		pref, _ := GetPreferences(ctx, uid)
 		lang, _ := targetLanguage("", pref.TargetLang, ui)
+		if strings.TrimSpace(mail.Text.String) == "" && strings.TrimSpace(mail.Html.String) == "" {
+			// Callers such as Telegram load only the headers; read the body
+			// so detection does not rely on the subject alone.
+			var body models.Email
+			if ok, err := db.Instance.Context(ctx).ID(id).Cols("text", "html").Get(&body); err == nil && ok {
+				mail.Text, mail.Html = body.Text, body.Html
+			}
+		}
 		_, text, _ := mailText(mail, 4096)
 		if strings.TrimSpace(text) == "" {
 			text = mail.Subject
