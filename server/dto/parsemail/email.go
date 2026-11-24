@@ -212,6 +212,9 @@ func init() {
 	relaxedPolicy.AllowAttrs("class").Matching(regexp.MustCompile(`^[A-Za-z0-9_ -]{1,240}$`)).OnElements("div", "span", "table", "thead", "tbody", "tr", "td", "th")
 
 	relaxedPolicy.AllowAttrs("bgcolor", "color").Globally()
+	// Senders mark text that must stay untranslated (names, product terms).
+	relaxedPolicy.AllowAttrs("translate").Matching(regexp.MustCompile(`^(?i:yes|no)$`)).Globally()
+	relaxedPolicy.AllowAttrs("class").Matching(regexp.MustCompile(`^(?i:notranslate)$`)).OnElements("p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "a", "b", "strong", "em", "i", "u", "blockquote", "font", "center")
 	relaxedPolicy.AllowAttrs("align").OnElements("p", "div", "h1", "h2", "h3", "h4", "h5", "h6")
 
 	relaxedPolicy.AllowElements("img")

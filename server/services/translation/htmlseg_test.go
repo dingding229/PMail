@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Jinnrry/pmail/dto/parsemail"
 )
 
 const sampleHTML = `<div style="padding:8px"><h1>Weekly <b>report</b></h1>` +
@@ -110,5 +112,35 @@ func TestHTMLSegmentsEscapeProviderText(t *testing.T) {
 	out := d.render(`<img src=x onerror=alert(1)><script>alert(1)</script>`, 1)
 	if strings.Contains(out, "<img") || strings.Contains(out, "<script") || !strings.Contains(out, "&lt;script&gt;") {
 		t.Fatalf("provider text must be escaped: %s", out)
+	}
+}
+
+func TestHTMLSegmentsKeepSentenceStyles(t *testing.T) {
+	src := `<p style="background-color:#eef4ff">The workshop begins at nine. <b>Bring your notebook.</b> <span style="color:#a32622">Coffee is available.</span> This is <b>very</b> important.</p>`
+	d := parseHTMLSegments(src)
+	var got []string
+	for _, s := range d.segments {
+		got = append(got, s.text)
+	}
+	want := "The workshop begins at nine.|Bring your notebook.|Coffee is available.|This is very important."
+	if strings.Join(got, "|") != want {
+		t.Fatalf("segments = %q", got)
+	}
+	out := d.render("工作坊九点开始。\n带上笔记本。\n提供咖啡。\n这非常重要。", len(got))
+	for _, keep := range []string{"<b>带上笔记本。</b>", `<span style="color:#a32622">提供咖啡。</span>`, "工作坊九点开始。"} {
+		if !strings.Contains(out, keep) {
+			t.Errorf("missing %q in %s", keep, out)
+		}
+	}
+}
+
+func TestSanitizerKeepsNoTranslateMarkers(t *testing.T) {
+	clean := parsemail.SanitizeHTML(`<p translate="no">Keep A</p><p class="notranslate">Keep B</p><p translate="evil">x</p><p class="evil">y</p>`)
+	if !strings.Contains(clean, `translate="no"`) || !strings.Contains(clean, `class="notranslate"`) || strings.Contains(clean, "evil") {
+		t.Fatalf("sanitized: %s", clean)
+	}
+	d := parseHTMLSegments(clean)
+	if d == nil || len(d.segments) != 2 {
+		t.Fatalf("protected paragraphs must not be segments: %+v", d)
 	}
 }

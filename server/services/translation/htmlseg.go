@@ -89,7 +89,17 @@ func parseHTMLSegments(src string) *htmlDoc {
 					flush()
 					continue
 				}
+				// An inline element that holds whole sentences, such as
+				// "<b>Bring your notebook.</b>", becomes its own segment so
+				// its styling survives. Emphasis inside a sentence is merged
+				// with the sentence for a better translation.
+				if sentenceEnd(runText(run)) {
+					flush()
+				}
 				walk(c)
+				if sentenceEnd(runText(run)) {
+					flush()
+				}
 			}
 		}
 	}
@@ -99,6 +109,25 @@ func parseHTMLSegments(src string) *htmlDoc {
 		return nil
 	}
 	return d
+}
+
+func runText(run []*html.Node) string {
+	var b strings.Builder
+	for _, n := range run {
+		b.WriteString(n.Data)
+	}
+	return b.String()
+}
+
+// sentenceEnd reports whether text is empty or ends a sentence, so the next
+// inline element starts a new one.
+func sentenceEnd(text string) bool {
+	text = strings.TrimRightFunc(text, func(r rune) bool { return unicode.IsSpace(r) || strings.ContainsRune(`"'”’)]」』`, r) })
+	if text == "" {
+		return true
+	}
+	r, _ := utf8.DecodeLastRuneInString(text)
+	return strings.ContainsRune(".!?。！？…:：;；", r)
 }
 
 func noTranslate(n *html.Node) bool {
