@@ -67,8 +67,20 @@ func TestMoveOutOfTrashToCustomFolder(t *testing.T) {
 	if n, err := del_email.PurgeExpired(t.Context(), time.Now()); err != nil || n != 0 {
 		t.Fatalf("moved mail eligible for expiry: %d/%v", n, err)
 	}
+	// Sent mail moved into a custom folder keeps its status and stays visible.
+	sentMsg := models.Email{Subject: "sent then filed", Type: consts.EmailTypeSend}
+	if _, err := e.Insert(&sentMsg); err != nil {
+		t.Fatal(err)
+	}
+	sentLink := models.UserEmail{UserID: a.ID, EmailID: sentMsg.Id, Status: consts.EmailStatusSent}
+	if _, err := e.Insert(&sentLink); err != nil {
+		t.Fatal(err)
+	}
+	if !MoveMailToGroup(ctx, []int{sentMsg.Id}, folder.ID) {
+		t.Fatal("move sent mail failed")
+	}
 	rows, _, err := list.WebPage(ctx, dto.SearchTag{GroupId: folder.ID, Status: -1, Type: -1}, "", list.MailCursor{}, 0, 10, true)
-	if err != nil || len(rows) != 1 || rows[0].Id != msg.Id {
+	if err != nil || len(rows) != 2 {
 		t.Fatalf("mail invisible in target group: %d/%v", len(rows), err)
 	}
 }

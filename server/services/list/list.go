@@ -48,7 +48,11 @@ func countSQLFor(ctx *context.Context, tagInfo dto.SearchTag, keyword string, fi
 		}
 
 	} else if tagInfo.Status == -1 {
-		if tagInfo.Type != 1 {
+		if tagInfo.GroupId > 0 && tagInfo.GroupId < models.INBOX {
+			// Custom folders hold whatever the user moved there, including
+			// sent mail (status 1), so only hide deleted copies.
+			sql += " and ue.status != 3"
+		} else if tagInfo.Type != 1 {
 			sql += " and ue.status = 0"
 		} else {
 			// 发件箱不展示已删除的邮件

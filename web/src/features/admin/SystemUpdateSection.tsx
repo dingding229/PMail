@@ -253,7 +253,7 @@ export function SystemUpdateSection() {
                   {t('admin.update.currentVersion')}
                 </p>
                 <p className="mt-1 font-mono text-[16px] font-semibold text-[var(--ink-primary)]">
-                  {info.current}
+                  {info.current && !info.current.startsWith('v') ? `v${info.current}` : info.current}
                 </p>
               </div>
               <div className="rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] px-4 py-3">
