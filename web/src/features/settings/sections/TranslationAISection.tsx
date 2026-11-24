@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { ApiError } from '@/api/client'
 import {
   CheckCircle2,
   Info,
@@ -184,7 +185,22 @@ export function TranslationAISection() {
     },
     onError: (err) => {
       setTestResult(null)
-      toast.error(err instanceof Error ? err.message : t('common.unknownError'))
+      const base = err instanceof Error ? err.message : t('common.unknownError')
+      const detail =
+        err instanceof ApiError && err.data && typeof err.data === 'object'
+          ? (err.data as { upstream_status?: number; upstream_message?: string })
+          : undefined
+      if (detail?.upstream_status) {
+        toast.error(base, {
+          description: t('settings.translation.aiTestUpstream', {
+            status: detail.upstream_status,
+            message: detail.upstream_message || '-',
+          }),
+          duration: 10000,
+        })
+        return
+      }
+      toast.error(base)
     },
   })
 

@@ -1057,6 +1057,7 @@ const zhCN = {
       aiTestButton: '测试连接',
       aiTesting: '测试中…',
       aiTestSuccess: '连接成功 · 模型 {{model}} · 耗时 {{latency}} ms',
+      aiTestUpstream: '服务商返回 HTTP {{status}}：{{message}}',
       aiSaved: '个人 AI 接口配置已保存',
       aiDeleteButton: '删除配置',
       aiDeleteConfirmTitle: '确认删除 AI 接口配置？',

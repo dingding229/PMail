@@ -71,7 +71,7 @@ const summaryPrompt = "Return {\"summary\":string,\"key_points\":[string]}. Writ
 const extractPrompt = "Return {\"action_items\":[{\"text\":string,\"due\":optional string}],\"dates\":[{\"text\":string,\"iso\":optional string}],\"amounts\":[{\"text\":string,\"value\":optional number,\"currency\":optional string}],\"links\":[{\"text\":string,\"url\":string}],\"codes\":[{\"type\":\"verification\"|\"tracking\"|\"order\"|\"other\",\"value\":string}],\"contacts\":[{\"name\":optional string,\"email\":optional string,\"phone\":optional string}]}. Use empty arrays when absent, omit missing optional fields, copy exact URLs and code values, and include at most 20 entries per field. Never invent values. "
 
 func strictJSON[T any](raw string, v *T) bool {
-	raw = strings.TrimSpace(raw)
+	raw = strings.TrimSpace(stripFence(raw))
 	if !strings.HasPrefix(raw, "{") || !strings.HasSuffix(raw, "}") || !utf8.ValidString(raw) {
 		return false
 	}
@@ -278,6 +278,12 @@ func (s *Service) aiClient(ctx context.Context, uid int, p policyRecord, a aiRec
 }
 
 func (s *Service) askAI(ctx context.Context, uid int, p policyRecord, a aiRecord, prompt, sub, txt, lang string, parse func(string) bool) error {
+	return s.askAIWith(ctx, uid, p, a, prompt, sub, txt, lang, false, parse)
+}
+
+// diagnose keeps a short, sanitized provider error for the owner's own
+// connection test. Normal requests never carry provider text to clients.
+func (s *Service) askAIWith(ctx context.Context, uid int, p policyRecord, a aiRecord, prompt, sub, txt, lang string, diagnose bool, parse func(string) bool) error {
 	client, endpoint, key, err := s.aiClient(ctx, uid, p, a)
 	if err != nil {
 		return err
@@ -291,22 +297,19 @@ func (s *Service) askAI(ctx context.Context, uid int, p policyRecord, a aiRecord
 		headers["Authorization"] = "Bearer " + key
 	}
 	for attempt := 0; attempt < 2; attempt++ {
-		data, status, e := exchange(ctx, client, http.MethodPost, endpoint, body, headers)
+		data, status, e := aiExchange(ctx, client, endpoint, body, headers, diagnose)
 		if e != nil && (status == 400 || status == 422) && body["response_format"] != nil {
+			// Some OpenAI-compatible gateways reject JSON mode; retry without it.
 			delete(body, "response_format")
-			data, _, e = exchange(ctx, client, http.MethodPost, endpoint, body, headers)
+			data, status, e = aiExchange(ctx, client, endpoint, body, headers, diagnose)
 		}
 		if e != nil {
+			if diagnose {
+				return upstreamDetail(e, status, data, key)
+			}
 			return e
 		}
-		var res struct {
-			Choices []struct {
-				Message struct {
-					Content string `json:"content"`
-				} `json:"message"`
-			} `json:"choices"`
-		}
-		if json.Unmarshal(data, &res) == nil && len(res.Choices) > 0 && parse(res.Choices[0].Message.Content) {
+		if text, ok := completionText(data); ok && parse(text) {
 			return nil
 		}
 		if attempt == 0 {
@@ -334,11 +337,10 @@ func (s *Service) TestAI(ctx context.Context, uid int) (AITestResult, error) {
 	}
 	defer release()
 	start := time.Now()
-	err = s.askAI(ctx, uid, p, a, "Return {\"ok\":true}.", "", "PMail test.", "en", func(v string) bool {
-		var out struct {
-			OK bool `json:"ok"`
-		}
-		return strictJSON(v, &out) && out.OK
+	// A connection test only proves the provider answers this model. Whether a
+	// reply follows the JSON contract is checked by each real request.
+	err = s.askAIWith(ctx, uid, p, a, "Return {\"ok\":true}.", "", "PMail test.", "en", true, func(v string) bool {
+		return strings.TrimSpace(v) != ""
 	})
 	if err != nil {
 		return AITestResult{}, err

@@ -95,16 +95,15 @@ func TestAIHTTPPrivateToggleRedirectAndBoundedErrors(t *testing.T) {
 	if _, err := s.TestAI(t.Context(), a); err != nil {
 		t.Fatalf("allowed private connection failed: %v", err)
 	}
-	for i, want := range []error{ErrProvider, ErrFormat, ErrAuth, ErrFormat} {
+	// A connection test accepts any non-empty reply (mode 4); the strict JSON
+	// contract is enforced by real requests.
+	for i, want := range []error{ErrProvider, ErrFormat, ErrAuth, nil} {
 		mode.Store(int32(i + 1))
 		before := hits.Load()
-		if _, err := s.TestAI(t.Context(), a); !errors.Is(err, want) || strings.Contains(err.Error(), "synthetic") {
+		if _, err := s.TestAI(t.Context(), a); (want == nil) != (err == nil) || (want != nil && !errors.Is(err, want)) || (err != nil && strings.Contains(err.Error(), "synthetic")) {
 			t.Fatalf("mode %d: %v", i+1, err)
 		}
 		delta := int32(1)
-		if i == 3 {
-			delta = 2
-		}
 		if hits.Load() != before+delta {
 			t.Fatal("unexpected number of upstream attempts")
 		}

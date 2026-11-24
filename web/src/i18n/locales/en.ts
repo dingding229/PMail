@@ -1057,6 +1057,7 @@ const en = {
       aiTestButton: 'Test Connection',
       aiTesting: 'Testing…',
       aiTestSuccess: 'Connected · Model {{model}} · {{latency}} ms',
+      aiTestUpstream: 'Provider returned HTTP {{status}}: {{message}}',
       aiSaved: 'Personal AI configuration saved',
       aiDeleteButton: 'Delete Config',
       aiDeleteConfirmTitle: 'Delete AI configuration?',

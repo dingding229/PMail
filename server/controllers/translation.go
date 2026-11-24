@@ -1,9 +1,11 @@
 package controllers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/Jinnrry/pmail/dto/response"
+	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/services/translation"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
@@ -133,6 +135,19 @@ func UserAITest(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data, err := translation.Default.TestAI(r.Context(), ctx.UserID)
+	var upstream *translation.UpstreamError
+	if errors.As(err, &upstream) {
+		// The owner's own test may show the provider's status and short message.
+		code := translation.ErrorCode(err)
+		status := http.StatusBadGateway
+		if code == "translation_upstream_rate_limited" {
+			status = http.StatusTooManyRequests
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "private, no-store")
+		response.NewErrorResponse(response.ServerError, i18n.T(ctx, code), map[string]any{"code": code, "upstream_status": upstream.Status, "upstream_message": upstream.Message}).FPrintStatus(w, status)
+		return
+	}
 	translationResponse(ctx, w, data, err)
 }
 
