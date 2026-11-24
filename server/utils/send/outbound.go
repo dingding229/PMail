@@ -8,9 +8,11 @@ import (
 	"net/netip"
 	"net/textproto"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Jinnrry/pmail/config"
@@ -182,7 +184,7 @@ func (p Outbound) deliver(ctx stdctx.Context, recipientDomain, from, fromDomain 
 		}
 		return mx[j] == nil || mx[i].Pref < mx[j].Pref
 	})
-	var last error
+	var last, best error
 	for _, record := range mx[:min(10, len(mx))] {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -200,8 +202,19 @@ func (p Outbound) deliver(ctx stdctx.Context, recipientDomain, from, fromDomain 
 		ips, err := p.targets(ctx, host)
 		if err != nil {
 			last = err
+			best = moreSpecific(best, err)
 			continue
 		}
+		// PTR, SPF and most hosts' routes are set up for IPv4; IPv6 is a fallback.
+		slices.SortStableFunc(ips, func(a, b netip.Addr) int {
+			switch {
+			case a.Is4() && !b.Is4():
+				return -1
+			case b.Is4() && !a.Is4():
+				return 1
+			}
+			return 0
+		})
 		for _, ip := range ips {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -218,6 +231,7 @@ func (p Outbound) deliver(ctx stdctx.Context, recipientDomain, from, fromDomain 
 				return smtp.SendPinned(path, conn, host, from, fromDomain, to, raw, mode)
 			}
 			last = try("25", smtp.VerifySTARTTLS)
+			best = moreSpecific(best, last)
 			if last == nil {
 				log.WithContext(ctx).Infof("audit_event=smtp_tls_verified recipient_domain=%q mx=%q ip=%s", recipientDomain, host, ip)
 				return nil
@@ -240,6 +254,7 @@ func (p Outbound) deliver(ctx stdctx.Context, recipientDomain, from, fromDomain 
 				}
 				log.WithContext(ctx).Warnf("audit_event=smtp_tls_downgrade recipient_domain=%q mx=%q ip=%s", recipientDomain, host, ip)
 				last = try("25", smtp.OpportunisticSTARTTLS)
+				best = moreSpecific(best, last)
 				if last == nil || isPermanentSMTPResponse(last) {
 					return last
 				}
@@ -250,15 +265,45 @@ func (p Outbound) deliver(ctx stdctx.Context, recipientDomain, from, fromDomain 
 			}
 			log.WithContext(ctx).Warnf("audit_event=smtp_cleartext_fallback recipient_domain=%q mx=%q ip=%s reason=%s", recipientDomain, host, ip, reason)
 			last = try("25", smtp.CleartextFallback)
+			best = moreSpecific(best, last)
 			if last == nil || isPermanentSMTPResponse(last) {
 				return last
 			}
 		}
 	}
+	if best != nil {
+		return best
+	}
 	if last == nil {
 		last = errBlockedTarget
 	}
 	return last
+}
+
+// moreSpecific keeps the error that best explains a failed delivery. A reply
+// from a receiving server beats a TLS failure, which beats a connection error;
+// an unreachable address family (no IPv6 route) never hides an earlier error.
+func moreSpecific(kept, next error) error {
+	if next == nil {
+		return kept
+	}
+	if kept == nil || errorRank(next) > errorRank(kept) {
+		return next
+	}
+	return kept
+}
+
+func errorRank(err error) int {
+	var reply *textproto.Error
+	switch {
+	case errors.As(err, &reply):
+		return 3
+	case errors.Is(err, smtp.ErrTLSNegotiation):
+		return 2
+	case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH), errors.Is(err, syscall.EADDRNOTAVAIL):
+		return 0
+	}
+	return 1
 }
 
 var port25Hint struct {
