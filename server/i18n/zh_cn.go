@@ -221,7 +221,7 @@ var cn = map[string]string{
 	"dns_guide_alias_foreign":           "A/AAAA 记录指向了其他服务器。请改为本服务器的 IP，或将 CNAME 指向邮件主机。",
 	"dns_guide_mail_proxied":            "邮件主机解析到了其他地址，常见原因是 CDN 代理（如 Cloudflare 橙色云朵）。SMTP/IMAP/POP3 和证书申请都需要直连本机：请改为“仅 DNS”（灰色云朵）并指向本机 IP。",
 	"dns_guide_unknown_value":           "填写实际公网 IP",
-	"dns_guide_ptr":                     "请在 VPS 或公网 IP 服务商面板中，将公网 IP 的 PTR（反向 DNS）设为 %s；不要在正向域名区域添加。",
+	"dns_guide_ptr":                     "请在 VPS 或公网 IP 服务商面板中，将公网 IP 的 PTR（反向 DNS）设为 %s；PMail 发信时的 EHLO 也使用这个主机名，所有域名共用。不要在正向域名区域添加。只有服务器实际启用了 IPv6 并为邮件主机添加了 AAAA 记录时，才需要设置 IPv6 的 PTR。",
 	"dns_guide_proxy":                   "在 %s 的 DNS 面板添加 %s 的 A 记录。反代与 PMail 在同一台服务器时填此 IP；反代在其他服务器时填反代公网 IP；可开启 Cloudflare 代理。仅检查是否存在 A 记录。",
 	"dns_guide_ipv6_undetected":         "未检测到 IPv6（Docker 默认不启用 IPv6）；服务器有 IPv6 时可填宿主机公网 IPv6，或忽略此项。",
 	"dns_guide_ipv4_undetected":         "未检测到公网 IPv4。请使用对应的公网 IPv4，或设置 PMAIL_PUBLIC_IPV4 后重新检测。",

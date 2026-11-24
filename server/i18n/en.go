@@ -221,7 +221,7 @@ var en = map[string]string{
 	"dns_guide_alias_foreign":           "The A/AAAA record points to another server. Point it to this server’s IP address or use a CNAME to the mail host.",
 	"dns_guide_mail_proxied":            "The mail host resolves to another address, usually because a CDN proxies it (e.g. Cloudflare orange cloud). SMTP/IMAP/POP3 and certificate validation need a direct connection: switch it to DNS only (grey cloud) pointing to this server.",
 	"dns_guide_unknown_value":           "Enter the actual public IP",
-	"dns_guide_ptr":                     "Set the public IP PTR (reverse DNS) to %s at your VPS or IP provider, not in the forward DNS zone.",
+	"dns_guide_ptr":                     "In your VPS or IP provider's panel, set the PTR (reverse DNS) of the public IP to %s. PMail also uses this host name in EHLO for every domain. Do not add it to the forward zone. Set an IPv6 PTR only if the server actually uses IPv6 and the mail host has an AAAA record.",
 	"dns_guide_proxy":                   "In the DNS panel for %s, add an A record for %s. Use the suggested IP when the reverse proxy and PMail share a server; otherwise use the proxy’s public IP. You may enable Cloudflare proxying. Only the existence of an A record is checked.",
 	"dns_guide_ipv6_undetected":         "No IPv6 was detected (Docker does not enable IPv6 by default). If the host has IPv6, enter its public IPv6 address; otherwise skip this optional record.",
 	"dns_guide_ipv4_undetected":         "No public IPv4 was detected. Use the appropriate public IPv4 address or configure PMAIL_PUBLIC_IPV4 and check again.",

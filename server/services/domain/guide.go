@@ -207,7 +207,8 @@ func buildGuide(row models.Domain, key guideKey, v4, v6 netip.Addr) DNSGuide {
 		dkim.ValueChunks = txtChunks(key.dkim)
 	}
 	add("dmarc", "authentication", "TXT", "_dmarc."+d, "v=DMARC1; p=quarantine; rua=mailto:postmaster@"+d, true)
-	ptr := add("ptr", "reverse_dns", "PTR", m, fqdn(m), false)
+	// One IP has one PTR; it must match the EHLO name used by every domain.
+	ptr := add("ptr", "reverse_dns", "PTR", m, fqdn(HeloHost(row.Name)), false)
 	ptr.Host, ptr.FQDN = "", ""
 	if v4.IsValid() {
 		ptr.FQDN = reverseName(v4)
@@ -368,7 +369,7 @@ func checkGuideRecord(ctx context.Context, r guideResolver, rec *GuideRecord, do
 				foundMatch := false
 				for _, target := range found {
 					rec.Actual = append(rec.Actual, target)
-					foundMatch = foundMatch || fqdn(target) == fqdn(mail)
+					foundMatch = foundMatch || strings.EqualFold(fqdn(target), rec.Value)
 				}
 				matched = matched && foundMatch
 			}
@@ -486,7 +487,7 @@ func localizeGuide(guide DNSGuide, lang string) DNSGuide {
 		}
 		switch {
 		case rec.Key == "ptr":
-			rec.Description = i18n.Text(lang, "dns_guide_ptr", guide.MailHost)
+			rec.Description = i18n.Text(lang, "dns_guide_ptr", strings.TrimSuffix(rec.Value, "."))
 		case rec.Key == "mail_aaaa" && rec.Value == "":
 			rec.Description = i18n.Text(lang, "dns_guide_ipv6_undetected")
 		case rec.Key == "web_a" && guide.proxy:

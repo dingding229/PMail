@@ -88,6 +88,8 @@ docker compose down -v
 | `PMAIL_SMTP_OUTBOUND_ALLOW` | 逗号分隔的显式内网 SMTP 目标 CIDR 或精确 MX 主机名；默认拒绝私有/保留地址。 |
 | `PMAIL_SMTP_TLS_REQUIRED_DOMAINS` | 逗号分隔的精确收件域；必须验证 MX 的 STARTTLS 证书，否则不降级投递。 |
 | `PMAIL_SMTP_REQUIRE_VERIFIED_TLS` | 默认 `0`：非强制域先尝试带证书验证的 STARTTLS，再尝试不验证证书的 STARTTLS，协商仍失败时可退回明文。设为 `1` 时，已宣告 STARTTLS 的 MX 验证失败不降级；未宣告的 MX 仍可明文。必须使用经验证 TLS 的收件域请配置 `PMAIL_SMTP_TLS_REQUIRED_DOMAINS`。 |
+| `PMAIL_SMTP_HELO` | 可选。外发 SMTP 的 EHLO 主机名，默认 `smtp.<主域名>`，与 DNS 向导推荐的 MX、A 和 PTR 一致，所有域名共用。服务器 IP 的 PTR 设成了别的主机名时，用它指定为同一个名称。 |
+| `PMAIL_ARC_DISABLE` | 默认 `0`：转发外部邮件时，用转发域名的 DKIM 私钥添加 ARC 签名（RFC 8617，只支持 RSA 密钥）。设为 `1` 关闭。 |
 | `PMAIL_TRUSTED_PROXIES` | 逗号分隔的可信 Web 反代 CIDR，仅信任实际连接的代理。让代理覆盖 `X-Forwarded-Proto`、正确追加/清理 `X-Forwarded-For` 并保留 `Host`。容器且非 public 时，未显式设置默认 `172.16.0.0/12`，不含 `192.168.0.0/16`；public 或非容器默认空。显式值（含空值）覆盖默认值。 |
 | `PMAIL_ADMIN_MAIL_ACCESS` | 设为 1 才允许管理员读取、预览、下载或转发他人非草稿邮件，访问会审计。 |
 | `PMAIL_PRINT_REGISTRATION_KEY` | 仅设为 1 才兼容旧版把密钥打印到 stdout；默认只提示受保护文件路径。 |

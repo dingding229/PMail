@@ -164,6 +164,41 @@ func Default() models.Domain {
 	return cache.ordered[0]
 }
 func DefaultName() string { return Default().Name }
+
+// HeloHost is the host name outbound SMTP announces in EHLO and the name the
+// DNS guide asks to use for the server IP's PTR. Receivers compare the two,
+// and one IP has one PTR, so every domain uses the same name: "smtp." + the
+// default domain (the guide's MX/A host), or PMAIL_SMTP_HELO when set.
+func HeloHost(fallback string) string {
+	if v := strings.TrimSuffix(strings.TrimSpace(os.Getenv("PMAIL_SMTP_HELO")), "."); validHostname(v) {
+		return strings.ToLower(v)
+	}
+	base := DefaultName()
+	if base == "" {
+		base = fallback
+	}
+	if base == "" {
+		return "localhost"
+	}
+	return "smtp." + strings.ToLower(base)
+}
+
+func validHostname(v string) bool {
+	if v == "" || len(v) > 253 || !strings.Contains(v, ".") {
+		return false
+	}
+	for _, label := range strings.Split(v, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, c := range label {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+				return false
+			}
+		}
+	}
+	return true
+}
 func Names() []string {
 	cache.RLock()
 	defer cache.RUnlock()

@@ -3,8 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // Package smtp delivers outbound mail over an already connected socket.
-// It supports 8BITMIME and STARTTLS and uses the configured envelope domain
-// for EHLO/HELO.
+// It supports 8BITMIME and STARTTLS; EHLO uses HeloName.
 package smtp
 
 import (
@@ -40,6 +39,9 @@ type Client struct {
 	helloError error  // the error from the hello
 }
 
+// HeloName is the host name PMail announces in EHLO; see domain.HeloHost.
+func HeloName(fromDomain string) string { return domain.HeloHost(fromDomain) }
+
 // newClient establishes SMTP over an already connected socket.
 func newClient(conn net.Conn, host, fromDomain string) (*Client, error) {
 	text := textproto.NewConn(conn)
@@ -49,15 +51,7 @@ func newClient(conn net.Conn, host, fromDomain string) (*Client, error) {
 		return nil, err
 	}
 
-	localName := "domain.com"
-
-	if fromDomain != "" {
-		localName = fromDomain
-	} else if domain.DefaultName() != "" {
-		localName = domain.DefaultName()
-	}
-
-	return &Client{Text: text, conn: conn, serverName: host, localName: localName}, nil
+	return &Client{Text: text, conn: conn, serverName: host, localName: HeloName(fromDomain)}, nil
 }
 
 // Close closes the connection.
