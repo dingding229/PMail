@@ -161,7 +161,8 @@ export function parseAddressList(raw: unknown): ParsedEmailAddress[] {
   }
   if (typeof raw === 'string') {
     const trimmed = raw.trim()
-    if (!trimmed) return []
+    // Older rows store a missing Reply-To as the literal string "null".
+    if (!trimmed || trimmed === 'null') return []
     if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
       try {
         const parsed = JSON.parse(trimmed)

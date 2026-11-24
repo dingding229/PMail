@@ -7,7 +7,7 @@ const EXTERNAL_CSS_URL_RE = /url\(\s*(['"]?)((?:https?:)?\/\/[^'")\s]+)\1\s*\)/g
 
 // Open-tracking pixels: tiny or hidden images whose only purpose is to tell the
 // sender when (and from where) the mail was read. They are dropped, never loaded.
-function isTrackingPixel(img: Element, w: number | null, h: number | null): boolean {
+export function isTrackingPixel(img: Element, w: number | null, h: number | null): boolean {
   const style = (img.getAttribute('style') || '').toLowerCase().replace(/\s+/g, '')
   if (/display:none|visibility:hidden|opacity:0(?:[;!]|$)|max-(?:width|height):[01]px/.test(style)) return true
   const tinyW = w !== null && w <= 3
@@ -46,7 +46,7 @@ function extractLangClass(el: Element): string | null {
 }
 
 // Pixel size of an <img> from its width/height attributes or inline style.
-function declaredSize(img: Element, dim: 'width' | 'height'): number | null {
+export function declaredSize(img: Element, dim: 'width' | 'height'): number | null {
   const attr = (img.getAttribute(dim) || '').trim()
   const style = (img.getAttribute('style') || '').match(new RegExp(`(?:^|;)\\s*${dim}\\s*:\\s*([0-9.]+)px`, 'i'))
   const raw = /^[0-9.]+$/.test(attr) ? attr : style?.[1]
@@ -192,4 +192,19 @@ export function processEmailHtml(
     hasExternalImages,
     codeBlocks,
   }
+}
+
+/** Removes external open-tracking images (tiny or hidden) from mail HTML. */
+export function stripTrackingImages(html: string): string {
+  if (typeof DOMParser === 'undefined' || !/<img/i.test(html)) return html
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  let removed = false
+  doc.querySelectorAll('img').forEach((img) => {
+    if (!EXTERNAL_URL_RE.test((img.getAttribute('src') || '').trim())) return
+    if (isTrackingPixel(img, declaredSize(img, 'width'), declaredSize(img, 'height'))) {
+      img.remove()
+      removed = true
+    }
+  })
+  return removed ? doc.body.innerHTML : html
 }

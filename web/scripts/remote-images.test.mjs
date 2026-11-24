@@ -16,7 +16,7 @@ const bundle = await build({
     resolveDir: root,
     loader: 'tsx',
     contents: `
-      export { processEmailHtml } from './src/features/mail/emailHtml'
+      export { processEmailHtml, stripTrackingImages } from './src/features/mail/emailHtml'
       export { proxiedImageUrl } from './src/features/mail/remoteImages'
     `,
   },
@@ -94,4 +94,13 @@ test('proxy URL encodes the original', () => {
     proxiedImageUrl(3, 'a b', '//x.example/p.png?a=1&b=2'),
     '/api/email/image/3?t=a%20b&u=https%3A%2F%2Fx.example%2Fp.png%3Fa%3D1%26b%3D2',
   )
+})
+
+test('quoted HTML loses tracking pixels but keeps real images', async () => {
+  const { stripTrackingImages } = mod
+  const out = stripTrackingImages(
+    '<img src="https://t.example/p" width="1" height="1"><img src="https://t.example/h" style="display:none"><img src="https://cdn.example/a.png" width="200">',
+  )
+  assert.doesNotMatch(out, /t\.example/)
+  assert.match(out, /cdn\.example\/a\.png/)
 })

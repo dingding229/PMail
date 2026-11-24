@@ -240,7 +240,7 @@ func sanitizeHTML(htmlContent string) string {
 		return ""
 	}
 
-	sanitized := relaxedPolicy.Sanitize(htmlContent)
+	sanitized := relaxedPolicy.Sanitize(stripTrackingImages(htmlContent))
 	if strings.Contains(htmlContent, "\r\n") && !strings.Contains(strings.ReplaceAll(htmlContent, "\r\n", ""), "\n") {
 		sanitized = strings.ReplaceAll(strings.ReplaceAll(sanitized, "\r\n", "\n"), "\n", "\r\n")
 	}

@@ -53,6 +53,7 @@ import {
 } from './editor/paste-sanitizer'
 import { htmlToMailPlainText } from './editor/html-to-text'
 import { proxiedImageUrl } from './remoteImages'
+import { stripTrackingImages } from './emailHtml'
 import { SIGNATURE_BLOCK_ATTR, type InlineImageDraft } from './editor/types'
 import type { ComposeContext, LocalDraft } from './types'
 
@@ -197,7 +198,8 @@ function buildQuotedHtml(
   if (srcHtml && srcHtml.trim().length > 0) {
     const token = opts.sourceEmail?.image_proxy_token
     const canProxy = opts.allowExternalImages && Boolean(opts.sourceEmail && token)
-    const quoted = sanitizePastedHtml(srcHtml, {
+    // Tracking pixels are neither shown in the editor nor sent on.
+    const quoted = sanitizePastedHtml(stripTrackingImages(srcHtml), {
       // Without the proxy, external images are never shown in the editor.
       blockExternalImages: !canProxy,
       maxDataImageBytes: MAX_INLINE_IMAGE_BYTES,
