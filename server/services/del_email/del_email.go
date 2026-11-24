@@ -104,21 +104,3 @@ func afterUnlink(tx *xorm.Session, owner, id int, n, size int64) error {
 	}
 	return mailstore.DeleteDerived(tx, id)
 }
-
-func DelByUID(ctx *context.Context, ids []int) error {
-	return db.Transaction(db.Instance, func(tx *xorm.Session) error {
-		if _, err := quota.Lock(tx, ctx.UserID); err != nil {
-			return err
-		}
-		var links []models.UserEmail
-		for batch := range slices.Chunk(ids, BatchSize) {
-			var part []models.UserEmail
-			if err := tx.Where("user_id=?", ctx.UserID).In("id", batch).Cols("id", "email_id").Find(&part); err != nil {
-				return err
-			}
-			links = append(links, part...)
-		}
-		_, err := PurgeLinks(tx, ctx.UserID, links)
-		return err
-	})
-}

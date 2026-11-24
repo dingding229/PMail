@@ -10,6 +10,7 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/testschema"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/dkimkey"
@@ -70,7 +71,7 @@ func TestForwardToLocalUser(t *testing.T) {
 		From:      &parsemail.User{EmailAddress: "sender@example.com"},
 		RawData:   []byte("From: sender@example.com\r\nTo: recipient@example.com\r\n\r\nbody"),
 	}
-	if err := doForward(&context.Context{}, email, "recipient@example.com", sender, nil); err != nil {
+	if err := forward.EnqueueForUser(&context.Context{}, sender.ID, email, email.RawData, "recipient@example.com"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,7 +83,7 @@ func TestForwardToLocalUser(t *testing.T) {
 		t.Fatalf("expected one user_email link for recipient, got %+v", links)
 	}
 
-	if err := doForward(&context.Context{}, email, "recipient@example.com", sender, nil); err != nil {
+	if err := forward.EnqueueForUser(&context.Context{}, sender.ID, email, email.RawData, "recipient@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	var count int64
@@ -125,7 +126,7 @@ func TestForwardToLocalUserRejectsSelfLoop(t *testing.T) {
 	if err := address.Backfill(); err != nil {
 		t.Fatal(err)
 	}
-	err = doForward(&context.Context{}, &parsemail.Email{MessageId: 1, From: &parsemail.User{EmailAddress: "sender@example.com"}}, "sender@example.com", &models.User{ID: 1, Account: "sender"}, []byte("From: sender@example.com\r\n\r\nbody"))
+	err = forward.EnqueueForUser(&context.Context{}, 1, &parsemail.Email{MessageId: 1, From: &parsemail.User{EmailAddress: "sender@example.com"}}, []byte("From: sender@example.com\r\n\r\nbody"), "sender@example.com")
 	if err == nil || !strings.Contains(err.Error(), "loop forwarding to self") {
 		t.Fatalf("expected self-loop error, got %v", err)
 	}

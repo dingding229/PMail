@@ -275,7 +275,11 @@ export function AppearanceSection() {
                 {t('settings.appearance.showBrandAvatarsDesc')}
               </p>
             </div>
-            <Switch checked={showBrandAvatars} onCheckedChange={setShowBrandAvatars} />
+            <Switch
+              aria-label={t('settings.appearance.showBrandAvatarsLabel')}
+              checked={showBrandAvatars}
+              onCheckedChange={setShowBrandAvatars}
+            />
           </div>
 
           <div className="flex items-center justify-between gap-4 px-4 py-3.5">
@@ -287,7 +291,11 @@ export function AppearanceSection() {
                 {t('settings.appearance.autoRefreshDesc')}
               </p>
             </div>
-            <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} />
+            <Switch
+              aria-label={t('settings.appearance.autoRefreshLabel')}
+              checked={autoRefresh}
+              onCheckedChange={setAutoRefresh}
+            />
           </div>
 
           <div className="space-y-2.5 px-4 py-3.5">
@@ -301,6 +309,7 @@ export function AppearanceSection() {
                 </p>
               </div>
               <Switch
+                aria-label={t('settings.appearance.desktopNotifLabel')}
                 checked={desktopNotifications && notifPermission === 'granted'}
                 disabled={!notificationSupported}
                 onCheckedChange={(checked) => void handleToggleDesktopNotifications(checked)}

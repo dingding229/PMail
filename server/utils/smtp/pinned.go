@@ -51,7 +51,7 @@ func SendPinned(ctx context.Context, conn net.Conn, mx, from, fromDomain string,
 	}
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
-	c, err := NewClient(conn, mx, fromDomain)
+	c, err := newClient(conn, mx, fromDomain)
 	if err != nil {
 		return err
 	}

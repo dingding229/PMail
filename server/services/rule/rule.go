@@ -1,8 +1,6 @@
 package rule
 
 import (
-	"fmt"
-
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/dto/parsemail"
@@ -101,26 +99,6 @@ func DoRule(ctx *context.Context, rule *dto.Rule, email *parsemail.Email, user *
 		doMove(ctx, rule, email, user)
 	}
 
-}
-
-func doForward(ctx *context.Context, email *parsemail.Email, forwardAddress string, user *models.User, rawEmailData []byte) error {
-	targets := forward.Targets(forwardAddress)
-	if len(targets) == 0 {
-		return fmt.Errorf("invalid forward address: %s", forwardAddress)
-	}
-	if len(rawEmailData) == 0 && email != nil && email.From != nil {
-		var err error
-		rawEmailData, err = email.BuildBytes(ctx, false)
-		if err != nil {
-			return err
-		}
-	}
-	for _, target := range targets {
-		if err := forward.EnqueueForUser(ctx, user.ID, email, rawEmailData, target); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func doMove(ctx *context.Context, r *dto.Rule, email *parsemail.Email, user *models.User) {

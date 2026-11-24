@@ -405,6 +405,7 @@ export function TelegramSection() {
               <div className="flex flex-wrap gap-2">
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--surface-subtle)]/70 px-3 py-1.5 text-[12.5px]">
                   <Checkbox
+                    aria-label={t('settings.telegram.groupsAll')}
                     checked={allGroups}
                     onCheckedChange={(checked) => {
                       const isAll = Boolean(checked)
@@ -422,6 +423,7 @@ export function TelegramSection() {
                       className="inline-flex cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-3 py-1.5 text-[12.5px]"
                     >
                       <Checkbox
+                        aria-label={g.name}
                         checked={selectedGroupIds.includes(g.id)}
                         onCheckedChange={() => toggleGroupId(g.id)}
                       />
@@ -446,6 +448,7 @@ export function TelegramSection() {
                   </p>
                 </div>
                 <Switch
+                  aria-label={t('settings.telegram.onlyVerificationLabel')}
                   checked={onlyVerification}
                   onCheckedChange={setOnlyVerification}
                 />
@@ -460,7 +463,11 @@ export function TelegramSection() {
                     {t('settings.telegram.includeSpamDesc')}
                   </p>
                 </div>
-                <Switch checked={includeSpam} onCheckedChange={setIncludeSpam} />
+                <Switch
+                  aria-label={t('settings.telegram.includeSpamLabel')}
+                  checked={includeSpam}
+                  onCheckedChange={setIncludeSpam}
+                />
               </div>
 
               <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
@@ -472,7 +479,11 @@ export function TelegramSection() {
                     {t('settings.telegram.includePreviewDesc')}
                   </p>
                 </div>
-                <Switch checked={includePreview} onCheckedChange={setIncludePreview} />
+                <Switch
+                  aria-label={t('settings.telegram.includePreviewLabel')}
+                  checked={includePreview}
+                  onCheckedChange={setIncludePreview}
+                />
               </div>
 
               <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
@@ -487,7 +498,11 @@ export function TelegramSection() {
                     {t('settings.telegram.autoTranslateAdminHint')}
                   </p>
                 </div>
-                <Switch checked={autoTranslate} onCheckedChange={setAutoTranslate} />
+                <Switch
+                  aria-label={t('settings.telegram.autoTranslateLabel')}
+                  checked={autoTranslate}
+                  onCheckedChange={setAutoTranslate}
+                />
               </div>
 
               <div className="space-y-3 px-3.5 py-2.5">
@@ -500,7 +515,11 @@ export function TelegramSection() {
                       {t('settings.telegram.quietHoursDesc')}
                     </p>
                   </div>
-                  <Switch checked={quietEnabled} onCheckedChange={setQuietEnabled} />
+                  <Switch
+                    aria-label={t('settings.telegram.quietHoursLabel')}
+                    checked={quietEnabled}
+                    onCheckedChange={setQuietEnabled}
+                  />
                 </div>
 
                 {quietEnabled && (

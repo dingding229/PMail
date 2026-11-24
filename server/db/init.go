@@ -65,16 +65,8 @@ func Open(cfg *config.Config, retry bool) (*xorm.Engine, error) {
 	return engine, nil
 }
 
-func Init(version string) error {
-	return initializeDB(version, false, false)
-}
-
 func InitStartup(version string, preserveUsers bool) error {
-	return initializeDB(version, true, preserveUsers)
-}
-
-func initializeDB(version string, retry, preserveUsers bool) error {
-	engine, err := Open(config.Instance, retry)
+	engine, err := Open(config.Instance, true)
 	if err != nil {
 		return err
 	}
@@ -133,13 +125,13 @@ func SyncSchema(engine *xorm.Engine) error {
 		&models.TelegramConfig{}, &models.TelegramBinding{}, &models.TelegramCode{}, &models.TelegramPreference{}, &models.TelegramPush{}, &models.ComposeImage{}, &models.DraftInlineImage{}, &models.Signature{},
 	} {
 		var err error
-		if _, ok := model.(*models.UserEmail); ok {
-			// The ordered cross-dialect indexes below are not generated from model
-			// declaration ordering. Never drop/rebuild them on every startup.
+		switch model.(type) {
+		case *models.UserEmail, *models.EmailTranslation:
+			// Drop only the redundant indexes explicitly selected below.
 			_, err = engine.SyncWithOptions(xorm.SyncOptions{IgnoreDropIndices: true}, model)
-		} else if _, ok := model.(*models.MailboxAddress); ok {
+		case *models.MailboxAddress:
 			err = syncAddressSchema(engine)
-		} else {
+		default:
 			err = engine.Sync2(model)
 		}
 		if err != nil {
@@ -147,6 +139,10 @@ func SyncSchema(engine *xorm.Engine) error {
 		}
 	}
 	if err := syncMailIndexes(engine); err != nil {
+		return err
+	}
+	// The web/AI translation cache is already keyed with EmailID first.
+	if err := dropRedundantModelIndex(engine, &models.EmailTranslation{}, "email_id"); err != nil {
 		return err
 	}
 	return widenUserColumns(engine)

@@ -48,12 +48,6 @@ func ipOf(remote string) string {
 	return "unknown"
 }
 
-// Authenticate is the ordinary password path, not a second-factor bypass.
-func Authenticate(login, secret, remote string) (models.User, error) {
-	u, _, err := authenticate(login, secret, remote, false, false)
-	return u, err
-}
-
 func AuthenticateMail(login, secret, remote string) (models.User, int, error) {
 	return authenticate(login, secret, remote, true, false)
 }
@@ -281,35 +275,4 @@ func RunCleanup(ctx context.Context) {
 			attempts.Unlock()
 		}
 	}
-}
-
-// ValidateSession re-checks long-lived mail protocol connections after password changes or disabling.
-func ValidateSession(userID int, version int64) error {
-	return validateSession(userID, version, nil)
-}
-
-func ValidateSessionRole(userID int, version int64, admin bool) error {
-	return validateSession(userID, version, &admin)
-}
-
-func validateSession(userID int, version int64, admin *bool) error {
-	if userID <= 0 {
-		return ErrCredentials
-	}
-	query := db.Instance.ID(userID).Where("disabled = 0 AND auth_version = ?", version)
-	if admin != nil {
-		role := 0
-		if *admin {
-			role = 1
-		}
-		query.Where("is_admin = ?", role)
-	}
-	ok, err := query.Exist(&models.User{})
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return ErrCredentials
-	}
-	return nil
 }

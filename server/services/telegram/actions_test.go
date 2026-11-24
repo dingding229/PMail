@@ -496,3 +496,31 @@ func TestRealTranslationServicePreferenceCacheAndPersonalAIAvailability(t *testi
 		t.Fatal("real-service callback missing reply")
 	}
 }
+
+func TestBrokenPushPreferenceDoesNotBlockOtherRecipients(t *testing.T) {
+	w, e, bot, owner, other, cfg := callbackFixture(t)
+	ctx := t.Context()
+	first := callbackMail(t, e, owner, "none", "first")
+	second := callbackMail(t, e, other, "none", "second")
+	now := time.Now()
+	broken := models.TelegramPush{UserID: owner, EmailID: first.Id, Binding: "current-binding", Due: now.Add(-time.Second).UnixMilli(), Expires: now.Add(time.Hour).UnixMilli()}
+	ready := models.TelegramPush{UserID: other, EmailID: second.Id, Binding: "second-binding", Due: now.UnixMilli(), Expires: broken.Expires}
+	if _, err := e.Insert(&broken, &ready, &models.TelegramPreference{UserID: owner, Filters: "not-json"},
+		&models.TelegramBinding{UserID: other, ChatID: testChatID + 1, Bot: cfg.Generation, Identity: ready.Binding}); err != nil {
+		t.Fatal(err)
+	}
+	if !w.queueOnce(ctx) {
+		t.Fatal("failed row was not rescheduled")
+	}
+	var row models.TelegramPush
+	if ok, err := e.ID(broken.ID).Get(&row); err != nil || !ok || row.Attempts != 1 || row.Due <= now.UnixMilli() {
+		t.Fatalf("failed push retry state id=%d attempts=%d: %v", row.ID, row.Attempts, err)
+	}
+	if !w.queueOnce(ctx) {
+		t.Fatal("healthy queue entry did not run")
+	}
+	_, sent := bot.snapshot()
+	if len(sent) != 1 || sent[0].ChatID != testChatID+1 {
+		t.Fatal("healthy recipient did not receive exactly one push")
+	}
+}

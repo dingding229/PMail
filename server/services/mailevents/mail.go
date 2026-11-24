@@ -21,6 +21,10 @@ type Item struct {
 	GroupID     int    `json:"group_id" xorm:"group_id"`
 }
 
+func CredentialsCurrent(ctx context.Context, owner int, authVersion, factorVersion int64) (bool, error) {
+	return db.Instance.Context(ctx).ID(owner).Where("disabled=0 AND auth_version=? AND factor_version=?", authVersion, factorVersion).Exist(&models.User{})
+}
+
 func VisibleMax(ctx context.Context, owner int) (int64, error) {
 	var id int64
 	_, err := db.Instance.Context(ctx).SQL(`SELECT ue.email_id FROM user_email ue JOIN email e ON e.id=ue.email_id WHERE ue.user_id=? ORDER BY ue.email_id DESC LIMIT 1`, owner).Get(&id)

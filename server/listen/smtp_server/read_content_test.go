@@ -33,7 +33,7 @@ func testInit(t *testing.T) {
 		}
 		config.Instance, db.Instance = oldConfig, oldDB
 	})
-	if err := db.Init(""); err != nil {
+	if err := db.InitStartup("", false); err != nil {
 		t.Fatal(err)
 	}
 }

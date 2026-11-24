@@ -49,7 +49,7 @@ const webFields = `e.id,e.type,e.status,e.send_date,e.create_time,e.update_time,
 
 func webPageSQL(ctx *context.Context, tag dto.SearchTag, keyword string, cursor MailCursor, offset, limit int, filters ...mailaddress.Filter) (string, []any, string, []any, error) {
 	// Reuse the legacy mailbox semantics, including IMAP copies and drafts.
-	countSQL, args := genSQL(ctx, true, tag, keyword, false, 0, 0, filters...)
+	countSQL, args := countSQLFor(ctx, tag, keyword, filters...)
 	from := strings.TrimPrefix(countSQL, "select count(1)")
 	query := "SELECT ue.id,ue.email_id" + from
 	pageArgs := append([]any(nil), args...)
@@ -137,7 +137,7 @@ func WebPage(ctx *context.Context, tag dto.SearchTag, keyword string, cursor Mai
 
 // FolderCount uses the same predicates as WebPage, without reading MIME/body data.
 func FolderCount(ctx *context.Context, tag dto.SearchTag, filter mailaddress.Filter) (total, unread int, err error) {
-	q, args := genSQL(ctx, true, tag, "", false, 0, 0, filter)
+	q, args := countSQLFor(ctx, tag, "", filter)
 	q = "SELECT COUNT(1) AS total,COALESCE(SUM(CASE WHEN ue.is_read=0 THEN 1 ELSE 0 END),0) AS unread" + strings.TrimPrefix(q, "select count(1)")
 	var row struct{ Total, Unread int }
 	_, err = db.Instance.SQL(q, args...).Get(&row)

@@ -10,13 +10,6 @@ func Uint32(n int64) (uint32, bool) {
 	return uint32(n), true
 }
 
-func Int64(n uint64) (int64, bool) {
-	if n > math.MaxInt64 {
-		return 0, false
-	}
-	return int64(n), true
-}
-
 // SliceIndex validates a uint64 offset against both the native integer range
 // and the available bytes, including a legal offset at the end of the buffer.
 func SliceIndex(n uint64, available int) (int, bool) {

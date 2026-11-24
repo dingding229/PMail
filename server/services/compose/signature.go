@@ -235,18 +235,3 @@ func DeleteSignature(ctx context.Context, uid, id int) error {
 	}
 	return err
 }
-
-// SelectSignature is the server mirror of U7's deterministic selection, when
-// a caller needs it. Sending never appends a second signature to editor HTML.
-func SelectSignature(rows []Signature, addressID int) *Signature {
-	var def *Signature
-	for _, r := range rows {
-		if slices.Contains(r.Addresses, addressID) {
-			return &r
-		}
-		if def == nil && r.Default {
-			def = &r
-		}
-	}
-	return def
-}

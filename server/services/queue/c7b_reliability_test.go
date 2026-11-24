@@ -17,14 +17,14 @@ func TestC7bQueueFencingRejectsStaleCompletion(t *testing.T) {
 	if _, err := Enqueue(KindSend, 1, 0, "first@example.test", "last@example.test", []byte("body")); err != nil {
 		t.Fatal(err)
 	}
-	stale, ok, err := claimOne()
+	stale, ok, err := claimOneContext(t.Context())
 	if err != nil || !ok {
 		t.Fatal(stale, err)
 	}
 	if err = recoverExpiredLeases(time.Now().Add(11 * time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	active, ok, err := claimOne()
+	active, ok, err := claimOneContext(t.Context())
 	if err != nil || !ok || active.LeaseFence <= stale.LeaseFence {
 		t.Fatal(active, err)
 	}

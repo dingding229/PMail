@@ -48,7 +48,7 @@ func TestQueueSQLiteLifecycleAndParentStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claimed, ok, err := claimOne()
+	claimed, ok, err := claimOneContext(t.Context())
 	if err != nil || !ok || claimed.ID != row.ID || claimed.Attempts != 1 {
 		t.Fatalf("claim = %+v, ok=%v, err=%v", claimed, ok, err)
 	}
@@ -79,7 +79,7 @@ func TestQueueSQLiteRetryMaxAttemptsAndLeaseRecovery(t *testing.T) {
 	if ok, err := engine.ID(row.ID).Get(&reset); err != nil || !ok || reset.Status != StatusPending || reset.LeaseUntil != nil {
 		t.Fatalf("lease recovery = %+v, ok=%v, err=%v", reset, ok, err)
 	}
-	claimed, ok, err := claimOne()
+	claimed, ok, err := claimOneContext(t.Context())
 	if err != nil || !ok {
 		t.Fatalf("claim after recovery: %+v %v %v", claimed, ok, err)
 	}
@@ -164,7 +164,7 @@ func TestQueuePayloadDeduplicatesLegacyAndNewRecipients(t *testing.T) {
 			t.Fatal("queue list loaded wire data")
 		}
 	}
-	claim, ok, err := claimOne()
+	claim, ok, err := claimOneContext(t.Context())
 	if err != nil || !ok || !bytes.Equal(claim.RawData, raw) {
 		t.Fatalf("claim=%v %v", ok, err)
 	}

@@ -755,7 +755,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/C9Error'}
         '401':
-          description: Sign-in required (inbound_login_required).
+          description: Sign-in required (inbound_login_required), including when the account is disabled or credentials change during a long poll.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/C9Error'}
@@ -1146,6 +1146,7 @@ paths:
       operationId: moveMail
       tags: [Mail]
       summary: Move messages to a built-in or custom mailbox group
+      description: Moving a message from Trash to a custom group removes it from Trash and cancels its scheduled purge.
       x-permission: owner
       parameters:
       - {$ref: '#/components/parameters/PMailLang'}

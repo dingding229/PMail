@@ -173,15 +173,6 @@ func validateCertificate(cert *tls.Certificate) error {
 	return nil
 }
 
-func coversDomains(cfg *config.Config, cert *tls.Certificate) bool {
-	for _, domain := range certificateDomains(cfg) {
-		if cert.Leaf.VerifyHostname(domain) != nil {
-			return false
-		}
-	}
-	return true
-}
-
 // MaintainCertificate obtains or renews automatic TLS material when warranted.
 // It never starts or restarts listeners. A nil cert requests initial issuance.
 func MaintainCertificate(ctx context.Context, cfg *config.Config, cert *tls.Certificate) (bool, error) {
@@ -270,17 +261,4 @@ func obtainCertificate(ctx context.Context, cfg *config.Config, domains []string
 		log.Warnf("Could not save ACME issuer certificate: %v", err)
 	}
 	return nil
-}
-
-// CheckSSLCrtInfo returns the certificate's remaining days, expiry and name mismatch.
-func CheckSSLCrtInfo() (int, time.Time, bool, error) {
-	cfg, err := config.ReadEffectiveConfig()
-	if err != nil {
-		return -1, time.Time{}, true, err
-	}
-	cert, err := LoadCertificate(cfg)
-	if err != nil {
-		return -1, time.Time{}, true, err
-	}
-	return int(time.Until(cert.Leaf.NotAfter).Hours() / 24), cert.Leaf.NotAfter, !coversDomains(cfg, cert), nil
 }

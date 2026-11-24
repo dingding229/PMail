@@ -255,6 +255,7 @@ export function AddressesSection({ userId, embedded = false }: AddressesSectionP
                   <label className="inline-flex items-center gap-2 text-[12.5px] text-[var(--ink-secondary)]">
                     <span>{t('settings.addresses.canSendLabel')}</span>
                     <Switch
+                      aria-label={`${t('settings.addresses.canSendLabel')} ${addr.address}`}
                       checked={isActive ? addr.can_send : false}
                       disabled={!isActive || addr.is_primary || toggleSendMutation.isPending}
                       onCheckedChange={(checked) =>

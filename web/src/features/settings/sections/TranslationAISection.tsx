@@ -320,7 +320,11 @@ export function TranslationAISection() {
               label={t('settings.translation.autoTranslateLabel')}
               description={t('settings.translation.autoTranslateDesc')}
             >
-              <Switch checked={autoTranslate} onCheckedChange={setAutoTranslate} />
+              <Switch
+                aria-label={t('settings.translation.autoTranslateLabel')}
+                checked={autoTranslate}
+                onCheckedChange={setAutoTranslate}
+              />
             </FormRow>
 
             <FormRow
@@ -329,7 +333,11 @@ export function TranslationAISection() {
               label={t('settings.translation.aiAutoSummaryLabel')}
               description={t('settings.translation.aiAutoSummaryDesc')}
             >
-              <Switch checked={aiAutoSummary} onCheckedChange={setAiAutoSummary} />
+              <Switch
+                aria-label={t('settings.translation.aiAutoSummaryLabel')}
+                checked={aiAutoSummary}
+                onCheckedChange={setAiAutoSummary}
+              />
             </FormRow>
 
             <SectionFooter>

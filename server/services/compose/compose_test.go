@@ -92,7 +92,7 @@ func TestInlineOwnershipDraftRetentionRelatedAndCleanup(t *testing.T) {
 		t.Fatal("stale image not purged")
 	}
 }
-func TestSignatureSanitizationOwnershipAndSelection(t *testing.T) {
+func TestSignatureSanitizationAndOwnership(t *testing.T) {
 	uid, other := fixture(t)
 	ctx := context.Background()
 	address := models.MailboxAddress{UserID: uid, LocalPart: "sender", DomainID: 1}
@@ -111,7 +111,7 @@ func TestSignatureSanitizationOwnershipAndSelection(t *testing.T) {
 		t.Fatal("foreign update accepted")
 	}
 	items, err := Signatures(ctx, uid)
-	if err != nil || SelectSignature(items, address.ID) == nil || SelectSignature(items, 999) == nil {
-		t.Fatalf("signature selection %v %v", items, err)
+	if err != nil || len(items) != 1 || items[0].ID != rec.ID || !items[0].Default || len(items[0].Addresses) != 1 || items[0].Addresses[0] != address.ID {
+		t.Fatalf("signature listing %v %v", items, err)
 	}
 }

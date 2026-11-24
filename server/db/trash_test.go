@@ -49,7 +49,7 @@ func TestTrashSchemaAndLegacyBackfill(t *testing.T) {
 		t.Fatalf("live row incorrectly stamped: %+v", rows[1])
 	}
 	var n int
-	if _, err := e.SQL(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND tbl_name='user_email' AND sql LIKE '%deleted_at%'`).Get(&n); err != nil || n != 1 {
+	if _, err := e.SQL(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND tbl_name='user_email' AND name='IDX_user_email_deleted_at'`).Get(&n); err != nil || n != 1 {
 		t.Fatalf("deleted_at index=%d err=%v", n, err)
 	}
 }

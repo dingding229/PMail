@@ -70,6 +70,8 @@ docker compose pull && docker compose up -d --wait postgres
 )
 ```
 
+如果源库已经启用了两步验证或配置了 Telegram、AI 等加密设置，目标必须沿用原配置中的加密主密钥，否则只恢复数据库无法解密这些设置。迁移会保留已有的恢复码、应用专用密码和 IMAP UID；不会迁移登录会话。
+
 导入成功后执行 `docker compose up -d`。用迁移后的账户登录，核对域名/DKIM、地址、邮件数量、配额和外发队列；旧 Token 需重新创建。`.env` 的引导密码不会覆盖已存在的管理员密码。
 
 ## 回滚

@@ -13,10 +13,26 @@ import (
 
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/db"
+	"github.com/go-sql-driver/mysql"
 	"github.com/lib/pq"
+	"modernc.org/sqlite"
 )
 
-var tables = []string{"user", "email", "group", "rule", "user_email", "version", "domain", "mailbox_address", "address_settings", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "bounce_notice", "inbound_settings", "trash_settings", "spam_preference", "spam_rule", "spam_training", "spam_totals", "spam_token", "telegram_config", "telegram_binding", "telegram_code", "telegram_preference", "telegram_push", "compose_image", "draft_inline_image", "signature", "translation_settings", "user_ai_config", "translation_preference", "translation_usage", "email_translation", "email_ai_result"}
+// Required tables are present in the oldest supported source. The rest
+// may not exist yet; do not confuse an absent source with a target error.
+var requiredTables = []string{"user", "email", "group", "rule", "user_email", "version"}
+var optionalTables = []string{
+	"domain", "mailbox_address", "address_settings", "api_token",
+	"totp_config", "recovery_code", "app_password",
+	"user_email_address", "user_email_address_progress", "imap_mailbox", "imap_mailbox_uid",
+	"forward_setting", "outbound_payload", "outbound_queue", "bounce_notice", "inbound_settings", "trash_settings",
+	"spam_preference", "spam_rule", "spam_training", "spam_totals", "spam_token",
+	"telegram_config", "telegram_binding", "telegram_code", "telegram_preference", "telegram_push",
+	"compose_image", "draft_inline_image", "signature", "translation_settings", "user_ai_config",
+	"translation_preference", "translation_usage", "email_translation", "email_ai_result",
+}
+var tables = slices.Concat(requiredTables, optionalTables)
+var errSourceTableAbsent = errors.New("source table absent")
 
 const batchSize = 200
 
@@ -108,8 +124,7 @@ func Run(args []string) error {
 
 	for _, table := range tables {
 		if err := copyTable(sourceTx, tx, *fromType, table, qualified(table)); err != nil {
-			message := strings.ToLower(err.Error())
-			if slices.Contains([]string{"domain", "mailbox_address", "address_settings", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "bounce_notice", "inbound_settings", "trash_settings", "spam_preference", "spam_rule", "spam_training", "spam_totals", "spam_token", "telegram_config", "telegram_binding", "telegram_code", "telegram_preference", "telegram_push", "compose_image", "draft_inline_image", "signature", "translation_settings", "user_ai_config", "translation_preference", "translation_usage", "email_translation", "email_ai_result"}, table) && (strings.Contains(message, "no such table") || strings.Contains(message, "doesn't exist") || strings.Contains(message, "undefined table")) {
+			if slices.Contains(optionalTables, table) && errors.Is(err, errSourceTableAbsent) {
 				fmt.Printf("%s: source table absent; normal startup will backfill it\n", table)
 				continue
 			}
@@ -121,7 +136,7 @@ func Run(args []string) error {
 		return err
 	}
 	for _, table := range tables {
-		if err := resetSequence(tx, qualified(table)); err != nil {
+		if err := resetSequence(tx, table, qualified(table)); err != nil {
 			return fmt.Errorf("reset %s sequence: %w", table, err)
 		}
 	}
@@ -195,6 +210,9 @@ func copyTable(source, target *sql.Tx, driver, name, dest string) error {
 	from := quoteSource(name)
 	cols, err := columns(source, from)
 	if err != nil {
+		if isMissingSourceTable(err) {
+			return errSourceTableAbsent
+		}
 		return err
 	}
 	targetCols, err := columns(target, dest)
@@ -314,26 +332,39 @@ func copyRows(rows *sql.Rows, insert *sql.Stmt, width, idIndex int, lastID *int6
 
 func migrationKeyColumn(table string) string {
 	switch table {
-	case "forward_setting", "spam_preference", "spam_totals", "telegram_binding", "telegram_code", "telegram_preference", "user_ai_config", "translation_preference", "translation_usage":
+	case "totp_config", "forward_setting", "spam_preference", "spam_totals", "telegram_binding", "telegram_code", "telegram_preference", "user_ai_config", "translation_preference", "translation_usage":
 		return "user_id"
-	case "spam_training", "spam_token", "compose_image", "draft_inline_image", "email_translation", "email_ai_result":
+	case "recovery_code", "user_email_address", "imap_mailbox_uid", "spam_training", "spam_token", "compose_image", "draft_inline_image", "email_translation", "email_ai_result":
 		return ""
 	}
 	return "id"
 }
 
-func resetSequence(tx *sql.Tx, table string) error {
-	for _, name := range []string{"address_settings", "translation_settings", "user_ai_config", "translation_preference", "translation_usage", "email_translation", "email_ai_result"} {
-		if strings.HasSuffix(table, "."+pq.QuoteIdentifier(name)) {
-			return nil
-		}
+func isMissingSourceTable(err error) bool {
+	var my *mysql.MySQLError
+	var lite *sqlite.Error
+	return (errors.As(err, &my) && my.Number == 1146) ||
+		(errors.As(err, &lite) && lite.Code() == 1 && strings.Contains(lite.Error(), "no such table:"))
+}
+
+func hasIDSequence(table string) bool {
+	if migrationKeyColumn(table) != "id" {
+		return false
 	}
-	if strings.Contains(table, "forward_setting") || strings.HasSuffix(table, `."inbound_settings"`) || strings.HasSuffix(table, `."trash_settings"`) || strings.HasSuffix(table, `."spam_preference"`) || strings.HasSuffix(table, `."spam_totals"`) || strings.HasSuffix(table, `."spam_training"`) || strings.HasSuffix(table, `."spam_token"`) || strings.HasSuffix(table, `."telegram_config"`) || strings.HasSuffix(table, `."telegram_binding"`) || strings.HasSuffix(table, `."telegram_code"`) || strings.HasSuffix(table, `."telegram_preference"`) || strings.HasSuffix(table, `."compose_image"`) || strings.HasSuffix(table, `."draft_inline_image"`) {
+	switch table {
+	case "address_settings", "inbound_settings", "trash_settings", "telegram_config", "translation_settings", "user_email_address_progress":
+		return false
+	}
+	return true
+}
+
+func resetSequence(tx *sql.Tx, table, qualified string) error {
+	if !hasIDSequence(table) {
 		return nil
 	}
 	var value int64
 	return tx.QueryRow(`SELECT setval(s.seqrelid, greatest(coalesce(m.max_id, s.seqmin), s.seqmin),
 		coalesce(m.max_id >= s.seqmin, false))
-		FROM pg_sequence s CROSS JOIN (SELECT max(id) AS max_id FROM `+table+`) m
-		WHERE s.seqrelid = pg_get_serial_sequence($1, 'id')::regclass`, table).Scan(&value)
+		FROM pg_sequence s CROSS JOIN (SELECT max(id) AS max_id FROM `+qualified+`) m
+		WHERE s.seqrelid = pg_get_serial_sequence($1, 'id')::regclass`, qualified).Scan(&value)
 }

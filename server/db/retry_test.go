@@ -276,7 +276,7 @@ func TestPermanentSQLiteBusyCommitLeavesConnectionUsable(t *testing.T) {
 	}
 	_ = blocker.Close()
 
-	err = runTransaction(engine, func(session *xorm.Session) error {
+	err = Transaction(engine, func(session *xorm.Session) error {
 		_, insertErr := session.Exec("INSERT INTO audit(value) VALUES ('after busy')")
 		return insertErr
 	})

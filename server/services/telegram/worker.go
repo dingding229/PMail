@@ -324,6 +324,21 @@ func drop(ctx context.Context, id int) {
 func reschedule(ctx context.Context, row models.TelegramPush, attempt int, when time.Time) {
 	_, _ = db.Instance.Context(ctx).Table(&models.TelegramPush{}).ID(row.ID).Update(map[string]any{"due": when.UnixMilli(), "attempts": attempt})
 }
+
+// A malformed preference or another row-specific failure must not leave the
+// same due row in front of every other recipient. Retry with a bounded backoff;
+// use the observed lease fields so we never reschedule another worker's claim.
+func retryPushPreparation(ctx context.Context, row models.TelegramPush) bool {
+	attempt := row.Attempts + 1
+	due := time.Now().Add(time.Duration(1<<min(attempt, 5)) * time.Second)
+	n, err := db.Instance.Context(ctx).Table(&models.TelegramPush{}).ID(row.ID).
+		Where("due=? AND attempts=?", row.Due, row.Attempts).Update(map[string]any{"due": due.UnixMilli(), "attempts": attempt})
+	if err == nil && n == 1 && attempt >= 5 {
+		log.Warnf("telegram push preparation exhausted user_id=%d", row.UserID)
+	}
+	return err == nil && n == 1
+}
+
 func (w *worker) queueOnce(ctx context.Context) bool {
 	now := time.Now()
 	var row models.TelegramPush
@@ -341,7 +356,7 @@ func (w *worker) queueOnce(ctx context.Context) bool {
 	}
 	b, ok, err := binding(ctx, c, row.UserID)
 	if err != nil {
-		return false
+		return retryPushPreparation(ctx, row)
 	}
 	if !ok || b.Identity != row.Binding {
 		drop(ctx, row.ID)
@@ -352,7 +367,7 @@ func (w *worker) queueOnce(ctx context.Context) bool {
 	}
 	f, err := filters(ctx, row.UserID)
 	if err != nil {
-		return false
+		return retryPushPreparation(ctx, row)
 	}
 	if quiet(f.Quiet, now) {
 		drop(ctx, row.ID)
@@ -360,7 +375,7 @@ func (w *worker) queueOnce(ctx context.Context) bool {
 	}
 	l, ok, err := loadLink(ctx, row.UserID, row.EmailID)
 	if err != nil {
-		return false
+		return retryPushPreparation(ctx, row)
 	}
 	if !ok {
 		drop(ctx, row.ID)
@@ -368,7 +383,7 @@ func (w *worker) queueOnce(ctx context.Context) bool {
 	}
 	var owner models.User
 	if ok, err = db.Instance.Context(ctx).ID(row.UserID).Where("disabled=0").Cols("lang").Get(&owner); err != nil {
-		return false
+		return retryPushPreparation(ctx, row)
 	}
 	if !ok {
 		drop(ctx, row.ID)
@@ -376,7 +391,7 @@ func (w *worker) queueOnce(ctx context.Context) bool {
 	}
 	var e models.Email
 	if ok, err = db.Instance.Context(ctx).ID(row.EmailID).Cols("id", "subject", "from_name", "from_address", "inbound_analysis").Get(&e); err != nil {
-		return false
+		return retryPushPreparation(ctx, row)
 	}
 	if !ok {
 		drop(ctx, row.ID)
@@ -394,7 +409,7 @@ func (w *worker) queueOnce(ctx context.Context) bool {
 		var body models.Email
 		_, err = db.Instance.Context(ctx).ID(row.EmailID).Select("SUBSTR(text,1,600) AS text").Get(&body)
 		if err != nil {
-			return false
+			return retryPushPreparation(ctx, row)
 		}
 		e.Text = body.Text
 	}

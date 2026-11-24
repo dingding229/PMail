@@ -70,11 +70,6 @@ func transactionWithRetry(engine *xorm.Engine, attempts int, initialBackoff time
 	return err
 }
 
-func runTransaction(engine *xorm.Engine, fn func(*xorm.Session) error) error {
-	err, _ := runTransactionAttempt(engine, fn)
-	return err
-}
-
 func runTransactionAttempt(engine *xorm.Engine, fn func(*xorm.Session) error) (error, bool) {
 	session := engine.NewSession()
 	defer session.Close()

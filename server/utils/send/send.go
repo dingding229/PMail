@@ -4,15 +4,11 @@ import (
 	stdctx "context"
 	"errors"
 	"fmt"
-	"net"
 	"net/textproto"
 	"strings"
 
 	"github.com/Jinnrry/pmail/dto/parsemail"
-	"github.com/Jinnrry/pmail/models"
-	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/domain"
-	"github.com/Jinnrry/pmail/services/forward"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -24,36 +20,6 @@ type LocalDeliveryFunc func(*context.Context, *parsemail.Email, []*parsemail.Use
 var localDelivery LocalDeliveryFunc
 
 func SetLocalDelivery(fn LocalDeliveryFunc) { localDelivery = fn }
-
-type temporaryMXFallbackError struct {
-	lookupErr   error
-	fallbackErr error
-}
-
-func (e *temporaryMXFallbackError) Error() string {
-	return fmt.Sprintf("temporary MX lookup failed (%v); fallback delivery failed: %v", e.lookupErr, e.fallbackErr)
-}
-
-func (e *temporaryMXFallbackError) Unwrap() error {
-	return e.lookupErr
-}
-
-// Forward 转发邮件。外部目标进入持久化队列，本地目标复用统一本地投递入口。
-func Forward(ctx *context.Context, e *parsemail.Email, forwardAddress string, user *models.User) error {
-	primary, err := address.Primary(user.ID)
-	if err != nil {
-		return err
-	}
-	raw, err := e.ForwardBuildBytes(ctx, user, forwardAddress, primary.Address)
-	if err != nil {
-		return err
-	}
-	return forward.EnqueueForUser(ctx, user.ID, e, raw, forwardAddress)
-}
-
-func ForwardRaw(ctx *context.Context, e *parsemail.Email, rawEmailData []byte, forwardAddress string, user *models.User) error {
-	return forward.EnqueueForUser(ctx, user.ID, e, rawEmailData, forwardAddress)
-}
 
 func Send(ctx *context.Context, e *parsemail.Email) (map[string]error, error) {
 	// Capture the sender's audit row before local delivery. saveEmail assigns a
@@ -159,25 +125,4 @@ func doSend(ctx *context.Context, fromDomain string, data []byte, to []*parsemai
 func isPermanentSMTPResponse(err error) bool {
 	var protocolErr *textproto.Error
 	return errors.As(err, &protocolErr) && protocolErr.Code >= 500 && protocolErr.Code <= 599
-}
-
-func deliveryFailureCause(mxLookupErr, fallbackErr error) error {
-	if fallbackErr == nil || isPermanentSMTPResponse(fallbackErr) {
-		return fallbackErr
-	}
-
-	var lookupDNSErr *net.DNSError
-	if !errors.As(mxLookupErr, &lookupDNSErr) || (!lookupDNSErr.IsTimeout && !lookupDNSErr.IsTemporary) {
-		return fallbackErr
-	}
-
-	var networkErr net.Error
-	if !errors.As(fallbackErr, &networkErr) {
-		return fallbackErr
-	}
-
-	return &temporaryMXFallbackError{
-		lookupErr:   mxLookupErr,
-		fallbackErr: fallbackErr,
-	}
 }

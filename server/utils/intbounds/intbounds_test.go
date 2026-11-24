@@ -14,12 +14,6 @@ func TestCheckedProtocolConversions(t *testing.T) {
 	if n, ok := Uint32(math.MaxUint32); !ok || n != math.MaxUint32 {
 		t.Fatal("rejected valid uint32")
 	}
-	if _, ok := Int64(math.MaxUint64); ok {
-		t.Fatal("wrapped uint64")
-	}
-	if v, ok := Int64(math.MaxInt64); !ok || v != math.MaxInt64 {
-		t.Fatal("rejected valid int64")
-	}
 	if _, ok := SliceIndex(math.MaxUint64, 100); ok {
 		t.Fatal("accepted oversized archive offset")
 	}

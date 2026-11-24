@@ -345,11 +345,14 @@ func TestOutgoingPendingAuditMailboxVisibility(t *testing.T) {
 	}
 	assertAuditStatuses(t, engine, consts.EmailStatusDeliveryPending)
 
-	outgoing, _ := listservice.GetEmailList(session.Ctx, dto.SearchTag{
+	outgoing, _, err := listservice.WebPage(session.Ctx, dto.SearchTag{
 		Type:    consts.EmailTypeSend,
 		Status:  -1,
 		GroupId: -1,
-	}, "", false, 0, 10)
+	}, "", listservice.MailCursor{}, 0, 10, false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	found := false
 	for _, item := range outgoing {
 		if item.Id == saved.Id {
@@ -363,12 +366,11 @@ func TestOutgoingPendingAuditMailboxVisibility(t *testing.T) {
 		t.Fatalf("pending audit email %d is missing from web outgoing list", saved.Id)
 	}
 
-	for _, mailbox := range []string{"INBOX", "Sent Messages"} {
-		for _, item := range listservice.GetUEListByUID(session.Ctx, mailbox, 0, 0, nil) {
-			if item.EmailID == saved.Id {
-				t.Fatalf("pending audit email %d unexpectedly appears in IMAP mailbox %q", saved.Id, mailbox)
-			}
-		}
+	// Pending messages must not have an Inbox or Sent membership. Those
+	// built-in mailboxes select the membership's status, not the email's.
+	if exists, err := engine.Where("user_id=? AND email_id=?", session.Ctx.UserID, saved.Id).
+		In("status", consts.EmailStatusWait, consts.EmailStatusSent).Exist(&models.UserEmail{}); err != nil || exists {
+		t.Fatalf("pending audit email has an Inbox/Sent membership: %v/%v", exists, err)
 	}
 }
 

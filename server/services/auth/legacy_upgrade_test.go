@@ -30,14 +30,14 @@ func TestAuthenticateMigratesHistoricalPasswordBeforeReturning(t *testing.T) {
 	if _, err = e.Insert(&u); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = Authenticate(u.Account, "invalid secret", "192.0.2.51"); err == nil {
+	if _, _, err = BeginWebLogin(u.Account, "invalid secret", "192.0.2.51"); err == nil {
 		t.Fatal("wrong password accepted")
 	}
 	var row models.User
 	if _, err = e.ID(u.ID).Get(&row); err != nil || row.Password != fixture {
 		t.Fatalf("failure changed credential: %v", err)
 	}
-	authenticated, err := Authenticate(u.Account, secret, "192.0.2.51")
+	authenticated, _, err := BeginWebLogin(u.Account, secret, "192.0.2.51")
 	if err != nil {
 		t.Fatal(err)
 	}

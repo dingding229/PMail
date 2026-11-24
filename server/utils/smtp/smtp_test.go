@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestSendMailUnsafeUsesFinalDataResponseAsDeliveryResult(t *testing.T) {
+func TestSendPinnedUsesFinalDataResponseAsDeliveryResult(t *testing.T) {
 	tests := []struct {
 		name                 string
 		dataResponse         string
@@ -37,28 +37,29 @@ func TestSendMailUnsafeUsesFinalDataResponseAsDeliveryResult(t *testing.T) {
 			addr, serverDone := startSMTPTransactionServer(t, tt.dataResponse, tt.holdWithoutQuitReply)
 
 			start := time.Now()
-			err := SendMailUnsafe(
-				"",
-				addr,
-				nil,
+			conn, err := net.DialTimeout("tcp", addr, time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = SendPinned(t.Context(), conn, "example.net",
 				"sender@example.com",
 				"example.com",
 				[]string{"recipient@example.net"},
-				[]byte("From: sender@example.com\r\nTo: recipient@example.net\r\nSubject: test\r\n\r\nbody\r\n"),
+				[]byte("From: sender@example.com\r\nTo: recipient@example.net\r\nSubject: test\r\n\r\nbody\r\n"), CleartextFallback,
 			)
 			duration := time.Since(start)
 			if tt.maxDuration > 0 && duration > tt.maxDuration {
-				t.Fatalf("SendMailUnsafe() took %v, want at most %v", duration, tt.maxDuration)
+				t.Fatalf("SendPinned() took %v, want at most %v", duration, tt.maxDuration)
 			}
 
 			if tt.wantCode == 0 {
 				if err != nil {
-					t.Fatalf("SendMailUnsafe() = %v, want nil", err)
+					t.Fatalf("SendPinned() = %v, want nil", err)
 				}
 			} else {
 				var protocolErr *textproto.Error
 				if !errors.As(err, &protocolErr) {
-					t.Fatalf("SendMailUnsafe() error type = %T, want *textproto.Error", err)
+					t.Fatalf("SendPinned() error type = %T, want *textproto.Error", err)
 				}
 				if protocolErr.Code != tt.wantCode {
 					t.Fatalf("SMTP code = %d, want %d", protocolErr.Code, tt.wantCode)

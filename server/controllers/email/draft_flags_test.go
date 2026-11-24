@@ -92,8 +92,8 @@ func TestDraftSaveUpdateDetailOwnerAndDelete(t *testing.T) {
 	if code != 0 || !strings.Contains(string(data), `"subject":"updated"`) || !strings.Contains(string(data), `"text_format":"markdown"`) || !strings.Contains(string(data), `"previewable":true`) || !strings.Contains(string(data), `"bcc_list":[{"name":"","address":"bcc@example.test"}]`) {
 		t.Fatalf("draft detail: %s", data)
 	}
-	rows, count := list.GetEmailList(owner, dto.SearchTag{Type: 0, Status: 4, GroupId: -1}, "", false, 0, 15)
-	if count != 1 || len(rows) != 1 || rows[0].Id != saved.ID {
+	rows, count, listErr := list.WebPage(owner, dto.SearchTag{Type: 0, Status: 4, GroupId: -1}, "", list.MailCursor{}, 0, 15, true)
+	if listErr != nil || count != 1 || len(rows) != 1 || rows[0].Id != saved.ID {
 		t.Fatalf("draft folder count=%d length=%d", count, len(rows))
 	}
 	if _, code, _ := callCompose(t, DeleteDraft, owner, `{"id":`+idText+`}`); code != 0 {
@@ -135,8 +135,8 @@ func TestStarAndUnreadShareOwnerMailboxFlags(t *testing.T) {
 			t.Fatalf("flags=%+v error=%v", row, err)
 		}
 	}
-	rows, count := list.GetEmailList(owner, dto.SearchTag{Type: -1, Status: -1, GroupId: -1, Starred: true}, "", false, 0, 15)
-	if count != 1 || len(rows) != 1 || !rows[0].IsStarred {
+	rows, count, listErr := list.WebPage(owner, dto.SearchTag{Type: -1, Status: -1, GroupId: -1, Starred: true}, "", list.MailCursor{}, 0, 15, true)
+	if listErr != nil || count != 1 || len(rows) != 1 || !rows[0].IsStarred {
 		t.Fatalf("starred folder: %d %v", count, rows)
 	}
 	if _, code, _ := callCompose(t, MarkRead, owner, `{"ids":[`+string(id)+`]}`); code != 0 {

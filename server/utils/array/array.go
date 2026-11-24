@@ -18,19 +18,6 @@ func Join[T any](arg []T, str string) string {
 	return ret.String()
 }
 
-// Unique 数组去重
-func Unique[T comparable](slice []T) []T {
-	mp := map[T]bool{}
-	for _, v := range slice {
-		mp[v] = true
-	}
-	ret := []T{}
-	for t := range mp {
-		ret = append(ret, t)
-	}
-	return ret
-}
-
 // Merge 求并集
 func Merge[T any](slice1, slice2 []T) []T {
 	s1Len := len(slice1)

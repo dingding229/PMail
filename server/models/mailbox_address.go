@@ -16,7 +16,7 @@ type MailboxAddress struct {
 	IsPrimary    bool       `xorm:"is_primary bool notnull default(false)" json:"is_primary"`
 	CanSend      bool       `xorm:"can_send bool notnull default(true)" json:"can_send"`
 	Created      time.Time  `xorm:"created" json:"created"`
-	Status       string     `xorm:"status varchar(8) notnull default('active') index" json:"status"`
+	Status       string     `xorm:"status varchar(8) notnull default('active')" json:"status"`
 	RequestedAt  *time.Time `xorm:"requested_at" json:"requested_at"`
 	ReviewedAt   *time.Time `xorm:"reviewed_at" json:"reviewed_at"`
 	ReviewedBy   *int       `xorm:"reviewed_by bigint" json:"reviewed_by"`

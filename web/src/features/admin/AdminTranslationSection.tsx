@@ -216,7 +216,11 @@ export function AdminTranslationSection() {
                 label={t('admin.translation.webEnabledLabel')}
                 description={t('admin.translation.webEnabledDesc')}
               >
-                <Switch checked={webEnabled} onCheckedChange={setWebEnabled} />
+                <Switch
+                  aria-label={t('admin.translation.webEnabledLabel')}
+                  checked={webEnabled}
+                  onCheckedChange={setWebEnabled}
+                />
               </FormRow>
 
               <div className="grid grid-cols-1 gap-3 border-t border-[var(--border-hairline)] pt-3 sm:grid-cols-2">
@@ -361,7 +365,11 @@ export function AdminTranslationSection() {
               label={t('admin.translation.aiEnabledLabel')}
               description={t('admin.translation.aiEnabledDesc')}
             >
-              <Switch checked={aiEnabled} onCheckedChange={setAiEnabled} />
+              <Switch
+                aria-label={t('admin.translation.aiEnabledLabel')}
+                checked={aiEnabled}
+                onCheckedChange={setAiEnabled}
+              />
             </FormRow>
 
             {/* Default Engine & Limits */}
@@ -521,6 +529,7 @@ export function AdminTranslationSection() {
               description={t('admin.translation.allowUserAIDesc')}
             >
               <Switch
+                aria-label={t('admin.translation.allowUserAILabel')}
                 checked={aiUserConfigEnabled}
                 onCheckedChange={setAiUserConfigEnabled}
               />
@@ -533,6 +542,7 @@ export function AdminTranslationSection() {
               description={t('admin.translation.allowPrivateNetDesc')}
             >
               <Switch
+                aria-label={t('admin.translation.allowPrivateNetLabel')}
                 checked={aiAllowPrivateNetwork}
                 onCheckedChange={setAiAllowPrivateNetwork}
               />

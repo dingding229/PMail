@@ -5,7 +5,7 @@ import "time"
 type TelegramConfig struct {
 	ID          int    `xorm:"id pk"`
 	Token       string `xorm:"token text notnull"`
-	Proxy       string `xorm:"proxy text notnull"` // retained only for pre-C27 migration
+	Proxy       string `xorm:"proxy text notnull"` // Deprecated: pre-C27 upgrade fallback; retain for removal after v1.x.
 	ProxyFields string `xorm:"proxy_fields text"`
 	Username    string `xorm:"username varchar(64) notnull"`
 	Generation  string `xorm:"generation varchar(40) notnull"`

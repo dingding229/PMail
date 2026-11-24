@@ -566,6 +566,7 @@ export function ReadingPane({
               <Button
                 variant="ghost"
                 size="sm"
+                className="hidden sm:inline-flex"
                 onClick={() => onReplyAll(email, externalImagesAllowed)}
               >
                 <ReplyAll className="h-3.5 w-3.5" />
@@ -580,6 +581,7 @@ export function ReadingPane({
               <Button
                 variant="ghost"
                 size="sm"
+                className="hidden sm:inline-flex"
                 onClick={() => onForward(email, externalImagesAllowed)}
               >
                 <Forward className="h-3.5 w-3.5" />

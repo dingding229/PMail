@@ -2,18 +2,21 @@ package group
 
 import (
 	errors2 "errors"
-	"fmt"
+	"slices"
+	"strings"
+
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/del_email"
 	"github.com/Jinnrry/pmail/services/mailevents"
+	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/utils/array"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/errors"
 	log "github.com/sirupsen/logrus"
-	"strings"
+	"xorm.io/xorm"
 )
 
 type GroupItem struct {
@@ -133,13 +136,6 @@ func GetGroupByName(ctx *context.Context, name string) (*models.Group, error) {
 	return &group, nil
 }
 
-func GetGroupByFullPath(ctx *context.Context, fullPath string) (*models.Group, error) {
-	var group models.Group
-	_, err := db.Instance.Table("group").Where("full_path = ? and user_id = ?", fullPath, ctx.UserID).Get(&group)
-
-	return &group, err
-}
-
 func DelGroup(ctx *context.Context, groupId int) (bool, error) {
 	trans := db.Instance.NewSession()
 	defer trans.Close()
@@ -207,25 +203,56 @@ func GetGroupInfoList(ctx *context.Context) []*GroupItem {
 	return buildChildren(byParent, map[int]bool{}, 0, 0)
 }
 
-// MoveMailToGroup 将某封邮件移动到某个分组中
-func MoveMailToGroup(ctx *context.Context, mailId []int, groupId int) bool {
-	if !ValidMoveTarget(ctx, groupId) {
+// MoveMailToGroup moves the owner's messages into a custom folder. A direct
+// move out of Trash must clear the expiry and the old IMAP UID projection.
+func MoveMailToGroup(ctx *context.Context, mailIDs []int, groupID int) bool {
+	if groupID <= 0 || len(mailIDs) == 0 {
 		return false
 	}
-	res, err := db.Instance.Exec(db.WithContext(ctx,
-		fmt.Sprintf("update user_email set group_id=? where email_id in (%s) and user_id =?", array.Join(mailId, ","))),
-		groupId, ctx.UserID)
+	var changed bool
+	err := db.Transaction(db.Instance, func(tx *xorm.Session) error {
+		changed = false
+		if ctx.Context != nil {
+			tx.Context(ctx.Context)
+		}
+		if _, err := quota.Lock(tx, ctx.UserID); err != nil {
+			return err
+		}
+		q := tx.ID(groupID).Where("user_id=?", ctx.UserID).Cols("id")
+		if tx.Engine().DriverName() != "sqlite" {
+			q.ForUpdate()
+		}
+		if found, err := q.Get(&models.Group{}); err != nil || !found {
+			return err
+		}
+		for batch := range slices.Chunk(mailIDs, del_email.BatchSize) {
+			var trashed []int
+			if err := tx.Table(&models.UserEmail{}).Cols("id").Where("user_id=? AND status=?", ctx.UserID, consts.EmailStatusDel).In("email_id", batch).Find(&trashed); err != nil {
+				return err
+			}
+			n, err := tx.Table(&models.UserEmail{}).Where("user_id=?", ctx.UserID).In("email_id", batch).Update(map[string]any{"group_id": groupID})
+			if err != nil {
+				return err
+			}
+			changed = changed || n > 0
+			if err := del_email.ClearTrashMetadata(tx, trashed); err != nil {
+				return err
+			}
+			// Custom folders list status 0 links, so make the moved copy visible.
+			for links := range slices.Chunk(trashed, del_email.BatchSize) {
+				if _, err := tx.Table(&models.UserEmail{}).Where("user_id=?", ctx.UserID).In("id", links).Update(map[string]any{"status": consts.EmailStatusWait}); err != nil {
+					return err
+				}
+				changed = true
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		log.WithContext(ctx).Errorf("SQL Error:%+v", err)
+		log.WithContext(ctx).Errorf("move mail to folder: %v", err)
 		return false
 	}
-	rowNum, err := res.RowsAffected()
-	if err != nil {
-		log.WithContext(ctx).Errorf("SQL Error:%+v", err)
-		return false
-	}
-
-	return rowNum > 0
+	return changed
 }
 
 func buildChildren(byParent map[int][]models.Group, seen map[int]bool, parent, depth int) []*GroupItem {
@@ -251,134 +278,6 @@ func GetGroupList(ctx *context.Context) []*models.Group {
 
 func IsDefaultBox(box string) bool {
 	return array.InArray(box, []string{"INBOX", "Sent Messages", "Drafts", "Deleted Messages", "Junk"})
-}
-
-func GetGroupStatus(ctx *context.Context, groupName string, params []string) (string, map[string]int) {
-	retMap := map[string]int{}
-
-	if !IsDefaultBox(groupName) {
-		groupNames := strings.Split(groupName, "/")
-		groupName = groupNames[len(groupNames)-1]
-
-		var group models.Group
-		db.Instance.Table("group").Where("user_id=? and name=?", ctx.UserID, groupName).Get(&group)
-		if group.ID == 0 {
-			ret := ""
-			for _, param := range params {
-				if ret != "" {
-					ret += " "
-				}
-				retMap[param] = 0
-				ret += fmt.Sprintf("%s %d", param, 0)
-			}
-			return fmt.Sprintf("(%s)", ret), retMap
-		}
-		ret := ""
-		for _, param := range params {
-			if ret != "" {
-				ret += " "
-			}
-			var value int
-
-			switch param {
-			case "MESSAGES":
-				db.Instance.Table("user_email").Select("count(1)").Where("group_id=?", group.ID).Get(&value)
-			case "UIDNEXT":
-				db.Instance.Table("user_email").Select("id").Where("group_id=?", group.ID).OrderBy("id desc").Get(&value)
-				value += 1
-			case "UIDVALIDITY":
-				value = group.ID
-			case "UNSEEN":
-				db.Instance.Table("user_email").Select("count(1)").Where("group_id=? and is_read=0", group.ID).Get(&value)
-			}
-			retMap[param] = value
-			ret += fmt.Sprintf("%s %d", param, value)
-		}
-		return fmt.Sprintf("(%s)", ret), retMap
-	}
-
-	ret := ""
-	for _, param := range params {
-		if ret != "" {
-			ret += " "
-		}
-		var value int
-
-		switch param {
-		case "MESSAGES":
-			value = getGroupNum(ctx, groupName, false)
-		case "UIDNEXT":
-			value = getNextUID(ctx, groupName)
-		case "UIDVALIDITY":
-			value = models.GroupNameToCode[groupName]
-		case "UNSEEN":
-			value = getGroupNum(ctx, groupName, true)
-		default:
-			continue
-		}
-		retMap[param] = value
-		ret += fmt.Sprintf("%s %d", param, value)
-	}
-	if ret == "" {
-		return "", retMap
-	}
-
-	return fmt.Sprintf("(%s)", ret), retMap
-
-}
-
-func getNextUID(ctx *context.Context, groupName string) int {
-	var lastId int
-	switch groupName {
-	case "INBOX":
-		db.Instance.Table("user_email").Select("id").Where("user_id=? and group_id=0 and status = 0", ctx.UserID).OrderBy("id desc").Get(&lastId)
-	case "Sent Messages":
-		db.Instance.Table("user_email").Select("id").Where("user_id=? and group_id=0 and status = 1", ctx.UserID).OrderBy("id desc").Get(&lastId)
-	case "Drafts":
-		db.Instance.Table("user_email").Select("id").Where("user_id=? and group_id=0 and status = 4", ctx.UserID).OrderBy("id desc").Get(&lastId)
-	case "Deleted Messages":
-		db.Instance.Table("user_email").Select("id").Where("user_id=? and status = 3", ctx.UserID).OrderBy("id desc").Get(&lastId)
-	case "Junk":
-		db.Instance.Table("user_email").Select("id").Where("user_id=? and group_id=0 and status = 5", ctx.UserID).OrderBy("id desc").Get(&lastId)
-	}
-	return lastId + 1
-}
-
-func getGroupNum(ctx *context.Context, groupName string, mustUnread bool) int {
-	var count int
-	switch groupName {
-	case "INBOX":
-		if mustUnread {
-			db.Instance.Table("user_email").Select("count(1)").Where("user_id=? and group_id=0 and status=0 and is_read=0", ctx.UserID).Get(&count)
-		} else {
-			db.Instance.Table("user_email").Select("count(1)").Where("user_id=? and group_id=0 and status=0", ctx.UserID).Get(&count)
-		}
-	case "Sent Messages":
-		if mustUnread {
-			count = 0
-		} else {
-			db.Instance.Table("user_email").Select("count(1)").Where("user_id=? and group_id=0 and status=1", ctx.UserID).Get(&count)
-		}
-	case "Drafts":
-		if mustUnread {
-			db.Instance.Table("user_email").Select("count(1)").Where("user_id=? and group_id=0 and status=4 and is_read=0", ctx.UserID).Get(&count)
-		} else {
-			db.Instance.Table("user_email").Select("count(1)").Where("user_id=? and group_id=0 and status=4", ctx.UserID).Get(&count)
-		}
-	case "Deleted Messages":
-		if mustUnread {
-			db.Instance.Table("user_email").Select("count(1)").Where("user_id=? and status=3 and is_read=0", ctx.UserID).Get(&count)
-		} else {
-			db.Instance.Table("user_email").Select("count(1)").Where("user_id=? and status=3", ctx.UserID).Get(&count)
-		}
-	case "Junk":
-		if mustUnread {
-			db.Instance.Table("user_email").Select("count(1)").Where("user_id=? and group_id=0 and status=5 and is_read=0", ctx.UserID).Get(&count)
-		} else {
-			db.Instance.Table("user_email").Select("count(1)").Where("user_id=? and group_id=0 and status=5", ctx.UserID).Get(&count)
-		}
-	}
-	return count
 }
 
 func Move2DefaultBox(ctx *context.Context, mailIds []int, groupName string) error {

@@ -64,3 +64,39 @@ func TestAddressApprovalSchemaUpgradesExistingRowsAndReservationIndex(t *testing
 		t.Fatal("running migration again changed review history")
 	}
 }
+
+func TestAddressSchemaPreservesConflictingLegacyRows(t *testing.T) {
+	e, err := xorm.NewEngine("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { e.Close() })
+	e.SetMaxOpenConns(1)
+	if err := e.Sync2(&legacyMailboxAddress{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Exec(`DROP INDEX "UQE_mailbox_address_address"`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Exec(`INSERT INTO mailbox_address (user_id,local_part,domain_id) VALUES (1,'conflict',1),(2,'conflict',1)`); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := SyncSchema(e); err != nil {
+			t.Fatalf("dirty data must not block startup: %v", err)
+		}
+		if n, err := e.Count(&models.MailboxAddress{}); err != nil || n != 2 {
+			t.Fatalf("migration changed conflicting rows: %d/%v", n, err)
+		}
+	}
+	// Once repaired by the operator the next startup retries the constraint.
+	if _, err := e.Exec(`DELETE FROM mailbox_address WHERE user_id=2`); err != nil {
+		t.Fatal(err)
+	}
+	if err := SyncSchema(e); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Exec(`INSERT INTO mailbox_address (user_id,local_part,domain_id) VALUES (2,'conflict',1)`); !IsUniqueViolation(err) {
+		t.Fatalf("reservation index was not installed after repair: %v", err)
+	}
+}

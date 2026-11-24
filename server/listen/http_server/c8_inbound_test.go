@@ -124,7 +124,7 @@ func TestInboundHTTPSettingsRulesMailboxAndRiskGuards(t *testing.T) {
 	call(member, "DELETE", "/api/spam/rules", deleteReq, 200, "")
 	msg := &parsemail.Email{Subject: "OTP: 928547", Text: []byte("Inert example"), Attachments: []*parsemail.Attachment{{Filename: "test.sh", ContentType: "text/plain", ContentID: "risk-fixture", Content: []byte("inert fixture")}}}
 	wire, _ := json.Marshal(msg.Attachments)
-	analysis := inbound.Analyze(context.Background(), msg, inbound.Envelope{}, nil)
+	analysis, _ := inbound.AnalyzeDelivery(context.Background(), msg, inbound.Envelope{}, nil, nil)
 	if analysis == nil || len(analysis.HighRiskParts) != 1 {
 		t.Fatalf("analysis: %+v", analysis)
 	}

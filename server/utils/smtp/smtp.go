@@ -2,35 +2,22 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package smtp implements the Simple Mail Transfer Protocol as defined in RFC 5321.
-// It also implements the following extensions:
-//
-//	8BITMIME  RFC 1652
-//	AUTH      RFC 2554
-//	STARTTLS  RFC 3207
-//
-// Additional extensions may be handled by clients.
-//
-// The smtp package is frozen and is not accepting new features.
-// Some external packages provide more functionality. See:
-//
-//	https://godoc.org/?q=smtp
-//
-// 在go原始SMTP协议的基础上修复了TLS验证错误、支持了SMTPS协议、 支持自定义HELLO命令的域名信息
+// Package smtp delivers outbound mail over an already connected socket.
+// It supports 8BITMIME and STARTTLS and uses the configured envelope domain
+// for EHLO/HELO.
 package smtp
 
 import (
 	"crypto/tls"
-	"encoding/base64"
 	"errors"
-	"github.com/Jinnrry/pmail/services/domain"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"net"
-	"net/smtp"
 	"net/textproto"
 	"strings"
 	"time"
+
+	"github.com/Jinnrry/pmail/services/domain"
+	log "github.com/sirupsen/logrus"
 )
 
 var ErrSTARTTLSUnsupported = errors.New("smtp: server doesn't support STARTTLS")
@@ -44,53 +31,17 @@ type Client struct {
 	Text *textproto.Conn
 	// keep a reference to the connection so it can be used to create a TLS
 	// connection later
-	conn net.Conn
-	// whether the Client is using TLS
-	tls        bool
+	conn       net.Conn
 	serverName string
 	// map of supported extensions
-	ext map[string]string
-	// supported auth mechanisms
-	auth       []string
+	ext        map[string]string
 	localName  string // the name to use in HELO/EHLO
 	didHello   bool   // whether we've said HELO/EHLO
 	helloError error  // the error from the hello
 }
 
-// Dial returns a new Client connected to an SMTP server at addr.
-// The addr must include a port, as in "mail.example.com:smtp".
-func Dial(addr, fromDomain string) (*Client, error) {
-	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
-	if err != nil {
-		return nil, err
-	}
-	host, _, _ := net.SplitHostPort(addr)
-	return NewClient(conn, host, fromDomain)
-}
-
-// with tls
-func DialTls(addr, domain, fromDomain string) (*Client, error) {
-	if domain == "" {
-		domain, _, _ = net.SplitHostPort(addr)
-	}
-
-	// TLS config
-	tlsconfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		ServerName: domain,
-	}
-
-	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 2 * time.Second}, "tcp", addr, tlsconfig)
-	if err != nil {
-		return nil, err
-	}
-	host, _, _ := net.SplitHostPort(addr)
-	return NewClient(conn, host, fromDomain)
-}
-
-// NewClient returns a new Client using an existing connection and host as a
-// server name to be used when authenticating.
-func NewClient(conn net.Conn, host, fromDomain string) (*Client, error) {
+// newClient establishes SMTP over an already connected socket.
+func newClient(conn net.Conn, host, fromDomain string) (*Client, error) {
 	text := textproto.NewConn(conn)
 	_, _, err := text.ReadResponse(220)
 	if err != nil {
@@ -106,9 +57,7 @@ func NewClient(conn net.Conn, host, fromDomain string) (*Client, error) {
 		localName = domain.DefaultName()
 	}
 
-	c := &Client{Text: text, conn: conn, serverName: host, localName: localName}
-	_, c.tls = conn.(*tls.Conn)
-	return c, nil
+	return &Client{Text: text, conn: conn, serverName: host, localName: localName}, nil
 }
 
 // Close closes the connection.
@@ -126,22 +75,6 @@ func (c *Client) hello() error {
 		}
 	}
 	return c.helloError
-}
-
-// Hello sends a HELO or EHLO to the server as the given host name.
-// Calling this method is only necessary if the client needs control
-// over the host name used. The client will introduce itself as "localhost"
-// automatically otherwise. If Hello is called, it must be called before
-// any of the other methods.
-func (c *Client) Hello(localName string) error {
-	if err := validateLine(localName); err != nil {
-		return err
-	}
-	if c.didHello {
-		return errors.New("smtp: Hello called after other methods")
-	}
-	c.localName = localName
-	return c.hello()
 }
 
 // cmd is a convenience function that sends a command and returns the response
@@ -180,9 +113,6 @@ func (c *Client) ehlo() error {
 			ext[k] = v
 		}
 	}
-	if mechs, ok := ext["AUTH"]; ok {
-		c.auth = strings.Split(mechs, " ")
-	}
 	c.ext = ext
 	return err
 }
@@ -207,80 +137,7 @@ func (c *Client) StartTLS(config *tls.Config) error {
 	}
 	c.conn = tls.Client(c.conn, config)
 	c.Text = textproto.NewConn(c.conn)
-	c.tls = true
 	return c.ehlo()
-}
-
-// TLSConnectionState returns the client's TLS connection state.
-// The return values are their zero values if StartTLS did
-// not succeed.
-func (c *Client) TLSConnectionState() (state tls.ConnectionState, ok bool) {
-	tc, ok := c.conn.(*tls.Conn)
-	if !ok {
-		return
-	}
-	return tc.ConnectionState(), true
-}
-
-// Verify checks the validity of an email address on the server.
-// If Verify returns nil, the address is valid. A non-nil return
-// does not necessarily indicate an invalid address. Many servers
-// will not verify addresses for security reasons.
-func (c *Client) Verify(addr string) error {
-	if err := validateLine(addr); err != nil {
-		return err
-	}
-	if err := c.hello(); err != nil {
-		return err
-	}
-	_, _, err := c.cmd(250, "VRFY %s", addr)
-	return err
-}
-
-// Auth authenticates a client using the provided authentication mechanism.
-// A failed authentication closes the connection.
-// Only servers that advertise the AUTH extension support this function.
-func (c *Client) Auth(a smtp.Auth) error {
-	if err := c.hello(); err != nil {
-		return err
-	}
-	encoding := base64.StdEncoding
-	mech, resp, err := a.Start(&smtp.ServerInfo{Name: c.serverName, TLS: c.tls, Auth: c.auth})
-	if err != nil {
-		c.Quit()
-		return err
-	}
-	resp64 := make([]byte, encoding.EncodedLen(len(resp)))
-	encoding.Encode(resp64, resp)
-	code, msg64, err := c.cmd(0, "AUTH %s %s", mech, resp64)
-	for err == nil {
-		var msg []byte
-		switch code {
-		case 334:
-			msg, err = encoding.DecodeString(msg64)
-		case 235:
-			// the last message isn't base64 because it isn't a challenge
-			msg = []byte(msg64)
-		default:
-			err = &textproto.Error{Code: code, Msg: msg64}
-		}
-		if err == nil {
-			resp, err = a.Next(msg, code == 334)
-		}
-		if err != nil {
-			// abort the AUTH
-			c.cmd(501, "*")
-			c.Quit()
-			break
-		}
-		if resp == nil {
-			break
-		}
-		resp64 = make([]byte, encoding.EncodedLen(len(resp)))
-		encoding.Encode(resp64, resp)
-		code, msg64, err = c.cmd(0, "%s", string(resp64))
-	}
-	return err
 }
 
 // Mail issues a MAIL command to the server using the provided email address.
@@ -362,166 +219,6 @@ func finishDelivery(c *Client, w io.WriteCloser, msg []byte) error {
 	return nil
 }
 
-func SendMailWithTls(domain string, addr string, a smtp.Auth, from string, fromDomain string, to []string, msg []byte) error {
-	if err := validateLine(from); err != nil {
-		return err
-	}
-	for _, recp := range to {
-		if err := validateLine(recp); err != nil {
-			return err
-		}
-	}
-	c, err := DialTls(addr, domain, fromDomain)
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-	if err = c.hello(); err != nil {
-		return err
-	}
-	if a != nil && c.ext != nil {
-		if _, ok := c.ext["AUTH"]; !ok {
-			return errors.New("smtp: server doesn't support AUTH")
-		}
-		if err = c.Auth(a); err != nil {
-			return err
-		}
-	}
-	if err = c.Mail(from); err != nil {
-		return err
-	}
-	for _, addr := range to {
-		if err = c.Rcpt(addr); err != nil {
-			return err
-		}
-	}
-	w, err := c.Data()
-	if err != nil {
-		return err
-	}
-	return finishDelivery(c, w, msg)
-}
-
-// SendMail connects to the server at addr, switches to TLS if
-// possible, authenticates with the optional mechanism a if possible,
-// and then sends an email from address from, to addresses to, with
-// message msg.
-// The addr must include a port, as in "mail.example.com:smtp".
-//
-// The addresses in the to parameter are the SMTP RCPT addresses.
-//
-// The msg parameter should be an RFC 822-style email with headers
-// first, a blank line, and then the message body. The lines of msg
-// should be CRLF terminated. The msg headers should usually include
-// fields such as "From", "To", "Subject", and "Cc".  Sending "Bcc"
-// messages is accomplished by including an email address in the to
-// parameter but not including it in the msg headers.
-//
-// The SendMail function and the net/smtp package are low-level
-// mechanisms and provide no support for DKIM signing, MIME
-// attachments (see the mime/multipart package), or other mail
-// functionality. Higher-level packages exist outside of the standard
-// library.
-// 修复TSL验证问题
-func SendMail(domain string, addr string, a smtp.Auth, from string, fromDomain string, to []string, msg []byte) error {
-
-	log.Debugf("SendMail,%s ,%s ,%s ,%s ,%v ", domain, addr, from, fromDomain, to)
-
-	if err := validateLine(from); err != nil {
-		return err
-	}
-	for _, recp := range to {
-		if err := validateLine(recp); err != nil {
-			return err
-		}
-	}
-	c, err := Dial(addr, fromDomain)
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-	if err = c.hello(); err != nil {
-		return err
-	}
-	if ok, _ := c.Extension("STARTTLS"); !ok {
-		return ErrSTARTTLSUnsupported
-	}
-
-	var config *tls.Config
-	if domain != "" {
-		config = &tls.Config{
-			ServerName: domain,
-		}
-	}
-
-	if err = c.StartTLS(config); err != nil {
-		return err
-	}
-	if a != nil && c.ext != nil {
-		if _, ok := c.ext["AUTH"]; !ok {
-			return errors.New("smtp: server doesn't support AUTH")
-		}
-		if err = c.Auth(a); err != nil {
-			return err
-		}
-	}
-	if err = c.Mail(from); err != nil {
-		return err
-	}
-	for _, addr := range to {
-		if err = c.Rcpt(addr); err != nil {
-			return err
-		}
-	}
-	w, err := c.Data()
-	if err != nil {
-		return err
-	}
-	return finishDelivery(c, w, msg)
-}
-
-// SendMailUnsafe 无TLS加密的邮件发送方式
-func SendMailUnsafe(domain string, addr string, a smtp.Auth, from string, fromDomain string, to []string, msg []byte) error {
-	if err := validateLine(from); err != nil {
-		return err
-	}
-	for _, recp := range to {
-		if err := validateLine(recp); err != nil {
-			return err
-		}
-	}
-	c, err := Dial(addr, fromDomain)
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-	if err = c.hello(); err != nil {
-		return err
-	}
-
-	if a != nil && c.ext != nil {
-		if _, ok := c.ext["AUTH"]; !ok {
-			return errors.New("smtp: server doesn't support AUTH")
-		}
-		if err = c.Auth(a); err != nil {
-			return err
-		}
-	}
-	if err = c.Mail(from); err != nil {
-		return err
-	}
-	for _, addr := range to {
-		if err = c.Rcpt(addr); err != nil {
-			return err
-		}
-	}
-	w, err := c.Data()
-	if err != nil {
-		return err
-	}
-	return finishDelivery(c, w, msg)
-}
-
 // Extension reports whether an extension is support by the server.
 // The extension name is case-insensitive. If the extension is supported,
 // Extension also returns a string that contains any parameters the
@@ -536,38 +233,6 @@ func (c *Client) Extension(ext string) (bool, string) {
 	ext = strings.ToUpper(ext)
 	param, ok := c.ext[ext]
 	return ok, param
-}
-
-// Reset sends the RSET command to the server, aborting the current mail
-// transaction.
-func (c *Client) Reset() error {
-	if err := c.hello(); err != nil {
-		return err
-	}
-	_, _, err := c.cmd(250, "RSET")
-	return err
-}
-
-// Noop sends the NOOP command to the server. It does nothing but check
-// that the connection to the server is okay.
-func (c *Client) Noop() error {
-	if err := c.hello(); err != nil {
-		return err
-	}
-	_, _, err := c.cmd(250, "NOOP")
-	return err
-}
-
-// Quit sends the QUIT command and closes the connection to the server.
-func (c *Client) Quit() error {
-	if err := c.hello(); err != nil {
-		return err
-	}
-	_, _, err := c.cmd(221, "QUIT")
-	if err != nil {
-		return err
-	}
-	return c.Text.Close()
 }
 
 // validateLine checks to see if a line has CR or LF as per RFC 5321.

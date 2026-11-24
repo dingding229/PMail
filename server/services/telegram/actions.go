@@ -151,22 +151,21 @@ func callbackTarget(data string) (string, int, bool) {
 // Verify the current bot generation, the enabled mailbox owner and the
 // owner's live mail link, not just the generation that started the long poll.
 func allowedCallback(ctx context.Context, chatID int64, generation string, mailID int) (models.TelegramBinding, string, bool, error) {
-	var b models.TelegramBinding
 	if generation == "" {
-		return b, "", false, nil
+		return models.TelegramBinding{}, "", false, nil
 	}
-	ok, err := db.Instance.Context(ctx).Where("chat_id=? AND bot_generation=?", chatID, generation).
-		Where("EXISTS (SELECT 1 FROM telegram_config WHERE id=1 AND generation=? AND token<>'')", generation).Get(&b)
-	if err != nil || !ok {
-		return b, "", false, err
+	// Use one DB snapshot for generation, binding, owner and mail membership.
+	// Separate reads could combine an old binding with a newly changed owner.
+	var row struct {
+		models.TelegramBinding `xorm:"extends"`
+		Lang                   string `xorm:"lang"`
 	}
-	var owner models.User
-	ok, err = db.Instance.Context(ctx).ID(b.UserID).Where("disabled=0").Cols("lang").Get(&owner)
-	if err != nil || !ok {
-		return b, "", false, err
-	}
-	ok, err = db.Instance.Context(ctx).Where("user_id=? AND email_id=?", b.UserID, mailID).Exist(&models.UserEmail{})
-	return b, owner.Lang, err == nil && ok, err
+	q := `SELECT b.*, u.lang FROM telegram_binding b JOIN ` + db.Instance.Quote("user") + ` u ON u.id=b.user_id
+		WHERE b.chat_id=? AND b.bot_generation=? AND u.disabled=0
+		AND EXISTS (SELECT 1 FROM telegram_config c WHERE c.id=1 AND c.generation=b.bot_generation AND c.token<>'')
+		AND EXISTS (SELECT 1 FROM user_email ue WHERE ue.user_id=b.user_id AND ue.email_id=?)`
+	ok, err := db.Instance.Context(ctx).SQL(q, chatID, generation, mailID).Get(&row)
+	return row.TelegramBinding, row.Lang, ok && err == nil, err
 }
 
 func (w *worker) dispatchCallback(ctx context.Context, api *WorkerClient, generation string, cb *callbackQuery) {

@@ -9,7 +9,7 @@ import (
 	"github.com/Jinnrry/pmail/testschema"
 )
 
-func TestCheckSSLCrtInfo(t *testing.T) {
+func TestLoadCertificateFromConfig(t *testing.T) {
 	oldRoot := config.ROOT_PATH
 	config.ROOT_PATH = t.TempDir()
 	t.Cleanup(func() { config.ROOT_PATH = oldRoot })
@@ -26,11 +26,15 @@ func TestCheckSSLCrtInfo(t *testing.T) {
 	for _, env := range []string{"PMAIL_DOMAIN", "PMAIL_DOMAINS", "PMAIL_WEB_DOMAIN", "PMAIL_SSL_TYPE"} {
 		t.Setenv(env, "")
 	}
-	days, expiry, mismatch, err := CheckSSLCrtInfo()
+	cfg, err := config.ReadEffectiveConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if days < 0 || !expiry.After(time.Now()) || mismatch {
-		t.Fatalf("certificate info = days=%d, expiry=%v, mismatch=%v; want a valid matching certificate", days, expiry, mismatch)
+	loaded, err := LoadCertificate(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Leaf == nil || !loaded.Leaf.NotAfter.After(time.Now()) || loaded.Leaf.VerifyHostname("mail.example.test") != nil {
+		t.Fatal("expected a valid matching certificate")
 	}
 }

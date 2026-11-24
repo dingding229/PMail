@@ -333,8 +333,6 @@ func recoverExpiredLeases(now time.Time) error {
 	return err
 }
 
-func claimOne() (models.OutboundQueue, bool, error) { return claimOneContext(context.Background()) }
-
 func claimOneContext(ctx context.Context) (models.OutboundQueue, bool, error) {
 	var row models.OutboundQueue
 	now := time.Now()

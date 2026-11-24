@@ -17,11 +17,6 @@ const optionalBudget = 900 * time.Millisecond
 
 var analysisSlots = make(chan struct{}, 8)
 
-func Analyze(ctx context.Context, e *parsemail.Email, env Envelope, auth *models.MailAuthResults) *Analysis {
-	a, _ := AnalyzeDelivery(ctx, e, env, auth, nil)
-	return a
-}
-
 // AnalyzeDelivery shares the content work and one deadline among recipients.
 // Its result is advisory: no analysis or setting error can reject delivery.
 func AnalyzeDelivery(parent context.Context, e *parsemail.Email, env Envelope, auth *models.MailAuthResults, owners []int) (*Analysis, map[int]*Spam) {

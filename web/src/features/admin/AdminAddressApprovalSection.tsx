@@ -205,6 +205,7 @@ export function AdminAddressApprovalSection() {
               </p>
             </div>
             <Switch
+              aria-label={t('admin.addressApproval.requireApprovalLabel')}
               checked={Boolean(settingsQuery.data?.address_approval_required)}
               disabled={toggleSettingMutation.isPending}
               onCheckedChange={(checked) => toggleSettingMutation.mutate(checked)}
@@ -284,7 +285,76 @@ export function AdminAddressApprovalSection() {
           />
         ) : (
           <>
-            <DataTable>
+            {/* Mobile card layout (< md) */}
+            <div className="space-y-3 md:hidden">
+              {items.map((req) => (
+                <div
+                  key={req.id}
+                  className="rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-3.5 space-y-2.5"
+                >
+                  <div className="space-y-1">
+                    <p className="break-all font-mono text-[13.5px] font-medium text-[var(--ink-primary)]">
+                      {req.address}
+                    </p>
+                    <p className="text-[12px] text-[var(--ink-secondary)]">
+                      {t('admin.addressApproval.colApplicant')}: {req.applicant}
+                    </p>
+                    <p className="text-[11.5px] text-[var(--ink-muted)]">
+                      {t('admin.addressApproval.colRequestedAt')}:{' '}
+                      {req.requested_at
+                        ? formatMailFullTime(req.requested_at, i18n.language)
+                        : '—'}
+                    </p>
+                    {statusTab !== 'pending' && (
+                      <p className="text-[11.5px] text-[var(--ink-muted)]">
+                        {t('admin.addressApproval.colReviewer')}: {formatReviewer(req.reviewed_by)}
+                        {req.reviewed_at
+                          ? ` · ${formatMailFullTime(req.reviewed_at, i18n.language)}`
+                          : ''}
+                      </p>
+                    )}
+                    {statusTab === 'rejected' && req.reject_reason && (
+                      <p className="text-[12px] text-[var(--danger)]">
+                        {t('settings.addresses.rejectReasonPrefix', {
+                          reason: req.reject_reason,
+                        })}
+                      </p>
+                    )}
+                  </div>
+
+                  {statusTab === 'pending' && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <Button
+                        size="xs"
+                        className="flex-1"
+                        disabled={approveMutation.isPending || rejectMutation.isPending}
+                        onClick={() => approveMutation.mutate(req)}
+                      >
+                        {approvingId === req.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Check className="h-3 w-3" />
+                        )}
+                        {t('admin.addressApproval.approve')}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        className="flex-1 text-[var(--danger)] hover:border-[var(--danger)]/40 hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
+                        disabled={approveMutation.isPending || rejectMutation.isPending}
+                        onClick={() => openRejectDialog(req)}
+                      >
+                        <X className="h-3 w-3" />
+                        {t('admin.addressApproval.reject')}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop table layout (>= md) */}
+            <DataTable className="hidden md:block">
               <DataTableHead>
                 <tr>
                   <DataTableHeaderCell>{t('admin.addressApproval.colApplicant')}</DataTableHeaderCell>

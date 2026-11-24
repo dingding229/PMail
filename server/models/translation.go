@@ -32,7 +32,7 @@ type TranslationUsage struct {
 func (TranslationUsage) TableName() string { return "translation_usage" }
 
 type EmailTranslation struct {
-	EmailID    int       `xorm:"email_id pk index"`
+	EmailID    int       `xorm:"email_id pk"`
 	UserID     int       `xorm:"user_id pk index"` // zero for web, user ID for AI
 	TargetLang string    `xorm:"target_lang varchar(12) pk"`
 	Engine     string    `xorm:"engine varchar(8) pk"`

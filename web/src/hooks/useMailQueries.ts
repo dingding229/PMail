@@ -148,8 +148,8 @@ export function useAddressCountsQuery() {
   return useQuery({
     queryKey: queryKeys.addressCounts,
     queryFn: ({ signal }) => mailApi.addressCounts(signal),
-    staleTime: 20_000,
-    refetchInterval: 30_000,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
   })
 }
 

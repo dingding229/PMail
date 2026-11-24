@@ -128,6 +128,22 @@ func Changes(ctx *pctx.Context, w http.ResponseWriter, r *http.Request) {
 	}
 	query, cancel := context.WithDeadline(base, queryDeadline)
 	defer cancel()
+	if !first && seconds > 0 {
+		// A request can outlive a password/2FA reset or an administrator
+		// disabling the account. Don't return new subjects to a stale identity.
+		ok, err := mailevents.CredentialsCurrent(query, ctx.UserID, ctx.AuthVersion, ctx.FactorVersion)
+		if base.Err() != nil {
+			return
+		}
+		if err != nil {
+			changesError(ctx, w, http.StatusInternalServerError, response.ServerError, "internal_error")
+			return
+		}
+		if !ok {
+			changesError(ctx, w, http.StatusUnauthorized, response.NeedLogin, "inbound_login_required")
+			return
+		}
+	}
 	latest, err := mailevents.VisibleMax(query, ctx.UserID)
 	if err == nil && !first {
 		itemResponse.NewCount, itemResponse.NewItems, err = mailevents.NewMail(query, ctx.UserID, cursor.maxID, latest)
