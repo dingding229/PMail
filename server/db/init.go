@@ -123,12 +123,15 @@ func SyncSchema(engine *xorm.Engine) error {
 		&models.InboundSettings{}, &models.SpamPreference{}, &models.SpamRule{}, &models.SpamTraining{}, &models.SpamTotals{}, &models.SpamToken{},
 		&models.TranslationSettings{}, &models.AIConfig{}, &models.TranslationPreference{}, &models.TranslationUsage{}, &models.EmailTranslation{}, &models.EmailAIResult{},
 		&models.TelegramConfig{}, &models.TelegramBinding{}, &models.TelegramCode{}, &models.TelegramPreference{}, &models.TelegramPush{}, &models.ComposeImage{}, &models.DraftInlineImage{}, &models.Signature{}, &models.MailArchiveSettings{},
+		&models.ReportMailPreference{}, &models.DMARCReport{}, &models.DMARCRecord{}, &models.TLSReport{},
 	} {
 		var err error
-		switch model.(type) {
+		switch model := model.(type) {
 		case *models.UserEmail, *models.EmailTranslation:
 			// Drop only the redundant indexes explicitly selected below.
 			_, err = engine.SyncWithOptions(xorm.SyncOptions{IgnoreDropIndices: true}, model)
+		case *models.DMARCRecord:
+			err = syncDMARCRecord(engine, model)
 		case *models.MailboxAddress:
 			err = syncAddressSchema(engine)
 		default:

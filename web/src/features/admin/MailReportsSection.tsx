@@ -136,7 +136,8 @@ export function MailReportsSection() {
   const hasSuspicious = (summary?.sources ?? []).some((s) => s.suspicious)
   const latestPolicy = summary?.latest_policy
   const policyP = (latestPolicy?.p ?? '').toLowerCase()
-  const latestDate = summary?.latest_report_at || latestPolicy?.report_date || ''
+  // The API returns RFC 3339; reports cover whole UTC days, so show the date.
+  const latestDate = (summary?.latest_report_at || latestPolicy?.report_date || '').slice(0, 10)
 
   const tls = summary?.tls
   const hasTlsData = Boolean(tls && (tls.success_count > 0 || tls.failure_count > 0))

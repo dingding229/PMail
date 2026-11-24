@@ -43,6 +43,8 @@ func Detect(email *parsemail.Email, raw []byte) Kind {
 	ctype, params, _ := mime.ParseMediaType(h.Get("Content-Type"))
 	if ctype == "multipart/report" {
 		switch strings.ToLower(params["report-type"]) {
+		case "delivery-status", "global-delivery-status", "disposition-notification":
+			return None
 		case "tlsrpt":
 			return TLSReport
 		case "feedback-report":
@@ -51,6 +53,14 @@ func Detect(email *parsemail.Email, raw []byte) Kind {
 	}
 	if h.Get("TLS-Report-Domain") != "" || h.Get("TLS-Report-Submitter") != "" {
 		return TLSReport
+	}
+	for _, a := range email.Attachments {
+		if a != nil {
+			at, _, _ := mime.ParseMediaType(a.ContentType)
+			if at == "message/delivery-status" || at == "message/global-delivery-status" {
+				return None
+			}
+		}
 	}
 	for _, a := range email.Attachments {
 		if a == nil {

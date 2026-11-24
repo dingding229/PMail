@@ -5536,6 +5536,146 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/C9Error'
+  /api/settings/report-mail:
+    get:
+      operationId: getReportMailPreference
+      tags: [Settings]
+      summary: Read the caller's report auto-filing preferences
+      x-permission: user
+      responses:
+        '200':
+          description: Defaults apply if the user has no preference row.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReportMailPreferenceEnvelope'}
+        '401': {$ref: '#/components/responses/MailReportsError'}
+        '403': {$ref: '#/components/responses/MailReportsError'}
+        '500': {$ref: '#/components/responses/MailReportsError'}
+        '503': {$ref: '#/components/responses/MailReportsError'}
+    put:
+      operationId: updateReportMailPreference
+      tags: [Settings]
+      summary: Save the caller's report auto-filing preferences
+      description: Omitted fields keep their current values. group_id 0 chooses automatic folder creation; otherwise it must be the caller's own custom folder.
+      x-permission: user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReportMailPreferenceFields'}
+      responses:
+        '200':
+          description: Updated preferences.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReportMailPreferenceEnvelope'}
+        '400': {$ref: '#/components/responses/MailReportsError'}
+        '401': {$ref: '#/components/responses/MailReportsError'}
+        '403': {$ref: '#/components/responses/MailReportsError'}
+        '413': {$ref: '#/components/responses/MailReportsError'}
+        '415': {$ref: '#/components/responses/MailReportsError'}
+        '500': {$ref: '#/components/responses/MailReportsError'}
+        '503': {$ref: '#/components/responses/MailReportsError'}
+      x-error-codes:
+        '400': [report_mail_invalid_group, inbound_invalid_parameters]
+  /api/settings/report-mail/apply:
+    post:
+      operationId: applyReportMailPreference
+      tags: [Settings]
+      summary: File existing reports from the caller's Inbox
+      description: Applies the current enabled and mark_read settings. Does not forward or notify Telegram. A disabled preference moves nothing.
+      x-permission: user
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false}
+      responses:
+        '200':
+          description: Count of moved copies and target folder ID when available.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReportMailApplyEnvelope'}
+        '401': {$ref: '#/components/responses/MailReportsError'}
+        '403': {$ref: '#/components/responses/MailReportsError'}
+        '500': {$ref: '#/components/responses/MailReportsError'}
+        '503': {$ref: '#/components/responses/MailReportsError'}
+  /api/admin/mail-reports/summary:
+    get:
+      operationId: getMailReportsSummary
+      tags: [Admin]
+      summary: Aggregate DMARC and SMTP TLS report statistics
+      description: Counts are weighted by reported message/session counts, not by the number of rows. Pass rates are percentages from 0 to 100. The latest DMARC policy is the newest in the selected window.
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/MailReportDomain'}
+      - {$ref: '#/components/parameters/MailReportFrom'}
+      - {$ref: '#/components/parameters/MailReportTo'}
+      responses:
+        '200':
+          description: Counts, trends, reporters, top 50 source IPs, and TLS summary.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MailReportSummaryEnvelope'}
+        '400': {$ref: '#/components/responses/MailReportsError'}
+        '401': {$ref: '#/components/responses/MailReportsError'}
+        '403': {$ref: '#/components/responses/MailReportsError'}
+        '500': {$ref: '#/components/responses/MailReportsError'}
+        '503': {$ref: '#/components/responses/MailReportsError'}
+      x-error-codes:
+        '400': [mail_reports_invalid]
+  /api/admin/mail-reports/records:
+    get:
+      operationId: listMailReportRecords
+      tags: [Admin]
+      summary: Read paginated DMARC evaluation rows
+      description: A row passes when policy-evaluated SPF or DKIM passes. The linked email ID is exposed only when the caller owns a copy of that original message.
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/MailReportDomain'}
+      - {$ref: '#/components/parameters/MailReportFrom'}
+      - {$ref: '#/components/parameters/MailReportTo'}
+      - {$ref: '#/components/parameters/MailReportPage'}
+      - in: query
+        name: result
+        schema: {type: string, enum: [pass, fail, all], default: fail}
+      responses:
+        '200':
+          description: Evaluation rows, 10 per page.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MailReportRecordsEnvelope'}
+        '400': {$ref: '#/components/responses/MailReportsError'}
+        '401': {$ref: '#/components/responses/MailReportsError'}
+        '403': {$ref: '#/components/responses/MailReportsError'}
+        '500': {$ref: '#/components/responses/MailReportsError'}
+        '503': {$ref: '#/components/responses/MailReportsError'}
+      x-error-codes:
+        '400': [mail_reports_invalid]
+  /api/admin/mail-reports/reports:
+    get:
+      operationId: listMailReports
+      tags: [Admin]
+      summary: List imported DMARC and SMTP TLS reports
+      x-permission: admin
+      parameters:
+      - {$ref: '#/components/parameters/MailReportDomain'}
+      - {$ref: '#/components/parameters/MailReportFrom'}
+      - {$ref: '#/components/parameters/MailReportTo'}
+      - {$ref: '#/components/parameters/MailReportPage'}
+      responses:
+        '200':
+          description: Aggregate reports, newest first, 20 per page. email_id is omitted if the caller does not own the original message.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MailReportListEnvelope'}
+        '400': {$ref: '#/components/responses/MailReportsError'}
+        '401': {$ref: '#/components/responses/MailReportsError'}
+        '403': {$ref: '#/components/responses/MailReportsError'}
+        '500': {$ref: '#/components/responses/MailReportsError'}
+        '503': {$ref: '#/components/responses/MailReportsError'}
+      x-error-codes:
+        '400': [mail_reports_invalid]
   /api/admin/backups:
     get:
       operationId: listSiteBackups
@@ -5877,6 +6017,25 @@ components:
     BearerToken: {type: http, scheme: bearer}
     LegacyToken: {type: apiKey, in: header, name: Token}
   parameters:
+    MailReportDomain:
+      name: domain
+      in: query
+      description: Registered PMail domain; defaults to the system's primary domain.
+      schema: {type: string}
+    MailReportFrom:
+      name: from
+      in: query
+      description: Inclusive UTC start date; defaults to 29 days before to. The inclusive range may span up to 400 days.
+      schema: {type: string, format: date}
+    MailReportTo:
+      name: to
+      in: query
+      description: Inclusive UTC end date; defaults to today.
+      schema: {type: string, format: date}
+    MailReportPage:
+      name: page
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 1000000, default: 1}
     SiteBackupName:
       in: path
       name: name
@@ -5956,6 +6115,21 @@ components:
         type: integer
         description: Omit or use zero for the current account; only an administrator can select another user.
   responses:
+    MailReportsError:
+      description: Report request rejected or a server error occurred.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [errorNo, errorMsg, data]
+            properties:
+              errorNo: {type: integer}
+              errorMsg: {type: string}
+              data:
+                type: object
+                required: [code]
+                properties:
+                  code: {type: string}
     BackupArchiveError:
       description: >-
         Error envelope with a stable data.code. Authentication uses inbound_login_required or inbound_permission_denied.
@@ -6409,6 +6583,196 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error404EmptyData'}
   schemas:
+    ReportMailPreferenceFields:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled: {type: boolean, default: true}
+        group_id: {type: integer, minimum: 0, default: 0}
+        mark_read: {type: boolean, default: true}
+        forward_reports: {type: boolean, default: false, description: Does not affect explicit user forwarding rules.}
+    ReportMailPreferenceEnvelope:
+      type: object
+      required: [errorNo, errorMsg, data]
+      properties:
+        errorNo: {const: 0}
+        errorMsg: {type: string}
+        data:
+          allOf:
+          - {$ref: '#/components/schemas/ReportMailPreferenceFields'}
+          - {required: [enabled, group_id, mark_read, forward_reports]}
+    ReportMailApplyEnvelope:
+      type: object
+      required: [errorNo, errorMsg, data]
+      properties:
+        errorNo: {const: 0}
+        errorMsg: {type: string}
+        data:
+          type: object
+          required: [moved]
+          properties:
+            moved: {type: integer, format: int64, minimum: 0}
+            group_id: {type: integer, minimum: 1}
+    MailReportSummaryEnvelope:
+      type: object
+      required: [errorNo, errorMsg, data]
+      properties:
+        errorNo: {const: 0}
+        errorMsg: {type: string}
+        data: {$ref: '#/components/schemas/MailReportSummary'}
+    MailReportSummary:
+      type: object
+      required: [domain, from, to, report_count, latest_policy, totals, daily, reporters, sources, tls]
+      properties:
+        domain: {type: string}
+        from: {type: string, format: date}
+        to: {type: string, format: date}
+        report_count: {type: integer, format: int64, minimum: 0, description: Count of DMARC reports; TLS count is separate.}
+        latest_report_at: {type: string, format: date-time}
+        latest_policy:
+          oneOf:
+          - {type: 'null'}
+          - type: object
+            required: [p, sp, pct, adkim, aspf, report_date, org_name]
+            properties:
+              p: {type: string}
+              sp: {type: string}
+              pct: {type: integer, minimum: 0, maximum: 100}
+              adkim: {type: string, enum: [r, s]}
+              aspf: {type: string, enum: [r, s]}
+              report_date: {type: string, format: date}
+              org_name: {type: string}
+        totals:
+          type: object
+          required: [total, dmarc_pass, dmarc_pass_rate, spf_pass, spf_pass_rate, dkim_pass, dkim_pass_rate, quarantined, rejected]
+          properties:
+            total: {type: integer, format: int64}
+            dmarc_pass: {type: integer, format: int64}
+            dmarc_pass_rate: {type: number, minimum: 0, maximum: 100}
+            spf_pass: {type: integer, format: int64}
+            spf_pass_rate: {type: number, minimum: 0, maximum: 100}
+            dkim_pass: {type: integer, format: int64}
+            dkim_pass_rate: {type: number, minimum: 0, maximum: 100}
+            quarantined: {type: integer, format: int64}
+            rejected: {type: integer, format: int64}
+        daily:
+          type: array
+          items:
+            type: object
+            required: [date, pass, fail]
+            properties:
+              date: {type: string, format: date}
+              pass: {type: integer, format: int64}
+              fail: {type: integer, format: int64}
+        reporters:
+          type: array
+          items:
+            type: object
+            required: [org_name, count, pass_count, pass_rate]
+            properties:
+              org_name: {type: string}
+              count: {type: integer, format: int64}
+              pass_count: {type: integer, format: int64}
+              pass_rate: {type: number, minimum: 0, maximum: 100}
+        sources:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            required: [source_ip, count, pass_count, pass_rate, is_own, suspicious]
+            properties:
+              source_ip: {type: string}
+              count: {type: integer, format: int64}
+              pass_count: {type: integer, format: int64}
+              pass_rate: {type: number, minimum: 0, maximum: 100}
+              is_own: {type: boolean, description: Matches a configured public IP or an explicit SPF allow mechanism.}
+              suspicious: {type: boolean, description: Failed alignment for this domain (or a subdomain) from a source not identified as own.}
+        tls:
+          oneOf:
+          - {type: 'null'}
+          - type: object
+            required: [success_count, failure_count, report_count, failure_types]
+            properties:
+              success_count: {type: integer, format: int64}
+              failure_count: {type: integer, format: int64}
+              report_count: {type: integer, format: int64}
+              failure_types:
+                type: array
+                maxItems: 10
+                items:
+                  type: object
+                  required: [result_type, count]
+                  properties:
+                    result_type: {type: string}
+                    count: {type: integer, format: int64}
+    MailReportRecordsEnvelope:
+      type: object
+      required: [errorNo, errorMsg, data]
+      properties:
+        errorNo: {const: 0}
+        errorMsg: {type: string}
+        data:
+          allOf:
+          - {$ref: '#/components/schemas/MailReportPageFields'}
+          - type: object
+            required: [items]
+            properties:
+              items:
+                type: array
+                items: {$ref: '#/components/schemas/MailReportRecord'}
+    MailReportPageFields:
+      type: object
+      required: [total, page, page_size]
+      properties:
+        total: {type: integer, format: int64, minimum: 0}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1}
+    MailReportRecord:
+      type: object
+      required: [id, date, source_ip, count, disposition, header_from, dkim_result, spf_result, org_name]
+      properties:
+        id: {type: integer}
+        date: {type: string, format: date}
+        source_ip: {type: string}
+        count: {type: integer, format: int64}
+        disposition: {type: string}
+        header_from: {type: string}
+        envelope_from: {type: string}
+        dkim_result: {type: string, description: Policy-evaluated aligned result.}
+        dkim_domain: {type: string}
+        dkim_selector: {type: string}
+        dkim_auth_result: {type: string, description: Unaligned result of the first DKIM authentication detail.}
+        spf_result: {type: string, description: Policy-evaluated aligned result.}
+        spf_domain: {type: string}
+        spf_auth_result: {type: string, description: Unaligned result of the first SPF authentication detail.}
+        org_name: {type: string}
+        email_id: {type: integer, minimum: 1}
+    MailReportListEnvelope:
+      type: object
+      required: [errorNo, errorMsg, data]
+      properties:
+        errorNo: {const: 0}
+        errorMsg: {type: string}
+        data:
+          allOf:
+          - {$ref: '#/components/schemas/MailReportPageFields'}
+          - type: object
+            required: [items]
+            properties:
+              items:
+                type: array
+                items:
+                  type: object
+                  required: [id, kind, domain, org_name, report_id, begin_at, end_at]
+                  properties:
+                    id: {type: integer}
+                    kind: {type: string, enum: [dmarc_aggregate, tls_report]}
+                    domain: {type: string}
+                    org_name: {type: string}
+                    report_id: {type: string}
+                    begin_at: {type: string, format: date-time}
+                    end_at: {type: string, format: date-time}
+                    email_id: {type: integer, minimum: 1}
     SiteBackupPassphrase:
       type: string
       format: password

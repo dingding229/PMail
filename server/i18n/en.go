@@ -2,6 +2,9 @@ package i18n
 
 // #nosec G101 -- user-facing translations contain labels and errors about passwords/tokens, not credential values.
 var en = map[string]string{
+	"report_mail_folder":                "Reports",
+	"report_mail_invalid_group":         "Select one of your mail folders or automatic creation.",
+	"mail_reports_invalid":              "Invalid report domain, date range, result or page.",
 	"mail_trash_restore_failed":         "Could not restore mail from Trash.",
 	"mail_trash_empty_failed":           "Could not finish emptying Trash. Some messages may already have been deleted.",
 	"trash_retention_invalid":           "Trash retention must be a whole number from 0 to 3650 days.",

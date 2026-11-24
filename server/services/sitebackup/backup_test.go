@@ -57,6 +57,10 @@ func withFixture(t *testing.T, s Store) {
 		&models.UserEmailAddress{UserEmailID: 13, AddressID: 9},
 		&models.Rule{Id: 3, UserId: 5, Name: "fixture", Value: `[]`},
 		&models.TelegramConfig{ID: 1, Token: "fixture-sealed", Username: "testbot"},
+		&models.ReportMailPreference{UserID: 5, Enabled: true, GroupID: 8, MarkRead: true},
+		&models.DMARCReport{ID: 4, Domain: "example.test", OrgName: "Report Fixture", ReportID: "first", EmailID: 7},
+		&models.DMARCRecord{ID: 5, ReportID: 4, SourceIP: "192.0.2.4", Count: 12},
+		&models.TLSReport{ID: 6, Domain: "example.test", OrgName: "Report Fixture", ReportID: "tls-first", EmailID: 7},
 		&models.OutboundPayload{ID: 17, Digest: strings.Repeat("e", 64), Data: []byte{0, 0x80, 0xff}},
 		&models.Sessions{Token: "not-exported", Data: []byte("test")},
 	} {

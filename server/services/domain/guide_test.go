@@ -336,3 +336,20 @@ func TestGuideMailAliasesAcceptDirectAddresses(t *testing.T) {
 		})
 	}
 }
+
+func TestReportSPFOnlyExplicitMechanisms(t *testing.T) {
+	r := guideDNS{txt: map[string][]string{
+		"example.test.": {"v=spf1 ip4:192.0.2.0/24 include:relay.test +all"},
+		"relay.test.":   {"v=spf1 ip6:2001:db8::/32 -all"},
+	}}
+	for _, c := range []struct {
+		addr string
+		want bool
+	}{
+		{"192.0.2.4", true}, {"2001:db8::1", true}, {"198.51.100.4", false},
+	} {
+		if got := ReportIPAuthorized(t.Context(), r, "example.test", netip.MustParseAddr(c.addr)); got != c.want {
+			t.Fatalf("%s: %v", c.addr, got)
+		}
+	}
+}

@@ -86,6 +86,14 @@ func DeleteDerived(tx *xorm.Session, id int) error {
 			return err
 		}
 	}
+	// Statistics outlive the original message. Clear its link so an ID
+	// reused after a backup restore cannot point at an unrelated message.
+	for _, model := range []any{&models.DMARCReport{}, &models.TLSReport{}} {
+		if _, err := tx.Table(model).Where("email_id=?", id).Update(map[string]any{"email_id": 0}); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

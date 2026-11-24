@@ -2,6 +2,7 @@ package context
 
 import (
 	"context"
+	"time"
 )
 
 const (
@@ -36,3 +37,17 @@ func (c *Context) GetValue(key string) any {
 	}
 	return c.Values[key]
 }
+
+// A Context built as &Context{} has no standard context inside. Treat it as
+// context.Background so passing it to database, DNS or HTTP calls is safe.
+func (c Context) base() context.Context {
+	if c.Context == nil {
+		return context.Background()
+	}
+	return c.Context
+}
+
+func (c Context) Deadline() (time.Time, bool) { return c.base().Deadline() }
+func (c Context) Done() <-chan struct{}       { return c.base().Done() }
+func (c Context) Err() error                  { return c.base().Err() }
+func (c Context) Value(key any) any           { return c.base().Value(key) }

@@ -97,7 +97,7 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 		if !liveUpdates {
 			ctx.SetValue(context.LogID, id.GenLogID())
 		}
-		isInbound := controllers.InboundAPIPath(r.URL.Path) || controllers.C9Path(r.URL.Path) || controllers.TranslationAPIPath(r.URL.Path) || controllers.AddressApprovalAPIPath(r.URL.Path) || controllers.BackupAPIPath(r.URL.Path)
+		isInbound := controllers.InboundAPIPath(r.URL.Path) || controllers.C9Path(r.URL.Path) || controllers.TranslationAPIPath(r.URL.Path) || controllers.AddressApprovalAPIPath(r.URL.Path) || controllers.BackupAPIPath(r.URL.Path) || controllers.ReportMailAPIPath(r.URL.Path)
 		refuse := func(status, code int, key string) {
 			if isInbound {
 				if status == http.StatusForbidden {

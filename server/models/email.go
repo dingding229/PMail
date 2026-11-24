@@ -9,19 +9,21 @@ import (
 )
 
 type Email struct {
-	Id              int                  `xorm:"id pk unsigned int autoincr notnull" json:"id"`
-	Type            int8                 `xorm:"type tinyint(4) notnull default(0) comment('邮件类型，0:收到的邮件，1:发送的邮件')" json:"type"`
-	Subject         string               `xorm:"subject varchar(1000) notnull default('') comment('邮件标题')" json:"subject"`
-	ReplyTo         string               `xorm:"reply_to text comment('回复人')" json:"reply_to"`
-	FromName        string               `xorm:"from_name varchar(50) notnull default('') comment('发件人名称')" json:"from_name"`
-	FromAddress     string               `xorm:"from_address varchar(100) notnull default('') comment('发件人邮件地址')" json:"from_address"`
-	To              string               `xorm:"to text comment('收件人地址')" json:"to"`
-	Bcc             string               `xorm:"bcc text comment('密送')" json:"bcc"`
-	Cc              string               `xorm:"cc text comment('抄送')" json:"cc"`
-	Text            sql.NullString       `xorm:"text text comment('文本内容')" json:"text"`
-	TextFormat      string               `xorm:"text_format varchar(12) notnull default('')" json:"-"`
-	Html            sql.NullString       `xorm:"html mediumtext comment('html内容')" json:"html"`
-	Sender          string               `xorm:"sender text comment('发送人')" json:"sender"`
+	Id          int            `xorm:"id pk unsigned int autoincr notnull" json:"id"`
+	Type        int8           `xorm:"type tinyint(4) notnull default(0) index(report_scan) comment('邮件类型，0:收到的邮件，1:发送的邮件')" json:"type"`
+	Subject     string         `xorm:"subject varchar(1000) notnull default('') comment('邮件标题')" json:"subject"`
+	ReplyTo     string         `xorm:"reply_to text comment('回复人')" json:"reply_to"`
+	FromName    string         `xorm:"from_name varchar(50) notnull default('') comment('发件人名称')" json:"from_name"`
+	FromAddress string         `xorm:"from_address varchar(100) notnull default('') comment('发件人邮件地址')" json:"from_address"`
+	To          string         `xorm:"to text comment('收件人地址')" json:"to"`
+	Bcc         string         `xorm:"bcc text comment('密送')" json:"bcc"`
+	Cc          string         `xorm:"cc text comment('抄送')" json:"cc"`
+	Text        sql.NullString `xorm:"text text comment('文本内容')" json:"text"`
+	TextFormat  string         `xorm:"text_format varchar(12) notnull default('')" json:"-"`
+	Html        sql.NullString `xorm:"html mediumtext comment('html内容')" json:"html"`
+	Sender      string         `xorm:"sender text comment('发送人')" json:"sender"`
+	// Empty is a historical candidate; known kinds remain pending until parsed.
+	ReportMailState string               `xorm:"report_mail_state varchar(20) notnull default('') index(report_scan)" json:"-"`
 	ProjectionReady bool                 `xorm:"projection_ready bool notnull default(false)" json:"-"`
 	ListSnippet     string               `xorm:"list_snippet text" json:"-"`
 	POPOctets       int64                `xorm:"pop_octets bigint notnull default(0)" json:"-"`

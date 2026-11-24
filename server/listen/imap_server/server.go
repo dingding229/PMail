@@ -1,6 +1,7 @@
 package imap_server
 
 import (
+	stdctx "context"
 	"errors"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/id"
@@ -45,7 +46,7 @@ type serverSession struct {
 func (s *Server) NewSession() imapserver.Session { return s.newSession("") }
 
 func (s *Server) newSession(remote string) imapserver.Session {
-	tc := &context.Context{}
+	tc := &context.Context{Context: stdctx.Background()}
 	tc.SetValue(context.LogID, id.GenLogID())
 
 	return &serverSession{

@@ -14,6 +14,7 @@ import (
 	"github.com/Jinnrry/pmail/services/mailarchive"
 	"github.com/Jinnrry/pmail/services/maintenance"
 	"github.com/Jinnrry/pmail/services/queue"
+	"github.com/Jinnrry/pmail/services/reportmail"
 	"github.com/Jinnrry/pmail/services/setup/ssl"
 	"github.com/Jinnrry/pmail/services/sitebackup"
 	"github.com/Jinnrry/pmail/signal"
@@ -31,12 +32,14 @@ const (
 func Start(ctx context.Context, cfg *config.Config, active *tls.Certificate) func(context.Context) error {
 	go certificateMaintenance(ctx, cfg, active)
 	go auth.RunCleanup(ctx)
-	go archiveCleanup(ctx)
+	archiveDone := make(chan struct{})
+	go func() { defer close(archiveDone); archiveCleanup(ctx) }()
+	reportDone := reportmail.Start(ctx)
 	trashDone := make(chan struct{})
 	go func() { defer close(trashDone); del_email.RunCleanup(ctx) }()
 	queueDone := queue.Start(ctx)
 	return func(wait context.Context) error {
-		for _, done := range []<-chan struct{}{queueDone, trashDone} {
+		for _, done := range []<-chan struct{}{queueDone, trashDone, reportDone, archiveDone} {
 			select {
 			case <-done:
 			case <-wait.Done():
@@ -128,10 +131,13 @@ func archiveCleanup(ctx context.Context) {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {
-		maintenance.Work(ctx, func(context.Context) {
+		maintenance.Work(ctx, func(work context.Context) {
 			now := time.Now()
 			sitebackup.Jobs.Cleanup(config.ROOT_PATH, now)
 			mailarchive.Jobs.Cleanup(config.ROOT_PATH, now)
+			if err := reportmail.Purge(work, now); err != nil && work.Err() == nil {
+				log.Warn("mail report retention cleanup failed")
+			}
 		})
 		select {
 		case <-ctx.Done():

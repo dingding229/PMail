@@ -1082,6 +1082,8 @@ export interface ReportMailPreference {
   enabled: boolean
   group_id: number
   mark_read: boolean
+  /** Forward classified reports like other mail (default false). */
+  forward_reports?: boolean
 }
 
 export interface ReportMailApplyResponse {

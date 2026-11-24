@@ -28,7 +28,8 @@ type Backend struct{}
 func (bkd *Backend) NewSession(conn *smtp.Conn) (smtp.Session, error) {
 
 	remoteAddress := conn.Conn().RemoteAddr()
-	ctx := &context.Context{}
+	// Code below the session passes ctx.Context to database and DNS calls.
+	ctx := &context.Context{Context: stdctx.Background()}
 	ctx.SetValue(context.LogID, id.GenLogID())
 	log.WithContext(ctx).Debugf("新SMTP连接")
 

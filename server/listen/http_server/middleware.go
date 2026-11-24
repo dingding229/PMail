@@ -54,13 +54,13 @@ func apiSessions(next *http.ServeMux) http.Handler {
 					ctx := i18n.ForRequest(r)
 					if err != nil {
 						log.WithContext(ctx).Errorf("Read registration state: %v", err)
-						if controllers.InboundAPIPath(r.URL.Path) || controllers.C9Path(r.URL.Path) || controllers.TranslationAPIPath(r.URL.Path) || controllers.AddressApprovalAPIPath(r.URL.Path) || controllers.BackupAPIPath(r.URL.Path) {
+						if controllers.InboundAPIPath(r.URL.Path) || controllers.C9Path(r.URL.Path) || controllers.TranslationAPIPath(r.URL.Path) || controllers.AddressApprovalAPIPath(r.URL.Path) || controllers.BackupAPIPath(r.URL.Path) || controllers.ReportMailAPIPath(r.URL.Path) {
 							controllers.InboundError(ctx, w, http.StatusInternalServerError, response.ServerError, "inbound_internal_error")
 						} else {
 							response.Localized(ctx, response.ServerError, "internal_error").FPrintStatus(w, http.StatusInternalServerError)
 						}
 					} else {
-						if controllers.InboundAPIPath(r.URL.Path) || controllers.C9Path(r.URL.Path) || controllers.TranslationAPIPath(r.URL.Path) || controllers.AddressApprovalAPIPath(r.URL.Path) || controllers.BackupAPIPath(r.URL.Path) {
+						if controllers.InboundAPIPath(r.URL.Path) || controllers.C9Path(r.URL.Path) || controllers.TranslationAPIPath(r.URL.Path) || controllers.AddressApprovalAPIPath(r.URL.Path) || controllers.BackupAPIPath(r.URL.Path) || controllers.ReportMailAPIPath(r.URL.Path) {
 							controllers.InboundError(ctx, w, http.StatusForbidden, response.NoAccessPrivileges, "inbound_permission_denied")
 						} else {
 							response.Localized(ctx, response.NoAccessPrivileges, "registration_required").FPrintStatus(w, http.StatusForbidden)

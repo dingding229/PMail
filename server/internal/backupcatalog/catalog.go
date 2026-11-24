@@ -15,6 +15,7 @@ var Optional = []string{
 	"telegram_config", "telegram_binding", "telegram_code", "telegram_preference", "telegram_push",
 	"compose_image", "draft_inline_image", "signature", "translation_settings", "user_ai_config",
 	"translation_preference", "translation_usage", "email_translation", "email_ai_result", "mail_archive_settings",
+	"report_mail_preference", "dmarc_report", "dmarc_record", "tls_report",
 }
 var Tables = slices.Concat(Required, Optional)
 
@@ -23,7 +24,7 @@ var Excluded = []string{"sessions", "mail_attachment_info", "mail_attachment_chu
 
 func KeyColumn(table string) string {
 	switch table {
-	case "totp_config", "forward_setting", "spam_preference", "spam_totals", "telegram_binding", "telegram_code", "telegram_preference", "user_ai_config", "translation_preference", "translation_usage":
+	case "report_mail_preference", "totp_config", "forward_setting", "spam_preference", "spam_totals", "telegram_binding", "telegram_code", "telegram_preference", "user_ai_config", "translation_preference", "translation_usage":
 		return "user_id"
 	case "recovery_code", "user_email_address", "imap_mailbox_uid", "spam_training", "spam_token", "compose_image", "draft_inline_image", "email_translation", "email_ai_result":
 		return ""

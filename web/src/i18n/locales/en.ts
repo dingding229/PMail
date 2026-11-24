@@ -905,6 +905,8 @@ const en = {
       autoCreateFolder: 'Reports (auto-created)',
       markReadLabel: 'Mark as read after sorting',
       markReadDesc: 'Keep automated system reports from adding unread badge noise',
+      forwardLabel: 'Forward report mail',
+      forwardDesc: 'Off by default so automated reports do not trigger rate limits at external mailboxes',
       notice: 'Automated statistical reports such as DMARC and TLS will be moved to a separate folder without Telegram notifications; bounce messages are not sorted.',
       applyExisting: 'Sort existing emails',
       savedToast: 'Report mail sorting preferences saved',

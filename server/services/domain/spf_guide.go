@@ -34,8 +34,9 @@ type spfResolver interface {
 	LookupNetIP(context.Context, string, string) ([]netip.Addr, error)
 }
 type spfEvaluator struct {
-	r         spfResolver
-	remaining int
+	r            spfResolver
+	remaining    int
+	explicitOnly bool
 }
 
 func (e *spfEvaluator) budget() bool { e.remaining--; return e.remaining >= 0 }
@@ -84,6 +85,9 @@ func (e *spfEvaluator) check(ctx context.Context, domain, value string, addr net
 		result := spfNoPass
 		switch mech {
 		case "all":
+			if e.explicitOnly {
+				return spfNoPass
+			}
 			result = spfPass
 		case "ip4", "ip6":
 			if !hasArg {
@@ -278,4 +282,11 @@ func spfAll(term string) bool {
 		term = term[1:]
 	}
 	return strings.EqualFold(term, "all")
+}
+
+// ReportIPAuthorized approximates ownership using SPF mechanisms that
+// explicitly identify a source. An open +all policy is never evidence of ownership.
+func ReportIPAuthorized(ctx context.Context, r spfResolver, name string, addr netip.Addr) bool {
+	e := spfEvaluator{r: r, remaining: 10, explicitOnly: true}
+	return e.follow(ctx, name, addr.Unmap()) == spfPass
 }

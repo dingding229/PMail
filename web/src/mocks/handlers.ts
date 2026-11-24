@@ -972,6 +972,7 @@ const mockReportMailPref: ReportMailPreference = {
   enabled: true,
   group_id: 0,
   mark_read: true,
+  forward_reports: false,
 }
 
 const DKIM_CHUNK_1 =
@@ -3506,6 +3507,7 @@ export const handlers = [
     if (typeof body.enabled === 'boolean') mockReportMailPref.enabled = body.enabled
     if (typeof body.group_id === 'number') mockReportMailPref.group_id = body.group_id
     if (typeof body.mark_read === 'boolean') mockReportMailPref.mark_read = body.mark_read
+    if (typeof body.forward_reports === 'boolean') mockReportMailPref.forward_reports = body.forward_reports
     return ok({ ...mockReportMailPref })
   }),
 

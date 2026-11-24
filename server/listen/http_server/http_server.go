@@ -70,6 +70,13 @@ func registerAppRoutes(mux *http.ServeMux, version string) {
 	mux.HandleFunc("/api/email/del", contextIterceptor(email.EmailDelete))
 	mux.HandleFunc("POST /api/email/restore", contextIterceptor(email.RestoreTrash))
 	mux.HandleFunc("POST /api/email/trash/empty", contextIterceptor(email.EmptyTrash))
+	mux.HandleFunc("GET /api/settings/report-mail", contextIterceptor(controllers.ReportMailPreferences))
+	mux.HandleFunc("PUT /api/settings/report-mail", contextIterceptor(controllers.ReportMailPreferences))
+	mux.HandleFunc("POST /api/settings/report-mail/apply", contextIterceptor(controllers.ReportMailApply))
+	for _, view := range []string{"summary", "records", "reports"} {
+		mux.HandleFunc("GET /api/admin/mail-reports/"+view, contextIterceptor(controllers.AdminMailReports(view)))
+	}
+
 	mux.HandleFunc("GET /api/admin/trash", contextIterceptor(controllers.TrashSettings))
 	mux.HandleFunc("PUT /api/admin/trash", contextIterceptor(controllers.TrashSettings))
 	mux.HandleFunc("POST /api/email/star", contextIterceptor(email.Star))

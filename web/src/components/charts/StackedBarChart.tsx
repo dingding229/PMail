@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export interface StackedBarPoint {
   date: string
@@ -28,9 +28,23 @@ export function StackedBarChart({
   totalLabel,
 }: StackedBarChartProps) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+  // Draw at the real rendered width so axis text keeps its pixel size on
+  // phones instead of being scaled down with a fixed 760-unit viewBox.
+  const [measured, setMeasured] = useState(760)
+  useEffect(() => {
+    const el = boxRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver((entries) => {
+      const w = Math.round(entries[0]?.contentRect.width ?? 0)
+      if (w > 0) setMeasured(w)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
-  const width = 760
-  const height = 228
+  const width = Math.max(280, measured)
+  const height = width < 520 ? 200 : 228
   const padTop = 14
   const padRight = 14
   const padBottom = 30
@@ -54,7 +68,7 @@ export function StackedBarChart({
   const barW = Math.max(3, Math.min(22, slotW * 0.68))
 
   // Choose ~6 evenly spaced X-axis labels
-  const maxLabels = 6
+  const maxLabels = width < 520 ? 4 : 6
   const labelStep = Math.max(1, Math.ceil(data.length / maxLabels))
 
   const activePoint = hoveredIdx !== null ? data[hoveredIdx] ?? null : null
@@ -92,7 +106,7 @@ export function StackedBarChart({
         )}
       </div>
 
-      <div className="relative w-full">
+      <div ref={boxRef} className="relative w-full">
         <svg
           role="img"
           aria-label={ariaLabel}

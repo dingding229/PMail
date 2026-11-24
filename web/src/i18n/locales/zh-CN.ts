@@ -905,6 +905,8 @@ const zhCN = {
       autoCreateFolder: '报告（自动创建）',
       markReadLabel: '归类后标为已读',
       markReadDesc: '避免系统报告产生未读红点干扰',
+      forwardLabel: '转发报告邮件',
+      forwardDesc: '默认不转发，避免把大量自动报告转到外部邮箱而被限流',
       notice: 'DMARC、TLS 等系统自动发送的统计报告会移到单独的文件夹，不推送 Telegram；退信不会被归类。',
       applyExisting: '归类现有邮件',
       savedToast: '报告邮件归类设置已保存',

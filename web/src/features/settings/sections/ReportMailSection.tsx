@@ -25,6 +25,7 @@ const DEFAULT_PREF: ReportMailPreference = {
   enabled: true,
   group_id: 0,
   mark_read: true,
+  forward_reports: false,
 }
 
 export function ReportMailSection() {
@@ -155,6 +156,27 @@ export function ReportMailSection() {
                 checked={pref.mark_read}
                 disabled={!pref.enabled || saveMutation.isPending}
                 onCheckedChange={(checked) => updatePref({ mark_read: checked })}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-subtle)]/50 px-4 py-2.5">
+              <div className="min-w-0">
+                <Label
+                  htmlFor="report_mail_forward"
+                  className="text-[13px] font-medium text-[var(--ink-primary)]"
+                >
+                  {t('settings.reportMail.forwardLabel')}
+                </Label>
+                <p className="mt-0.5 text-[12px] text-[var(--ink-secondary)]">
+                  {t('settings.reportMail.forwardDesc')}
+                </p>
+              </div>
+              <Switch
+                id="report_mail_forward"
+                aria-label={t('settings.reportMail.forwardLabel')}
+                checked={pref.forward_reports ?? false}
+                disabled={!pref.enabled || saveMutation.isPending}
+                onCheckedChange={(checked) => updatePref({ forward_reports: checked })}
               />
             </div>
           </div>

@@ -2,6 +2,9 @@ package i18n
 
 // #nosec G101 -- user-facing translations contain labels and errors about passwords/tokens, not credential values.
 var cn = map[string]string{
+	"report_mail_folder":                "报告",
+	"report_mail_invalid_group":         "请选择自己的文件夹或使用自动创建。",
+	"mail_reports_invalid":              "报告域名、时间范围、结果或页码无效。",
 	"mail_trash_restore_failed":         "无法从回收站还原邮件。",
 	"mail_trash_empty_failed":           "未能清空回收站。部分邮件可能已被删除。",
 	"trash_retention_invalid":           "回收站保留天数必须为 0 到 3650 之间的整数。",

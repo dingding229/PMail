@@ -22,6 +22,7 @@ import (
 	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/services/inboundauth"
 	"github.com/Jinnrry/pmail/services/quota"
+	"github.com/Jinnrry/pmail/services/reportmail"
 	"github.com/Jinnrry/pmail/services/rule"
 	"github.com/Jinnrry/pmail/utils/context"
 	"github.com/Jinnrry/pmail/utils/mailbudget"
@@ -37,6 +38,7 @@ import (
 const DropUnknownRecipientEmails = true
 
 type inboundDelivery struct {
+	report    reportmail.Kind
 	prepared  bool
 	antivirus *antivirus.Result
 	envelope  inbound.Envelope
@@ -100,7 +102,7 @@ func LocalDelivery(ctx *context.Context, email *parsemail.Email, recipients []*p
 	}
 	// Group one local submission by recipient owner, not by untrusted Message-ID.
 	// A single owner who receives through two aliases gets one copy and two links.
-	delivery := inboundDelivery{envelope: inbound.Envelope{MailFrom: email.EnvelopeFrom}}
+	delivery := inboundDelivery{report: reportmail.Detect(email, raw), envelope: inbound.Envelope{MailFrom: email.EnvelopeFrom}}
 	var owners []int
 	byOwner := map[int][]string{}
 	for _, recipient := range recipients {
@@ -164,6 +166,16 @@ func processIncomingDelivery(ctx *context.Context, email *parsemail.Email, dbEma
 	if len(delivery) > 0 {
 		info = delivery[0]
 	}
+	kind := reportmail.None
+	if info != nil {
+		kind = info.report
+	} else {
+		kind = reportmail.Detect(email, emailData)
+	}
+	if kind == reportmail.DMARCAggregate || kind == reportmail.TLSReport {
+		reportmail.Wake()
+	}
+	filed := make(map[int]bool)
 	for _, user := range users {
 		result := info.recipient(user.ID)
 		// Junk is not auto-forwarded or moved out by ordinary mailbox rules.
@@ -178,6 +190,17 @@ func processIncomingDelivery(ctx *context.Context, email *parsemail.Email, dbEma
 		}
 		// Rules run first. Apply skips users whose rule moved the source to
 		// Deleted, and therefore does not forward mail deleted by a rule.
+		if kind != reportmail.None && dbEmail.Status == consts.EmailStatusWait {
+			n, pref, err := reportmail.File(ctx, user.ID, []int{dbEmail.Id})
+			if err != nil {
+				log.WithContext(ctx).Warnf("could not file report email_id=%d user_id=%d", dbEmail.Id, user.ID)
+			} else if n > 0 {
+				filed[user.ID] = true
+				if !pref.ForwardReports {
+					continue
+				}
+			}
+		}
 		forward.Apply(ctx, user.ID, email, emailData)
 	}
 
@@ -187,7 +210,9 @@ func processIncomingDelivery(ctx *context.Context, email *parsemail.Email, dbEma
 		imap_server.MailboxChanged(user.ID)
 	}
 	for _, user := range users {
-		inbound.Notify(user.ID, dbEmail.Id, info.recipient(user.ID))
+		if !filed[user.ID] {
+			inbound.Notify(user.ID, dbEmail.Id, info.recipient(user.ID))
+		}
 	}
 }
 
@@ -297,7 +322,7 @@ func (s *Session) Data(r io.Reader) error {
 			email.Status = int(consts.EmailStatusDel)
 		}
 
-		delivery := inboundDelivery{antivirus: scanResult, envelope: inbound.Envelope{SourceIP: inbound.SourceIP(peer, emailData), MailFrom: s.From}}
+		delivery := inboundDelivery{report: reportmail.Detect(email, emailData), antivirus: scanResult, envelope: inbound.Envelope{SourceIP: inbound.SourceIP(peer, emailData), MailFrom: s.From}}
 		users, dbEmail, saveErr := saveEmail(ctx, len(emailData), email, 0, 0, s.To, SPFStatus, dkimStatus, &delivery)
 		if saveErr != nil {
 			if oerrors.Is(saveErr, quota.ErrExceeded) {
@@ -366,6 +391,7 @@ func saveEmail(ctx *context.Context, size int, email *parsemail.Email, sendUserI
 		var scores map[int]*inbound.Spam
 		if len(delivery) > 0 && delivery[0] != nil {
 			delivery[0].analyze(ctx, email, userIDs)
+			modelEmail.ReportMailState = reportmail.InitialState(delivery[0].report)
 			modelEmail.InboundAnalysis = inbound.Storage(delivery[0].analysis)
 			scores = delivery[0].scores
 		}
