@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/Jinnrry/pmail/controllers/email"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/services/translation"
@@ -155,6 +156,10 @@ func EmailTranslate(ctx *context.Context, w http.ResponseWriter, r *http.Request
 	var in translation.TranslateRequest
 	if !translationUser(ctx, w) || !inboundBody(ctx, w, r, &in) {
 		return
+	}
+	in.HTML = ""
+	if in.ID > 0 {
+		in.HTML = email.ViewHTML(ctx, in.ID)
 	}
 	data, err := translation.Default.Translate(r.Context(), ctx.UserID, ctx.Lang, in)
 	translationResponse(ctx, w, data, err)

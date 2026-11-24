@@ -444,6 +444,8 @@ export interface EmailTranslateRequest {
 export interface EmailTranslationResult {
   subject: string
   text: string
+  /** Original HTML layout with translated text; absent for plain-text mail or when the layout could not be kept. */
+  html?: string
   source_lang?: string
   target_lang: TranslationLanguage
   provider: WebTranslationProvider | 'openai_compatible'

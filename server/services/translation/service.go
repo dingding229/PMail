@@ -156,10 +156,16 @@ type TranslateRequest struct {
 	TargetLang string `json:"target_lang"`
 	Engine     string `json:"engine"`
 	Force      bool   `json:"force"`
+	// HTML is the sanitized body as shown to the reader. When set, the text
+	// runs inside it are translated and put back so images, tables, links
+	// and code blocks stay in place. It is filled by the server, never by
+	// the client.
+	HTML string `json:"-"`
 }
 type Translation struct {
 	Subject    string `json:"subject"`
 	Text       string `json:"text"`
+	HTML       string `json:"html,omitempty"`
 	SourceLang string `json:"source_lang,omitempty"`
 	TargetLang string `json:"target_lang"`
 	Provider   string `json:"provider"`
@@ -199,6 +205,15 @@ func (s *Service) Translate(ctx context.Context, uid int, ui string, in Translat
 		return Translation{}, ErrDisabled
 	}
 	sub, txt, truncated := mailText(row, p.MaxChars)
+	doc, segments := parseHTMLSegments(in.HTML), 0
+	if doc != nil {
+		body, n, cut := doc.source(max(0, p.MaxChars-utf8.RuneCountInString(sub)))
+		if n > 0 {
+			txt, segments, truncated = body, n, truncated || cut
+		} else {
+			doc = nil
+		}
+	}
 	if strings.TrimSpace(sub) == "" && strings.TrimSpace(txt) == "" {
 		return Translation{}, ErrInvalid
 	}
@@ -215,6 +230,17 @@ func (s *Service) Translate(ctx context.Context, uid int, ui string, in Translat
 	if engine == "ai" {
 		fingerprint = cacheKey(sub, txt, ai)
 	}
+	if doc != nil {
+		fingerprint = cacheKey(fingerprint, htmlLayoutVersion, segments)
+	}
+	withHTML := func(r Translation) Translation {
+		if doc != nil {
+			// in.HTML is already sanitized; translated text only replaces
+			// text nodes, which the renderer escapes.
+			r.HTML = doc.render(r.Text, segments)
+		}
+		return r
+	}
 	result := Translation{TargetLang: lang, Provider: provider, Engine: engine, Truncated: truncated}
 	key := models.EmailTranslation{EmailID: row.Id, UserID: cacheOwner, TargetLang: lang, Engine: engine}
 	if !in.Force {
@@ -225,7 +251,7 @@ func (s *Service) Translate(ctx context.Context, uid int, ui string, in Translat
 		}
 		if found {
 			result.Subject, result.Text, result.SourceLang, result.Cached = cached.Subject, cached.Text, cached.SourceLang, true
-			return result, nil
+			return withHTML(result), nil
 		}
 	}
 	if engine == "web" {
@@ -266,7 +292,10 @@ func (s *Service) Translate(ctx context.Context, uid int, ui string, in Translat
 		_, err = tx.Insert(&key)
 		return err
 	})
-	return result, err
+	if err != nil {
+		return result, err
+	}
+	return withHTML(result), nil
 }
 
 func checkAI(ctx context.Context, p policyRecord, uid int) (aiRecord, error) {

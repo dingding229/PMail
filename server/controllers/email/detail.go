@@ -115,3 +115,14 @@ func inlineAttachmentURLs(emailID int, html, attachmentsJSON string, metadata ..
 	}
 	return strings.NewReplacer(pairs...).Replace(html)
 }
+
+// ViewHTML returns the sanitized HTML body exactly as the web reader shows it,
+// with inline images pointing at the attachment API. It returns "" for
+// plain-text mail or when the mail cannot be read by the current user.
+func ViewHTML(ctx *context.Context, id int) string {
+	mail, err := detail.WebDetail(ctx, id, false)
+	if err != nil || mail.Html.String == "" {
+		return ""
+	}
+	return inlineAttachmentURLs(id, parsemail.SanitizeHTML(mail.Html.String), mail.Attachments, mail.AttachmentInfo)
+}

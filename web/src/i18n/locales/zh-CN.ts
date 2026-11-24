@@ -1758,6 +1758,7 @@ const zhCN = {
     retranslate: '重新翻译',
     cachedBadge: '来自缓存',
     truncatedBadge: '已截断',
+    inlineNotice: '译文已按原邮件排版显示在下方，图片和代码保持不变。',
     aiModelFallback: 'AI 模型',
     providerLabelWeb: '由 {{provider}} 翻译',
     providerLabelAI: '由 AI ({{model}}) 翻译',

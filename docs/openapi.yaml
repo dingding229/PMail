@@ -7141,6 +7141,7 @@ components:
       properties:
         subject: {type: string, maxLength: 8192}
         text: {type: string, description: Untrusted plain text; never interpret as HTML.}
+        html: {type: string, description: "Present only for HTML mail when every text run was translated in place: the sanitized body as shown by the reader (images, links, tables and code unchanged) with translated text nodes. Render it like the mail body, in the sandboxed frame."}
         source_lang: {type: string, maxLength: 24}
         target_lang: {$ref: '#/components/schemas/C27Language'}
         provider: {type: string, enum: [google_web, edge_web, deepl, libretranslate, mymemory, openai_compatible]}

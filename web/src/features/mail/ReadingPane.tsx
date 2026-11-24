@@ -1394,7 +1394,11 @@ export function ReadingPane({
 
             {hasHtml ? (
               <SandboxedHtmlFrame
-                html={email.html}
+                html={
+                  showTranslation && translationResult?.html
+                    ? translationResult.html
+                    : email.html
+                }
                 emailId={email.id}
                 imageProxyToken={email.image_proxy_token}
                 allowExternalImages={imagesShown}
