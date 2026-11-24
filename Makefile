@@ -1,4 +1,4 @@
-VERSION ?= 0.0.8
+VERSION ?= 1.0.0
 GITHASH ?= unknown
 export VERSION
 
