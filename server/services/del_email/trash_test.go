@@ -240,3 +240,32 @@ func TestPurgeExpiredBoundaryAndConcurrentCleanup(t *testing.T) {
 		t.Fatalf("now strictly older: %d %v", n, err)
 	}
 }
+
+func TestPermanentUnlinkRemovesTranslationAndAICachesOnlyOnLastReference(t *testing.T) {
+	e, a, b := trashFixture(t)
+	stamp := time.Now().UnixMilli()
+	link := trashMail(t, e, a.UserID, 0, consts.EmailStatusDel, 0, &stamp, 90)
+	if _, err := e.Insert(&models.UserEmail{UserID: b.UserID, EmailID: link.EmailID, Status: consts.EmailStatusDel, DeletedAt: &stamp},
+		&models.EmailTranslation{EmailID: link.EmailID, Engine: "web", TargetLang: "en"},
+		&models.EmailTranslation{EmailID: link.EmailID, UserID: b.UserID, Engine: "ai", TargetLang: "en"},
+		&models.EmailAIResult{EmailID: link.EmailID, UserID: b.UserID, Action: "summary", Lang: "en"}); err != nil {
+		t.Fatal(err)
+	}
+	check := func(web, ai int64) {
+		t.Helper()
+		if n, err := e.Where("email_id=?", link.EmailID).Count(&models.EmailTranslation{}); err != nil || n != web {
+			t.Fatalf("translation rows %d: %v", n, err)
+		}
+		if n, err := e.Where("email_id=?", link.EmailID).Count(&models.EmailAIResult{}); err != nil || n != ai {
+			t.Fatalf("AI rows %d: %v", n, err)
+		}
+	}
+	if n, err := Empty(t.Context(), a.UserID); n != 1 || err != nil {
+		t.Fatalf("first unlink: %d %v", n, err)
+	}
+	check(2, 1)
+	if n, err := Empty(t.Context(), b.UserID); n != 1 || err != nil {
+		t.Fatalf("last unlink: %d %v", n, err)
+	}
+	check(0, 0)
+}

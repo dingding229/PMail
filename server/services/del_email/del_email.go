@@ -102,7 +102,7 @@ func afterUnlink(tx *xorm.Session, owner, id int, n, size int64) error {
 	if err != nil || deleted == 0 {
 		return err
 	}
-	return mailstore.DeleteParts(tx, id)
+	return mailstore.DeleteDerived(tx, id)
 }
 
 func DelByUID(ctx *context.Context, ids []int) error {

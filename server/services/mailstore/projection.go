@@ -76,6 +76,19 @@ func WriteParts(tx *xorm.Session, row *models.Email, replace bool) error {
 	return nil
 }
 
+// DeleteDerived is called only after deletion of the last message reference.
+func DeleteDerived(tx *xorm.Session, id int) error {
+	if err := DeleteParts(tx, id); err != nil {
+		return err
+	}
+	for _, row := range []any{&models.EmailTranslation{}, &models.EmailAIResult{}} {
+		if _, err := tx.Where("email_id=?", id).Delete(row); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func DeleteParts(tx *xorm.Session, id int) error {
 	if _, err := tx.Where("email_id=?", id).Delete(&models.MailAttachmentChunk{}); err != nil {
 		return err

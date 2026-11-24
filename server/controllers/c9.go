@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	log "github.com/sirupsen/logrus"
 	"io"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/services/compose"
+	"github.com/Jinnrry/pmail/services/netproxy"
 	"github.com/Jinnrry/pmail/services/telegram"
 	"github.com/Jinnrry/pmail/services/update"
 	"github.com/Jinnrry/pmail/utils/context"
@@ -58,23 +60,22 @@ func AdminTelegram(ctx *context.Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var body struct {
-		Token *string         `json:"bot_token"`
-		Proxy json.RawMessage `json:"proxy"`
+		Token      *string         `json:"bot_token"`
+		Proxy      json.RawMessage `json:"proxy"`
+		ClearProxy bool            `json:"clear_proxy"`
 	}
 	if !inboundBody(ctx, w, r, &body) {
 		return
 	}
-	var proxy *string
-	clear := body.Proxy != nil && bytes.Equal(bytes.TrimSpace(body.Proxy), []byte("null"))
-	if body.Proxy != nil && !clear {
-		var v string
-		if json.Unmarshal(body.Proxy, &v) != nil {
-			c9Error(ctx, w, telegram.ErrProxy)
-			return
-		}
-		proxy = &v
+	proxy, clear, err := netproxy.Patch(body.Proxy, body.ClearProxy, true)
+	if err != nil {
+		c9Error(ctx, w, telegram.ErrProxy)
+		return
 	}
 	s, err := telegram.AdminPut(r.Context(), body.Token, proxy, clear)
+	if err == nil {
+		log.WithContext(ctx).Infof("audit_event=telegram_settings_changed actor_id=%d", ctx.UserID)
+	}
 	c9Response(ctx, w, s, err)
 }
 func AdminTelegramTest(ctx *context.Context, w http.ResponseWriter, r *http.Request) {

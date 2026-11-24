@@ -9,6 +9,7 @@ import (
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
 	"github.com/Jinnrry/pmail/services/quota"
+	"github.com/Jinnrry/pmail/services/translation"
 	"github.com/Jinnrry/pmail/utils/password"
 	"xorm.io/xorm"
 )
@@ -110,6 +111,7 @@ type Patch struct {
 	Disabled *int
 	QuotaMB  *int64
 	Lang     *string
+	RemoveAI bool // account deletion, not a regular disable
 }
 
 func Edit(p Patch) (models.User, error) {
@@ -136,6 +138,9 @@ func Edit(p Patch) (models.User, error) {
 			tx.ID(p.ID)
 		} else {
 			tx.Where("account = ?", p.Account)
+		}
+		if p.RemoveAI && tx.Engine().DriverName() != "sqlite" {
+			tx.ForUpdate()
 		}
 		found, err := tx.Get(&updated)
 		if err != nil {
@@ -175,6 +180,11 @@ func Edit(p Patch) (models.User, error) {
 		if hash != "" {
 			updates["password"] = hash
 			revoke = true
+		}
+		if p.RemoveAI {
+			if err := translation.DeleteUserAI(tx, updated.ID); err != nil {
+				return err
+			}
 		}
 		if len(updates) == 0 {
 			return nil

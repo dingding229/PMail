@@ -3387,6 +3387,592 @@ paths:
         '401': {$ref: '#/components/responses/C8InboundLoginRequired'}
         '403': {$ref: '#/components/responses/C8InboundPermissionDenied'}
         '409': {description: ClamAV is off or an update is already queued or running.}
+  /api/admin/translation:
+    get:
+      operationId: getTranslationPolicy
+      tags: [Translation and AI]
+      summary: Get the web translation and AI access policy
+      x-permission: admin
+      responses:
+        '200':
+          description: Success; keys and passwords are always redacted in settings responses.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                additionalProperties: false
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/C27Policy'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Permission denied, including session-only routes accessed with API tokens (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal failure; details are not returned (internal_error or inbound_internal_error).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+    put:
+      operationId: setTranslationPolicy
+      tags: [Translation and AI]
+      summary: Patch the web translation and AI access policy
+      x-permission: admin
+      description: Only supplied fields change. Keys and proxy passwords are never echoed. Successful writes are audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/C27PolicyPatch'}
+      responses:
+        '200':
+          description: Success; keys and passwords are always redacted in settings responses.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                additionalProperties: false
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/C27Policy'}
+        '400':
+          description: Invalid settings, unsupported language or engine, blocked AI network, or invalid request JSON (translation_invalid, ai_network_blocked, inbound_invalid_parameters).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Permission denied, including session-only routes accessed with API tokens (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '413':
+          description: Request body too large (inbound_payload_too_large).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '415':
+          description: Request body is not JSON (json_media_type_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal failure; details are not returned (internal_error or inbound_internal_error).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+  /api/admin/translation/test:
+    post:
+      operationId: testWebTranslation
+      tags: [Translation and AI]
+      summary: Translate a fixed phrase with the saved web provider
+      x-permission: admin
+      description: Works without enabling mail translation; sends only the fixed test phrase.
+      responses:
+        '200':
+          description: Success; keys and passwords are always redacted in settings responses.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                additionalProperties: false
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/C27WebTest'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Permission denied, including session-only routes accessed with API tokens (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '429':
+          description: Daily web quota reached, upstream rate limit, or two requests already in progress (translation_daily_limit, translation_upstream_rate_limited, ai_busy).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal failure; details are not returned (internal_error or inbound_internal_error).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '502':
+          description: Upstream error, connectivity failure, authentication failure or invalid response (translation_provider_failed, translation_connection_failed, translation_upstream_auth, translation_response_invalid).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '504':
+          description: Provider timeout (translation_timeout).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+  /api/settings/translation:
+    get:
+      operationId: getTranslationPreferences
+      tags: [Translation and AI]
+      summary: Get translation and AI display preferences
+      x-permission: user
+      security:
+      - {Session: []}
+      responses:
+        '200':
+          description: Success; keys and passwords are always redacted in settings responses.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                additionalProperties: false
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/C27Preferences'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Permission denied, including session-only routes accessed with API tokens (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal failure; details are not returned (internal_error or inbound_internal_error).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+    put:
+      operationId: setTranslationPreferences
+      tags: [Translation and AI]
+      summary: Save translation and AI display preferences
+      x-permission: user
+      security:
+      - {Session: []}
+      description: Replaces preferences for the current browser session user only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/C27Preferences'}
+      responses:
+        '200':
+          description: Success; keys and passwords are always redacted in settings responses.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                additionalProperties: false
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/C27Preferences'}
+        '400':
+          description: Invalid settings, unsupported language or engine, blocked AI network, or invalid request JSON (translation_invalid, ai_network_blocked, inbound_invalid_parameters).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Permission denied, including session-only routes accessed with API tokens (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '413':
+          description: Request body too large (inbound_payload_too_large).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '415':
+          description: Request body is not JSON (json_media_type_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal failure; details are not returned (internal_error or inbound_internal_error).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+  /api/settings/ai:
+    get:
+      operationId: getUserAI
+      tags: [Translation and AI]
+      summary: Get the current user’s redacted AI configuration
+      x-permission: user
+      security:
+      - {Session: []}
+      responses:
+        '200':
+          description: Success; keys and passwords are always redacted in settings responses.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                additionalProperties: false
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/C27AIView'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Permission denied, including session-only routes accessed with API tokens (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal failure; details are not returned (internal_error or inbound_internal_error).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+    put:
+      operationId: setUserAI
+      tags: [Translation and AI]
+      summary: Save the current user’s AI configuration
+      x-permission: user
+      security:
+      - {Session: []}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/C27AIInput'}
+      responses:
+        '200':
+          description: Success; keys and passwords are always redacted in settings responses.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                additionalProperties: false
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/C27AIView'}
+        '400':
+          description: Invalid settings, unsupported language or engine, blocked AI network, or invalid request JSON (translation_invalid, ai_network_blocked, inbound_invalid_parameters).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Permission denied, including session-only routes accessed with API tokens (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '409':
+          description: Translation engine disabled, AI configuration disabled, or user AI not configured (translation_disabled, ai_config_disabled, ai_not_configured).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '413':
+          description: Request body too large (inbound_payload_too_large).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '415':
+          description: Request body is not JSON (json_media_type_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal failure; details are not returned (internal_error or inbound_internal_error).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+    delete:
+      operationId: deleteUserAI
+      tags: [Translation and AI]
+      summary: Delete the current user’s AI configuration and AI caches
+      x-permission: user
+      security:
+      - {Session: []}
+      responses:
+        '200':
+          description: Success; keys and passwords are always redacted in settings responses.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                additionalProperties: false
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {type: 'null'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Permission denied, including session-only routes accessed with API tokens (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal failure; details are not returned (internal_error or inbound_internal_error).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+  /api/settings/ai/test:
+    post:
+      operationId: testUserAI
+      tags: [Translation and AI]
+      summary: Test the saved AI connection without sending mail
+      x-permission: user
+      security:
+      - {Session: []}
+      responses:
+        '200':
+          description: Success; keys and passwords are always redacted in settings responses.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                additionalProperties: false
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/C27AITest'}
+        '400':
+          description: Invalid settings, unsupported language or engine, blocked AI network, or invalid request JSON (translation_invalid, ai_network_blocked, inbound_invalid_parameters).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Permission denied, including session-only routes accessed with API tokens (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '409':
+          description: Translation engine disabled, AI configuration disabled, or user AI not configured (translation_disabled, ai_config_disabled, ai_not_configured).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '429':
+          description: Daily web quota reached, upstream rate limit, or two requests already in progress (translation_daily_limit, translation_upstream_rate_limited, ai_busy).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal failure; details are not returned (internal_error or inbound_internal_error).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '502':
+          description: Upstream error, connectivity failure, authentication failure or invalid response (translation_provider_failed, translation_connection_failed, translation_upstream_auth, translation_response_invalid).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '504':
+          description: Provider timeout (translation_timeout).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+  /api/email/translate:
+    post:
+      operationId: translateEmail
+      tags: [Translation and AI]
+      summary: Translate the subject and body as plain text
+      x-permission: owner
+      security:
+      - {Session: []}
+      description: Explicit target and engine override user preferences. An empty preference uses the UI language or administrator default engine, respectively. An upstream web attempt (including force) counts toward the UTC daily quota; cache hits do not.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/C27TranslateInput'}
+      responses:
+        '200':
+          description: Success; keys and passwords are always redacted in settings responses.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                additionalProperties: false
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/C27Translation'}
+        '400':
+          description: Invalid settings, unsupported language or engine, blocked AI network, or invalid request JSON (translation_invalid, ai_network_blocked, inbound_invalid_parameters).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Permission denied, including session-only routes accessed with API tokens (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '404':
+          description: The caller has no copy of this mail, or it does not exist (translation_mail_not_found).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '409':
+          description: Translation engine disabled, AI configuration disabled, or user AI not configured (translation_disabled, ai_config_disabled, ai_not_configured).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '413':
+          description: Request body too large (inbound_payload_too_large).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '415':
+          description: Request body is not JSON (json_media_type_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '429':
+          description: Daily web quota reached, upstream rate limit, or two requests already in progress (translation_daily_limit, translation_upstream_rate_limited, ai_busy).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal failure; details are not returned (internal_error or inbound_internal_error).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '502':
+          description: Upstream error, connectivity failure, authentication failure or invalid response (translation_provider_failed, translation_connection_failed, translation_upstream_auth, translation_response_invalid).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '504':
+          description: Provider timeout (translation_timeout).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+  /api/email/ai:
+    post:
+      operationId: analyzeEmail
+      tags: [Translation and AI]
+      summary: Summarize mail or extract structured details
+      x-permission: owner
+      security:
+      - {Session: []}
+      description: AI outputs are untrusted plain text. The endpoint uses only the current user’s AI connection and allows at most two concurrent AI calls per user per server process.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/C27AIRequest'}
+      responses:
+        '200':
+          description: Success; keys and passwords are always redacted in settings responses.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errorNo, errorMsg, data]
+                additionalProperties: false
+                properties:
+                  errorNo: {const: 0}
+                  errorMsg: {const: ''}
+                  data: {$ref: '#/components/schemas/C27AIResult'}
+        '400':
+          description: Invalid settings, unsupported language or engine, blocked AI network, or invalid request JSON (translation_invalid, ai_network_blocked, inbound_invalid_parameters).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '401':
+          description: Authentication required (inbound_login_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '403':
+          description: Permission denied, including session-only routes accessed with API tokens (inbound_permission_denied).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '404':
+          description: The caller has no copy of this mail, or it does not exist (translation_mail_not_found).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '409':
+          description: Translation engine disabled, AI configuration disabled, or user AI not configured (translation_disabled, ai_config_disabled, ai_not_configured).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '413':
+          description: Request body too large (inbound_payload_too_large).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '415':
+          description: Request body is not JSON (json_media_type_required).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '429':
+          description: Daily web quota reached, upstream rate limit, or two requests already in progress (translation_daily_limit, translation_upstream_rate_limited, ai_busy).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '500':
+          description: Internal failure; details are not returned (internal_error or inbound_internal_error).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '502':
+          description: Upstream error, connectivity failure, authentication failure or invalid response (translation_provider_failed, translation_connection_failed, translation_upstream_auth, translation_response_invalid).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
+        '504':
+          description: Provider timeout (translation_timeout).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
   /api/admin/telegram:
     get:
       operationId: c9TelegramAdminGet
@@ -5107,6 +5693,227 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error404EmptyData'}
   schemas:
+    C27ProxyFields:
+      type: object
+      required: [type, host, port]
+      properties:
+        type: {type: string, enum: [http, https, socks5]}
+        host: {type: string, minLength: 1, maxLength: 253, description: 'IPv4, IPv6 or DNS hostname; not a URL.'}
+        port: {type: integer, minimum: 1, maximum: 65535}
+        username: {type: string, maxLength: 255}
+    C27ProxyInput:
+      allOf:
+      - {$ref: '#/components/schemas/C27ProxyFields'}
+      - type: object
+        properties:
+          password: {type: string, maxLength: 512, writeOnly: true, description: Omit to keep; empty clears.}
+      unevaluatedProperties: false
+    C27ProxyView:
+      oneOf:
+      - allOf:
+        - {$ref: '#/components/schemas/C27ProxyFields'}
+        - type: object
+          required: [password_set]
+          properties:
+            password_set: {type: boolean}
+        unevaluatedProperties: false
+      - type: 'null'
+    C27Language:
+      type: string
+      enum: [zh-CN, zh-TW, en, ja, ko, fr, de, es, ru]
+    C27Engine:
+      type: string
+      enum: [ai, web]
+    C27PolicyFields:
+      type: object
+      properties:
+        web_enabled: {type: boolean, default: false}
+        ai_enabled: {type: boolean, default: false, description: Enables AI translation only, not summary and extraction.}
+        default_engine: {$ref: '#/components/schemas/C27Engine', default: web}
+        provider: {type: string, enum: [google_web, edge_web, deepl, libretranslate], default: google_web}
+        url: {type: string, maxLength: 512, description: LibreTranslate server URL, or full /translate endpoint.}
+        deepl_tier: {type: string, enum: [auto, free, pro], default: auto, description: Auto selects the free endpoint when the key ends in :fx.}
+        proxy_mode: {type: string, enum: [none, custom, telegram], default: none}
+        max_chars: {type: integer, minimum: 500, maximum: 50000, default: 8000, description: Combined subject and body in Unicode code points.}
+        daily_limit_per_user: {type: integer, minimum: 0, default: 200, description: Zero means unlimited.}
+        timeout: {type: integer, minimum: 1, maximum: 120, default: 30, description: Seconds for the full upstream operation.}
+        ai_user_config_enabled: {type: boolean, default: true}
+        ai_allow_private_network: {type: boolean, default: false}
+    C27PolicyPatch:
+      allOf:
+      - {$ref: '#/components/schemas/C27PolicyFields'}
+      - type: object
+        properties:
+          proxy: {$ref: '#/components/schemas/C27ProxyInput'}
+          clear_proxy: {type: boolean, default: false}
+          api_key: {type: string, maxLength: 1024, writeOnly: true, description: Omit to keep for the same provider/LibreTranslate URL; empty clears.}
+      unevaluatedProperties: false
+    C27Policy:
+      allOf:
+      - {$ref: '#/components/schemas/C27PolicyFields'}
+      - type: object
+        required: [api_key_set, proxy]
+        properties:
+          api_key_set: {type: boolean}
+          proxy: {$ref: '#/components/schemas/C27ProxyView'}
+      unevaluatedProperties: false
+    C27WebTest:
+      type: object
+      required: [subject, text, provider, latency_ms]
+      properties:
+        subject: {type: string}
+        text: {type: string}
+        provider: {type: string, enum: [google_web, edge_web, deepl, libretranslate]}
+        latency_ms: {type: integer, minimum: 0}
+    C27AITest:
+      type: object
+      required: [model, latency_ms]
+      properties:
+        model: {type: string}
+        latency_ms: {type: integer, minimum: 0}
+    C27Preferences:
+      type: object
+      additionalProperties: false
+      properties:
+        target_lang:
+          oneOf: [{$ref: '#/components/schemas/C27Language'}, {const: ''}]
+          default: ''
+        auto_translate: {type: boolean, default: false}
+        translate_engine:
+          oneOf: [{$ref: '#/components/schemas/C27Engine'}, {const: ''}]
+          default: ''
+        ai_auto_summary: {type: boolean, default: false}
+    C27AIFields:
+      type: object
+      properties:
+        base_url: {type: string, maxLength: 512, description: HTTP(S) OpenAI-compatible base or full chat/completions URL; no userinfo or query/fragment.}
+        model: {type: string, maxLength: 200}
+        timeout: {type: integer, minimum: 1, maximum: 120, default: 30}
+        proxy_mode: {type: string, enum: [none, system, custom], default: none, description: System uses the web translation proxy or falls back to Telegram. Network policy checks the connected endpoint (the proxy when in use).}
+    C27AIInput:
+      allOf:
+      - {$ref: '#/components/schemas/C27AIFields'}
+      - type: object
+        required: [base_url, model]
+        properties:
+          api_key: {type: string, maxLength: 1024, writeOnly: true, description: Omit to keep if base_url is unchanged; empty clears.}
+          proxy: {$ref: '#/components/schemas/C27ProxyInput'}
+          clear_proxy: {type: boolean, default: false}
+      unevaluatedProperties: false
+    C27AIView:
+      allOf:
+      - {$ref: '#/components/schemas/C27AIFields'}
+      - type: object
+        required: [configured, ai_user_config_enabled, ai_allow_private_network, api_key_set, proxy]
+        properties:
+          configured: {type: boolean}
+          ai_user_config_enabled: {type: boolean}
+          ai_allow_private_network: {type: boolean}
+          api_key_set: {type: boolean}
+          proxy: {$ref: '#/components/schemas/C27ProxyView'}
+      unevaluatedProperties: false
+    C27TranslateInput:
+      type: object
+      additionalProperties: false
+      required: [id]
+      properties:
+        id: {type: integer, minimum: 1}
+        target_lang: {$ref: '#/components/schemas/C27Language'}
+        engine: {$ref: '#/components/schemas/C27Engine'}
+        force: {type: boolean, default: false}
+    C27Translation:
+      type: object
+      required: [subject, text, target_lang, provider, engine, cached, truncated]
+      properties:
+        subject: {type: string, maxLength: 8192}
+        text: {type: string, description: Untrusted plain text; never interpret as HTML.}
+        source_lang: {type: string, maxLength: 24}
+        target_lang: {$ref: '#/components/schemas/C27Language'}
+        provider: {type: string, enum: [google_web, edge_web, deepl, libretranslate, openai_compatible]}
+        engine: {$ref: '#/components/schemas/C27Engine'}
+        cached: {type: boolean}
+        truncated: {type: boolean}
+    C27AIRequest:
+      type: object
+      additionalProperties: false
+      required: [id, action]
+      properties:
+        id: {type: integer, minimum: 1}
+        action: {type: string, enum: [summary, extract]}
+        lang: {$ref: '#/components/schemas/C27Language'}
+        force: {type: boolean, default: false}
+    C27AIResult:
+      type: object
+      required: [action, lang, model, cached, truncated]
+      properties:
+        lang: {$ref: '#/components/schemas/C27Language'}
+        model: {type: string}
+        cached: {type: boolean}
+        truncated: {type: boolean}
+      oneOf:
+      - required: [summary, key_points]
+        properties:
+          action: {const: summary}
+          summary: {type: string, maxLength: 2500, description: Three to five sentences.}
+          key_points: {type: array, maxItems: 6, items: {type: string, maxLength: 300}}
+      - required: [action_items, dates, amounts, links, codes, contacts]
+        properties:
+          action: {const: extract}
+          action_items:
+            type: array
+            maxItems: 20
+            items:
+              type: object
+              required: [text]
+              properties:
+                text: {type: string, maxLength: 500}
+                due: {type: string, maxLength: 80}
+          dates:
+            type: array
+            maxItems: 20
+            items:
+              type: object
+              required: [text]
+              properties:
+                text: {type: string, maxLength: 200}
+                iso: {type: string, maxLength: 40}
+          amounts:
+            type: array
+            maxItems: 20
+            items:
+              type: object
+              required: [text]
+              properties:
+                text: {type: string, maxLength: 200}
+                value: {type: number}
+                currency: {type: string, maxLength: 12}
+          links:
+            type: array
+            maxItems: 20
+            items:
+              type: object
+              required: [text, url]
+              properties:
+                text: {type: string, maxLength: 200}
+                url: {type: string, format: uri, maxLength: 2048, description: An HTTP(S) URL present in the original text.}
+          codes:
+            type: array
+            maxItems: 20
+            items:
+              type: object
+              required: [type, value]
+              properties:
+                type: {type: string, enum: [verification, tracking, order, other]}
+                value: {type: string, maxLength: 128, description: A literal code from the original text.}
+          contacts:
+            type: array
+            maxItems: 20
+            items:
+              type: object
+              properties:
+                name: {type: string, maxLength: 150}
+                email: {type: string, maxLength: 254}
+                phone: {type: string, maxLength: 80}
     C9AdminTelegram:
       type: object
       properties:
@@ -5118,12 +5925,20 @@ components:
           - type: 'null'
         proxy_set:
           type: boolean
+        proxy:
+          $ref: '#/components/schemas/C27ProxyView'
+        proxy_source:
+          type: string
+          enum: [env, db, none]
+          description: The environment variable, if set, always wins over stored fields.
         webhook_mode:
           const: polling
       required:
       - configured
       - bot_username
       - proxy_set
+      - proxy
+      - proxy_source
       - webhook_mode
       additionalProperties: false
     C9AdminTelegramPatch:
@@ -5134,9 +5949,14 @@ components:
           description: Omit to keep; empty clears. Never echoed.
         proxy:
           oneOf:
+          - $ref: '#/components/schemas/C27ProxyInput'
           - type: string
-            description: http, https or socks5. Null or empty clears the stored proxy.
+            deprecated: true
+            description: Legacy URL accepted for one version only. Empty string or null clears stored fields.
           - type: 'null'
+        clear_proxy:
+          type: boolean
+          description: Clear the stored proxy; may not be combined with non-null proxy fields. Does not change the environment override.
       required: []
       additionalProperties: false
     C9TelegramTest:
@@ -6308,6 +7128,10 @@ components:
     EmailDetail:
       type: object
       properties:
+        translation_available: {type: boolean}
+        needs_translation: {type: boolean, description: Heuristic based on the target language writing system.}
+        translation_engines: {type: array, items: {$ref: '#/components/schemas/C27Engine'}}
+        ai_available: {type: boolean, description: The caller owns this mail, AI configuration is permitted, and the caller has saved an AI connection.}
         mailbox_addresses:
           type: array
           items: {$ref: '#/components/schemas/MailboxAddressMatch'}

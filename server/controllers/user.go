@@ -182,7 +182,7 @@ func UserDelete(ctx *context.Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	disabled := 1
-	if _, err := user.Edit(user.Patch{ID: b.ID, Disabled: &disabled}); err != nil {
+	if _, err := user.Edit(user.Patch{ID: b.ID, Disabled: &disabled, RemoveAI: true}); err != nil {
 		serviceError(ctx, w, err)
 		return
 	}

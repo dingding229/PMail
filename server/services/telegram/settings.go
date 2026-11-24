@@ -2,8 +2,6 @@ package telegram
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -18,7 +16,9 @@ import (
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/netproxy"
 	"github.com/Jinnrry/pmail/utils/isotime"
+	secrets "github.com/Jinnrry/pmail/utils/seal"
 	"xorm.io/xorm"
 )
 
@@ -26,10 +26,12 @@ var configMu sync.Mutex
 var bindMu sync.Mutex
 
 type AdminStatus struct {
-	Configured bool    `json:"configured"`
-	Username   *string `json:"bot_username"`
-	ProxySet   bool    `json:"proxy_set"`
-	Mode       string  `json:"webhook_mode"`
+	Configured  bool           `json:"configured"`
+	Username    *string        `json:"bot_username"`
+	ProxySet    bool           `json:"proxy_set"`
+	Proxy       *netproxy.View `json:"proxy"`
+	ProxySource string         `json:"proxy_source"`
+	Mode        string         `json:"webhook_mode"`
 }
 type TestResult struct {
 	OK       bool   `json:"ok"`
@@ -61,48 +63,31 @@ type Code struct {
 	Link   string    `json:"deep_link"`
 }
 
-func keyCipher() (cipher.AEAD, error) {
-	if config.Instance == nil || config.Instance.SecretKey == "" {
-		return nil, ErrUnavailable
-	}
-	key := sha256.Sum256([]byte("pmail/telegram/v1\x00" + config.Instance.SecretKey))
-	b, err := aes.NewCipher(key[:])
-	if err != nil {
-		return nil, err
-	}
-	return cipher.NewGCM(b)
-}
 func seal(s, field string) (string, error) {
-	if s == "" {
-		return "", nil
-	}
-	c, err := keyCipher()
-	if err != nil {
-		return "", err
-	}
-	nonce := make([]byte, c.NonceSize())
-	if _, err = rand.Read(nonce); err != nil {
-		return "", err
-	}
-	return base64.RawStdEncoding.EncodeToString(c.Seal(nonce, nonce, []byte(s), []byte(field))), nil
+	return secrets.Encode("pmail/telegram/v1", field, s)
 }
 func unseal(s, field string) (string, error) {
-	if s == "" {
-		return "", nil
+	return secrets.Decode("pmail/telegram/v1", field, s)
+}
+
+// MigrateProxy never changes bot generation or polling offset.
+func MigrateProxy(ctx context.Context) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	c, err := getConfig(ctx)
+	if err != nil || c.Proxy == "" || c.ProxyFields != "" {
+		return err
 	}
-	c, err := keyCipher()
+	p, err := netproxy.TelegramDB(c)
 	if err != nil {
-		return "", err
+		return err
 	}
-	raw, err := base64.RawStdEncoding.DecodeString(s)
-	if err != nil || len(raw) < c.NonceSize() {
-		return "", ErrUnavailable
-	}
-	plain, err := c.Open(nil, raw[:c.NonceSize()], raw[c.NonceSize():], []byte(field))
+	raw, err := json.Marshal(p)
 	if err != nil {
-		return "", ErrUnavailable
+		return err
 	}
-	return string(plain), nil
+	_, err = db.Instance.Context(ctx).ID(1).Where("proxy=? AND (proxy_fields IS NULL OR proxy_fields='')", c.Proxy).Cols("proxy", "proxy_fields").Update(&models.TelegramConfig{ProxyFields: string(raw)})
+	return err
 }
 func randomCode(n int) (string, error) {
 	b := make([]byte, n)
@@ -118,7 +103,8 @@ func getConfig(ctx context.Context) (models.TelegramConfig, error) {
 	return c, err
 }
 func status(c models.TelegramConfig) AdminStatus {
-	out := AdminStatus{Configured: c.Token != "", ProxySet: c.Proxy != "" || envProxy() != "", Mode: "polling"}
+	_, proxy, source, _ := netproxy.TelegramProxy(c)
+	out := AdminStatus{Configured: c.Token != "", ProxySet: source != "none", Proxy: proxy, ProxySource: source, Mode: "polling"}
 	if c.Username != "" {
 		out.Username = &c.Username
 	}
@@ -128,7 +114,7 @@ func AdminGet(ctx context.Context) (AdminStatus, error) {
 	c, err := getConfig(ctx)
 	return status(c), err
 }
-func AdminPut(ctx context.Context, token, proxy *string, clearProxy bool) (AdminStatus, error) {
+func AdminPut(ctx context.Context, token *string, proxy *netproxy.Input, clearProxy bool) (AdminStatus, error) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	c, err := getConfig(ctx)
@@ -139,22 +125,22 @@ func AdminPut(ctx context.Context, token, proxy *string, clearProxy bool) (Admin
 	if err != nil && token == nil {
 		return AdminStatus{}, err
 	}
-	savedProxy, err := unseal(c.Proxy, "proxy")
-	if err != nil && !clearProxy && proxy == nil {
-		return AdminStatus{}, err
+	savedProxy, err := netproxy.TelegramDB(c)
+	if err != nil && !clearProxy && (proxy == nil || proxy.Password == nil) {
+		return AdminStatus{}, ErrProxy
 	}
 	if token != nil {
 		oldToken = strings.TrimSpace(*token)
 	}
-	if clearProxy {
-		savedProxy = ""
+	savedProxy, err = netproxy.Apply(savedProxy, proxy, clearProxy, netproxy.TelegramField)
+	if err != nil {
+		return AdminStatus{}, ErrProxy
 	}
-	if proxy != nil {
-		savedProxy = strings.TrimSpace(*proxy)
+	raw, err := json.Marshal(savedProxy)
+	if err != nil {
+		return AdminStatus{}, ErrProxy
 	}
-	if _, err = parseProxy(savedProxy); err != nil {
-		return AdminStatus{}, err
-	}
+	c.ProxyFields, c.Proxy = string(raw), ""
 	oldGeneration := c.Generation
 	if token != nil {
 		// A deliberate replacement/clear invalidates old bindings and queued mail.
@@ -165,7 +151,11 @@ func AdminPut(ctx context.Context, token, proxy *string, clearProxy bool) (Admin
 		c.Offset = 0
 	}
 	if oldToken != "" {
-		api, err := newClient(oldToken, savedProxy)
+		p, _, _, proxyErr := netproxy.TelegramProxy(c)
+		if proxyErr != nil {
+			return AdminStatus{}, ErrProxy
+		}
+		api, err := newClient(oldToken, p)
 		if err != nil {
 			return AdminStatus{}, ErrToken
 		}
@@ -181,9 +171,6 @@ func AdminPut(ctx context.Context, token, proxy *string, clearProxy bool) (Admin
 	if c.Token, err = seal(oldToken, "token"); err != nil {
 		return AdminStatus{}, err
 	}
-	if c.Proxy, err = seal(savedProxy, "proxy"); err != nil {
-		return AdminStatus{}, err
-	}
 	c.ID = 1
 	err = db.Transaction(db.Instance, func(tx *xorm.Session) error {
 		tx.Context(ctx)
@@ -192,7 +179,7 @@ func AdminPut(ctx context.Context, token, proxy *string, clearProxy bool) (Admin
 			return err
 		}
 		if ok {
-			cols := []string{"token", "proxy", "username", "generation"}
+			cols := []string{"token", "proxy", "proxy_fields", "username", "generation"}
 			if c.Generation != oldGeneration {
 				cols = append(cols, "next_offset")
 			}
@@ -220,7 +207,7 @@ func clientFor(c models.TelegramConfig) (*WorkerClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	proxy, err := unseal(c.Proxy, "proxy")
+	proxy, _, _, err := netproxy.TelegramProxy(c)
 	if err != nil {
 		return nil, err
 	}

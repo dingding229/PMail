@@ -93,7 +93,7 @@ func contextIterceptor(h controllers.HandlerFunc) http.HandlerFunc {
 
 		ctx := i18n.ForRequest(r)
 		ctx.SetValue(context.LogID, id.GenLogID())
-		isInbound := controllers.InboundAPIPath(r.URL.Path) || controllers.C9Path(r.URL.Path)
+		isInbound := controllers.InboundAPIPath(r.URL.Path) || controllers.C9Path(r.URL.Path) || controllers.TranslationAPIPath(r.URL.Path)
 		refuse := func(status, code int, key string) {
 			if isInbound {
 				if status == http.StatusForbidden {

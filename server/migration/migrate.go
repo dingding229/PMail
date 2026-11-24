@@ -16,7 +16,7 @@ import (
 	"github.com/lib/pq"
 )
 
-var tables = []string{"user", "email", "group", "rule", "user_email", "version", "domain", "mailbox_address", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "bounce_notice", "inbound_settings", "trash_settings", "spam_preference", "spam_rule", "spam_training", "spam_totals", "spam_token", "telegram_config", "telegram_binding", "telegram_code", "telegram_preference", "telegram_push", "compose_image", "draft_inline_image", "signature"}
+var tables = []string{"user", "email", "group", "rule", "user_email", "version", "domain", "mailbox_address", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "bounce_notice", "inbound_settings", "trash_settings", "spam_preference", "spam_rule", "spam_training", "spam_totals", "spam_token", "telegram_config", "telegram_binding", "telegram_code", "telegram_preference", "telegram_push", "compose_image", "draft_inline_image", "signature", "translation_settings", "user_ai_config", "translation_preference", "translation_usage", "email_translation", "email_ai_result"}
 
 const batchSize = 200
 
@@ -109,7 +109,7 @@ func Run(args []string) error {
 	for _, table := range tables {
 		if err := copyTable(sourceTx, tx, *fromType, table, qualified(table)); err != nil {
 			message := strings.ToLower(err.Error())
-			if slices.Contains([]string{"domain", "mailbox_address", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "bounce_notice", "inbound_settings", "trash_settings", "spam_preference", "spam_rule", "spam_training", "spam_totals", "spam_token", "telegram_config", "telegram_binding", "telegram_code", "telegram_preference", "telegram_push", "compose_image", "draft_inline_image", "signature"}, table) && (strings.Contains(message, "no such table") || strings.Contains(message, "doesn't exist") || strings.Contains(message, "undefined table")) {
+			if slices.Contains([]string{"domain", "mailbox_address", "api_token", "forward_setting", "outbound_payload", "outbound_queue", "bounce_notice", "inbound_settings", "trash_settings", "spam_preference", "spam_rule", "spam_training", "spam_totals", "spam_token", "telegram_config", "telegram_binding", "telegram_code", "telegram_preference", "telegram_push", "compose_image", "draft_inline_image", "signature", "translation_settings", "user_ai_config", "translation_preference", "translation_usage", "email_translation", "email_ai_result"}, table) && (strings.Contains(message, "no such table") || strings.Contains(message, "doesn't exist") || strings.Contains(message, "undefined table")) {
 				fmt.Printf("%s: source table absent; normal startup will backfill it\n", table)
 				continue
 			}
@@ -314,15 +314,20 @@ func copyRows(rows *sql.Rows, insert *sql.Stmt, width, idIndex int, lastID *int6
 
 func migrationKeyColumn(table string) string {
 	switch table {
-	case "forward_setting", "spam_preference", "spam_totals", "telegram_binding", "telegram_code", "telegram_preference":
+	case "forward_setting", "spam_preference", "spam_totals", "telegram_binding", "telegram_code", "telegram_preference", "user_ai_config", "translation_preference", "translation_usage":
 		return "user_id"
-	case "spam_training", "spam_token", "compose_image", "draft_inline_image":
+	case "spam_training", "spam_token", "compose_image", "draft_inline_image", "email_translation", "email_ai_result":
 		return ""
 	}
 	return "id"
 }
 
 func resetSequence(tx *sql.Tx, table string) error {
+	for _, name := range []string{"translation_settings", "user_ai_config", "translation_preference", "translation_usage", "email_translation", "email_ai_result"} {
+		if strings.HasSuffix(table, "."+pq.QuoteIdentifier(name)) {
+			return nil
+		}
+	}
 	if strings.Contains(table, "forward_setting") || strings.HasSuffix(table, `."inbound_settings"`) || strings.HasSuffix(table, `."trash_settings"`) || strings.HasSuffix(table, `."spam_preference"`) || strings.HasSuffix(table, `."spam_totals"`) || strings.HasSuffix(table, `."spam_training"`) || strings.HasSuffix(table, `."spam_token"`) || strings.HasSuffix(table, `."telegram_config"`) || strings.HasSuffix(table, `."telegram_binding"`) || strings.HasSuffix(table, `."telegram_code"`) || strings.HasSuffix(table, `."telegram_preference"`) || strings.HasSuffix(table, `."compose_image"`) || strings.HasSuffix(table, `."draft_inline_image"`) {
 		return nil
 	}

@@ -288,7 +288,7 @@ func removeDrafts(owner int, ids []int) error {
 				if err := svccompose.DeleteDraft(tx, id); err != nil {
 					return err
 				}
-				if err := mailstore.DeleteParts(tx, id); err != nil {
+				if err := mailstore.DeleteDerived(tx, id); err != nil {
 					return err
 				}
 			}

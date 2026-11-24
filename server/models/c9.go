@@ -3,12 +3,13 @@ package models
 import "time"
 
 type TelegramConfig struct {
-	ID         int    `xorm:"id pk"`
-	Token      string `xorm:"token text notnull"`
-	Proxy      string `xorm:"proxy text notnull"`
-	Username   string `xorm:"username varchar(64) notnull"`
-	Generation string `xorm:"generation varchar(40) notnull"`
-	Offset     int64  `xorm:"next_offset bigint notnull default(0)"`
+	ID          int    `xorm:"id pk"`
+	Token       string `xorm:"token text notnull"`
+	Proxy       string `xorm:"proxy text notnull"` // retained only for pre-C27 migration
+	ProxyFields string `xorm:"proxy_fields text"`
+	Username    string `xorm:"username varchar(64) notnull"`
+	Generation  string `xorm:"generation varchar(40) notnull"`
+	Offset      int64  `xorm:"next_offset bigint notnull default(0)"`
 }
 
 func (TelegramConfig) TableName() string { return "telegram_config" }

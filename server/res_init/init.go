@@ -171,6 +171,9 @@ func Init(serverVersion string) {
 		}
 		registration.StartNotices(ctx, cfg.WebDomain)
 		inbound.SetNotifier(telegram.Notify)
+		if err := telegram.MigrateProxy(ctx); err != nil {
+			log.Warn("could not migrate the stored Telegram proxy")
+		}
 		c9Workers := []<-chan struct{}{telegram.Start(ctx), compose.Start(ctx), update.Start(ctx, serverVersion), update.StartHealth(ctx, cfg.HttpPort)}
 		quotaDone := make(chan struct{})
 		go func() { defer close(quotaDone); quota.RunReconciliation(ctx) }()

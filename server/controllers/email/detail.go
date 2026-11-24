@@ -15,6 +15,7 @@ import (
 	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/services/token"
+	"github.com/Jinnrry/pmail/services/translation"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
 )
@@ -65,6 +66,15 @@ func EmailDetail(ctx *context.Context, w http.ResponseWriter, req *http.Request)
 	}
 	if matches, err := mailaddress.ForMessage(ctx.UserID, retData.ID); err == nil {
 		view["mailbox_addresses"], _ = json.Marshal(matches)
+	}
+	availability := translation.Available(req.Context(), ctx.UserID, retData.ID, ctx.Lang, email.Email)
+	for key, value := range map[string]any{
+		"translation_available": availability.TranslationAvailable,
+		"needs_translation":     availability.NeedsTranslation,
+		"translation_engines":   availability.TranslationEngines,
+		"ai_available":          availability.AIAvailable,
+	} {
+		view[key], _ = json.Marshal(value)
 	}
 	response.NewSuccessResponse(view).FPrint(w)
 }

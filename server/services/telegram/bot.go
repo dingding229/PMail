@@ -56,25 +56,7 @@ type update struct {
 	} `json:"message"`
 }
 
-var envProxy = func() string { return strings.TrimSpace(os.Getenv("PMAIL_TELEGRAM_PROXY")) }
-
-func effectiveProxy(p string) string {
-	if q := envProxy(); q != "" {
-		return q
-	}
-	return p
-}
-func parseProxy(s string) (*url.URL, error) {
-	if s == "" {
-		return nil, nil
-	}
-	u, err := url.Parse(s)
-	if err != nil || len(s) > 1024 || u.Hostname() == "" || (u.Path != "" && u.Path != "/") || u.Fragment != "" || u.RawQuery != "" || (u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "socks5") {
-		return nil, ErrProxy
-	}
-	return u, nil
-}
-func newClient(token, p string) (*WorkerClient, error) {
+func newClient(token string, proxy *url.URL) (*WorkerClient, error) {
 	if token == "" {
 		return nil, ErrNotConfigured
 	}
@@ -93,10 +75,6 @@ func newClient(token, p string) (*WorkerClient, error) {
 	loop := host == "localhost" || (net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback())
 	if u.Scheme != "https" && !(u.Scheme == "http" && loop) {
 		return nil, ErrUnavailable
-	}
-	proxy, err := parseProxy(effectiveProxy(p))
-	if err != nil {
-		return nil, err
 	}
 	d := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
 	transport := &http.Transport{DialContext: d.DialContext, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 32 * time.Second, DisableKeepAlives: true}

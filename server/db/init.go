@@ -129,6 +129,7 @@ func SyncSchema(engine *xorm.Engine) error {
 		&models.User{}, &models.Email{}, &models.MailAttachmentInfo{}, &models.MailAttachmentChunk{}, &models.Group{}, &models.Rule{},
 		&models.Sessions{}, &models.TOTPConfig{}, &models.RecoveryCode{}, &models.AppPassword{}, &models.UserEmail{}, &models.TrashSettings{}, &models.UserEmailAddress{}, &models.UserEmailAddressProgress{}, &models.IMAPMailbox{}, &models.IMAPMailboxUID{}, &models.Version{}, &models.Domain{}, &models.MailboxAddress{}, &models.APIToken{}, &models.OutboundPayload{}, &models.OutboundQueue{}, &models.ForwardSetting{}, &models.BounceNotice{}, &models.RegistrationGuard{},
 		&models.InboundSettings{}, &models.SpamPreference{}, &models.SpamRule{}, &models.SpamTraining{}, &models.SpamTotals{}, &models.SpamToken{},
+		&models.TranslationSettings{}, &models.AIConfig{}, &models.TranslationPreference{}, &models.TranslationUsage{}, &models.EmailTranslation{}, &models.EmailAIResult{},
 		&models.TelegramConfig{}, &models.TelegramBinding{}, &models.TelegramCode{}, &models.TelegramPreference{}, &models.TelegramPush{}, &models.ComposeImage{}, &models.DraftInlineImage{}, &models.Signature{},
 	} {
 		var err error

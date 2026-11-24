@@ -70,6 +70,17 @@ func registerAppRoutes(mux *http.ServeMux, version string) {
 	mux.HandleFunc("PUT /api/admin/inbound/clamav", contextIterceptor(controllers.ClamAVSettings))
 	mux.HandleFunc("POST /api/admin/inbound/clamav/update", contextIterceptor(controllers.ClamAVUpdate))
 
+	for _, method := range []string{"GET", "PUT"} {
+		mux.HandleFunc(method+" /api/admin/translation", contextIterceptor(controllers.TranslationAdmin))
+		mux.HandleFunc(method+" /api/settings/translation", contextIterceptor(controllers.TranslationPreferences))
+		mux.HandleFunc(method+" /api/settings/ai", contextIterceptor(controllers.UserAISettings))
+	}
+	mux.HandleFunc("DELETE /api/settings/ai", contextIterceptor(controllers.UserAISettings))
+	mux.HandleFunc("POST /api/admin/translation/test", contextIterceptor(controllers.TranslationTest))
+	mux.HandleFunc("POST /api/settings/ai/test", contextIterceptor(controllers.UserAITest))
+	mux.HandleFunc("POST /api/email/translate", contextIterceptor(controllers.EmailTranslate))
+	mux.HandleFunc("POST /api/email/ai", contextIterceptor(controllers.EmailAI))
+
 	mux.HandleFunc("POST /api/email/draft/save", contextIterceptor(email.SaveDraft))
 	mux.HandleFunc("POST /api/email/draft/delete", contextIterceptor(email.DeleteDraft))
 	mux.HandleFunc("/api/email/read", contextIterceptor(email.MarkRead))
