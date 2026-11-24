@@ -137,6 +137,10 @@ func AddGroup(ctx *context.Context, w http.ResponseWriter, req *http.Request) {
 			apiError(ctx, w, 400, response.ParamsError, "group_invalid_parent_or_target")
 			return
 		}
+		if errors.Is(err, group.ErrInvalidName) {
+			apiError(ctx, w, 400, response.ParamsError, "group_create_failed")
+			return
+		}
 		if db.IsUniqueViolation(err) {
 			serviceError(ctx, w, err)
 			return

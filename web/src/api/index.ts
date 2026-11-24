@@ -22,4 +22,8 @@ export {
   userTranslationApi,
   userAIApi,
   adminAddressApprovalApi,
+  adminBackupApi,
+  mailImportExportApi,
+  adminMailReportsApi,
+  reportMailApi,
 } from './settings'

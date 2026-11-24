@@ -11,6 +11,7 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/mailevents"
+	"github.com/Jinnrry/pmail/services/maintenance"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
@@ -269,11 +270,13 @@ func RunCleanup(ctx stdctx.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if n, err := PurgeExpired(ctx, time.Now()); err != nil && ctx.Err() == nil {
-				log.Warnf("Trash cleanup after deleting %d copies: %v", n, err)
-			} else if err == nil && n > 0 {
-				log.Infof("Trash cleanup deleted %d expired copies", n)
-			}
+			maintenance.Work(ctx, func(ctx stdctx.Context) {
+				if n, err := PurgeExpired(ctx, time.Now()); err != nil && ctx.Err() == nil {
+					log.Warnf("Trash cleanup after deleting %d copies: %v", n, err)
+				} else if err == nil && n > 0 {
+					log.Infof("Trash cleanup deleted %d expired copies", n)
+				}
+			})
 		}
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/maintenance"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -39,9 +40,11 @@ func start(port int, implicitTLS bool, cert tls.Certificate) {
 		return
 	}
 	tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
+	var implicit *tls.Config
 	if implicitTLS {
-		listener = tls.NewListener(listener, tlsConfig)
+		implicit = tlsConfig
 	}
+	listener = maintenance.Listen(listener, implicit, "-ERR [SYS/TEMP] maintenance\r\n")
 	s := &popServer{listener: listener, conns: make(map[net.Conn]struct{})}
 	instances = append(instances, s)
 	host := "pop." + domain.DefaultName()

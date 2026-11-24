@@ -1,8 +1,9 @@
-import { apiDelete, apiGet, apiPost, apiPut } from './client'
+import { apiDelete, apiGet, apiPost, apiPut, apiUploadWithProgress } from './client'
 import type {
   AddressStatus,
   AdminAddressRequestPage,
   AdminAddressSettings,
+  AdminBackupsResponse,
   AdminOverview,
   AdminTelegramStatus,
   AdminTelegramTestResult,
@@ -12,6 +13,9 @@ import type {
   AdminTranslationTestResult,
   AdminUpdateInfo,
   ApiTokenItem,
+  BackupCreatePayload,
+  BackupFileItem,
+  BackupRestorePayload,
   DomainDnsResponse,
   ForwardSettingsRequest,
   ForwardSettingsView,
@@ -20,8 +24,17 @@ import type {
   InboundSettingsUpdate,
   MailboxAddress,
   MailDomain,
+  MailExportJobStatus,
+  MailExportPayload,
+  MailImportJobStatus,
+  MailReportListResponse,
+  MailReportRecordsResponse,
+  MailReportSummaryResponse,
   MailRule,
+  ReportMailApplyResponse,
+  ReportMailPreference,
   QueueItem,
+  RestoreStatusResponse,
   RuleRequest,
   SignatureInput,
   SignatureRecord,
@@ -175,4 +188,115 @@ export const adminAddressApprovalApi = {
       `/api/admin/address-requests/${id}/reject`,
       reason && reason.trim() ? { reason: reason.trim() } : {},
     ),
+}
+
+export const adminBackupApi = {
+  list: () => apiGet<AdminBackupsResponse>('/api/admin/backups', { cache: 'no-store' }),
+  create: (payload: BackupCreatePayload) =>
+    apiPost<{ job_id: string }>('/api/admin/backups', payload),
+  downloadUrl: (name: string) =>
+    `/api/admin/backups/${encodeURIComponent(name)}/download`,
+  remove: (name: string) =>
+    apiDelete<null>(`/api/admin/backups/${encodeURIComponent(name)}`),
+  upload: (file: File, onProgress?: (percent: number) => void) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiUploadWithProgress<BackupFileItem>('/api/admin/backups/upload', formData, onProgress)
+  },
+  restore: (name: string, payload: BackupRestorePayload) =>
+    apiPost<{ started: boolean }>(
+      `/api/admin/backups/${encodeURIComponent(name)}/restore`,
+      payload,
+      { skipMaintenanceOverlay: true },
+    ),
+  restoreStatus: (signal?: AbortSignal) =>
+    apiGet<RestoreStatusResponse>('/api/admin/backups/restore-status', {
+      signal,
+      cache: 'no-store',
+      skipAuthRedirect: true,
+      skipMaintenanceOverlay: true,
+    }),
+  ping: (signal?: AbortSignal) =>
+    apiGet<{ ok?: boolean } | string>('/api/ping', {
+      signal,
+      cache: 'no-store',
+      skipAuthRedirect: true,
+      skipMaintenanceOverlay: true,
+      rawJson: true,
+    }),
+}
+
+export const mailImportExportApi = {
+  startExport: (payload: MailExportPayload) =>
+    apiPost<MailExportJobStatus>('/api/email/export', payload),
+  exportStatus: (id: string, signal?: AbortSignal) =>
+    apiGet<MailExportJobStatus>(`/api/email/export/${encodeURIComponent(id)}`, {
+      signal,
+      cache: 'no-store',
+    }),
+  exportDownloadUrl: (id: string) =>
+    `/api/email/export/${encodeURIComponent(id)}/download`,
+  startImport: (file: File, target: string, onProgress?: (percent: number) => void) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('target', target)
+    return apiUploadWithProgress<MailImportJobStatus>('/api/email/import', formData, onProgress)
+  },
+  importStatus: (id: string, signal?: AbortSignal) =>
+    apiGet<MailImportJobStatus>(`/api/email/import/${encodeURIComponent(id)}`, {
+      signal,
+      cache: 'no-store',
+    }),
+}
+
+export const adminMailReportsApi = {
+  summary: (params: { domain?: string; from?: string; to?: string }, signal?: AbortSignal) => {
+    const sp = new URLSearchParams()
+    if (params.domain) sp.set('domain', params.domain)
+    if (params.from) sp.set('from', params.from)
+    if (params.to) sp.set('to', params.to)
+    const qs = sp.toString()
+    return apiGet<MailReportSummaryResponse>(
+      `/api/admin/mail-reports/summary${qs ? `?${qs}` : ''}`,
+      { signal, cache: 'no-store' },
+    )
+  },
+  records: (
+    params: { domain?: string; from?: string; to?: string; result?: string; page?: number },
+    signal?: AbortSignal,
+  ) => {
+    const sp = new URLSearchParams()
+    if (params.domain) sp.set('domain', params.domain)
+    if (params.from) sp.set('from', params.from)
+    if (params.to) sp.set('to', params.to)
+    if (params.result) sp.set('result', params.result)
+    if (params.page && params.page > 0) sp.set('page', String(params.page))
+    const qs = sp.toString()
+    return apiGet<MailReportRecordsResponse>(
+      `/api/admin/mail-reports/records${qs ? `?${qs}` : ''}`,
+      { signal, cache: 'no-store' },
+    )
+  },
+  reports: (
+    params: { domain?: string; from?: string; to?: string; page?: number },
+    signal?: AbortSignal,
+  ) => {
+    const sp = new URLSearchParams()
+    if (params.domain) sp.set('domain', params.domain)
+    if (params.from) sp.set('from', params.from)
+    if (params.to) sp.set('to', params.to)
+    if (params.page && params.page > 0) sp.set('page', String(params.page))
+    const qs = sp.toString()
+    return apiGet<MailReportListResponse>(
+      `/api/admin/mail-reports/reports${qs ? `?${qs}` : ''}`,
+      { signal, cache: 'no-store' },
+    )
+  },
+}
+
+export const reportMailApi = {
+  getPreference: () => apiGet<ReportMailPreference>('/api/settings/report-mail'),
+  savePreference: (payload: ReportMailPreference) =>
+    apiPut<ReportMailPreference>('/api/settings/report-mail', payload),
+  apply: () => apiPost<ReportMailApplyResponse>('/api/settings/report-mail/apply', {}),
 }

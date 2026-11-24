@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/internal/backupcatalog"
 	"github.com/go-sql-driver/mysql"
 )
 
@@ -59,7 +60,7 @@ func TestMigrateKeepsCredentialsAddressLinksAndIMAPUIDs(t *testing.T) {
 	}
 	defer target.Rollback()
 	for _, f := range fixtures {
-		if !slices.Contains(optionalTables, f.name) || hasIDSequence(f.name) != f.sequence {
+		if !slices.Contains(optionalTables, f.name) || backupcatalog.HasIDSequence(f.name) != f.sequence {
 			t.Fatalf("bad allowlist/sequence for %s", f.name)
 		}
 		// The copy SQL's $n bind parameters and quoted identifiers work on

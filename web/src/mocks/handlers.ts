@@ -13,6 +13,8 @@ import {
   type AdminUpdateInfo,
   type AppPassword,
   type ApiTokenItem,
+  type BackupFileItem,
+  type BackupJobStatus,
   type BootstrapResponse,
   type DomainDnsResponse,
   type EmailAIExtractResult,
@@ -26,10 +28,18 @@ import {
   type InboundSettingsUpdate,
   type MailboxAddress,
   type MailDomain,
+  type MailExportJobStatus,
+  type MailImportJobStatus,
+  type MailReportDailyPoint,
+  type MailReportFailureRecord,
+  type MailReportItem,
+  type MailReportSummaryResponse,
   type MailRule,
   type ProxyInput,
   type ProxyView,
   type QueueItem,
+  type ReportMailPreference,
+  type RestoreStage,
   type SignatureInput,
   type SignatureRecord,
   type SpamRule,
@@ -358,6 +368,36 @@ let mockAddressRequests: AdminAddressRequest[] = [
 function countPendingAddressRequests(): number {
   return mockAddressRequests.filter((r) => r.status === 'pending').length
 }
+
+/* ==================== V9-C33 Mock Backup / Export / Import State ==================== */
+let mockBackups: BackupFileItem[] = [
+  {
+    name: 'pmail-v1.0.0-20261124T080000Z.pmailbak',
+    size: 28_450_120,
+    created_at: dayjs().subtract(6, 'hour').toISOString(),
+    pmail_version: 'v1.0.0',
+  },
+  {
+    name: 'pre-restore-v0.0.8-20261120T142000Z.pmailbak',
+    size: 24_112_896,
+    created_at: dayjs().subtract(4, 'day').toISOString(),
+    pmail_version: 'v0.0.8',
+    is_pre_restore: true,
+  },
+  {
+    name: 'pmail-v0.0.7-20261110T020000Z.pmailbak',
+    size: 19_804_160,
+    created_at: dayjs().subtract(14, 'day').toISOString(),
+    pmail_version: 'v0.0.7',
+  },
+]
+
+let mockActiveBackupJob: BackupJobStatus | null = null
+let mockBackupPollStep = 0
+let mockRestorePollStep = 0
+let mockRestoreActive = false
+const mockExportJobs = new Map<string, { step: number; status: MailExportJobStatus }>()
+const mockImportJobs = new Map<string, { step: number; status: MailImportJobStatus }>()
 
 let mockLiveChangeSeq = 1
 let mockLiveSampleIdx = 0
@@ -927,6 +967,12 @@ let mockDomains: MailDomain[] = [
     updated: '2026-11-18T12:00:00Z',
   },
 ]
+
+const mockReportMailPref: ReportMailPreference = {
+  enabled: true,
+  group_id: 0,
+  mark_read: true,
+}
 
 const DKIM_CHUNK_1 =
   'v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu7x9kP2LmQ8vT4nR1wY6sF3jH5dG0cB8aN2mK9pL4xV7zW1qE3rT5yU8iO0pA2sD4fG6hJ8kL0zX2cV4bN6mQ8wE0rT2yU4iO6pA8sD0fG2hJ4kL6zX8cV0bN2mQ4wE6rT8yU0iO2pA4sD6fG8h'
@@ -3170,5 +3216,583 @@ export const handlers = [
         'Content-Type': att?.ContentType || 'application/octet-stream',
       },
     })
+  }),
+
+  /* ==================== V9-C33 Admin Backup & Restore ==================== */
+  http.get('/api/ping', async () => {
+    if (
+      typeof window !== 'undefined' &&
+      localStorage.getItem('pmail_mock_maintenance') === '1'
+    ) {
+      return fail('maintenance', 503, 503, { code: 'maintenance' })
+    }
+    return HttpResponse.json({ ok: true })
+  }),
+
+  http.get('/api/admin/backups', async () => {
+    await delay(50)
+    if (mockActiveBackupJob && mockActiveBackupJob.state === 'running') {
+      mockBackupPollStep += 1
+      if (mockBackupPollStep === 1) {
+        mockActiveBackupJob = {
+          ...mockActiveBackupJob,
+          tables_done: 5,
+          tables_total: 14,
+          rows_done: 1420,
+          current_table: 'email',
+        }
+      } else if (mockBackupPollStep === 2) {
+        mockActiveBackupJob = {
+          ...mockActiveBackupJob,
+          tables_done: 11,
+          tables_total: 14,
+          rows_done: 4860,
+          current_table: 'user_email',
+        }
+      } else {
+        const fileName = `pmail-v1.0.0-${dayjs().format('YYYYMMDD[T]HHmmss[Z]')}.pmailbak`
+        mockBackups = [
+          {
+            name: fileName,
+            size: 29_120_512,
+            created_at: new Date().toISOString(),
+            pmail_version: 'v1.0.0',
+          },
+          ...mockBackups,
+        ]
+        mockActiveBackupJob = {
+          ...mockActiveBackupJob,
+          state: 'done',
+          tables_done: 14,
+          tables_total: 14,
+          rows_done: 6320,
+          file_name: fileName,
+        }
+      }
+    }
+    return ok({
+      items: mockBackups,
+      active_job: mockActiveBackupJob,
+    })
+  }),
+
+  http.post('/api/admin/backups', async ({ request }) => {
+    await delay(100)
+    const body = (await request.json()) as { passphrase?: string; include_tls?: boolean }
+    if (
+      (mockActiveBackupJob && mockActiveBackupJob.state === 'running') ||
+      (typeof window !== 'undefined' && localStorage.getItem('pmail_mock_backup_busy') === '1')
+    ) {
+      return fail('backup_busy', 100, 409, { code: 'backup_busy' })
+    }
+    if (!body.passphrase || body.passphrase.length < 12) {
+      return fail('口令至少需要 12 个字符', 100, 400)
+    }
+    const jobId = `bak-${Date.now()}`
+    mockBackupPollStep = 0
+    mockActiveBackupJob = {
+      id: jobId,
+      state: 'running',
+      tables_done: 1,
+      tables_total: 14,
+      rows_done: 120,
+      current_table: 'user',
+    }
+    return ok({ job_id: jobId })
+  }),
+
+  http.get('/api/admin/backups/:name/download', async ({ params }) => {
+    const name = decodeURIComponent(String(params.name || 'backup.pmailbak'))
+    return new HttpResponse(`PMAILBAK1-MOCK-ENCRYPTED-BACKUP:${name}`, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="${name}"`,
+      },
+    })
+  }),
+
+  http.delete('/api/admin/backups/:name', async ({ params }) => {
+    await delay(80)
+    const name = decodeURIComponent(String(params.name || ''))
+    mockBackups = mockBackups.filter((b) => b.name !== name)
+    return ok(null)
+  }),
+
+  http.post('/api/admin/backups/upload', async ({ request }) => {
+    await delay(250)
+    const formData = await request.formData()
+    const file = formData.get('file')
+    if (!(file instanceof File)) {
+      return fail('请选择 .pmailbak 备份文件', 100, 400)
+    }
+    const item: BackupFileItem = {
+      name: file.name,
+      size: file.size || 15_728_640,
+      created_at: new Date().toISOString(),
+      pmail_version: 'v1.0.0',
+      is_pre_restore: file.name.startsWith('pre-restore-'),
+    }
+    mockBackups = [item, ...mockBackups.filter((b) => b.name !== item.name)]
+    return ok(item)
+  }),
+
+  http.post('/api/admin/backups/:name/restore', async ({ request }) => {
+    await delay(140)
+    const body = (await request.json()) as { passphrase?: string; confirm?: string }
+    if (body.confirm !== 'RESTORE') {
+      return fail('请输入 RESTORE 确认恢复操作', 100, 400)
+    }
+    const errOverride =
+      typeof window !== 'undefined' ? localStorage.getItem('pmail_mock_restore_err') : null
+    if (errOverride === 'backup_bad_passphrase' || body.passphrase === 'wrong-passphrase') {
+      return fail('backup_bad_passphrase', 100, 400, { code: 'backup_bad_passphrase' })
+    }
+    if (errOverride === 'backup_version_newer') {
+      return fail('backup_version_newer', 100, 409, { code: 'backup_version_newer' })
+    }
+    if (errOverride === 'backup_corrupt') {
+      return fail('backup_corrupt', 100, 400, { code: 'backup_corrupt' })
+    }
+    mockRestoreActive = true
+    mockRestorePollStep = 0
+    return ok({ started: true })
+  }),
+
+  http.get('/api/admin/backups/restore-status', async () => {
+    await delay(60)
+    if (!mockRestoreActive) {
+      return ok({ stage: 'idle' as RestoreStage })
+    }
+    mockRestorePollStep += 1
+    const stages: RestoreStage[] = [
+      'verifying',
+      'pre_backup',
+      'entering_maintenance',
+      'restoring_db',
+      'restoring_files',
+      'clearing_sessions',
+      'restarting',
+      'done',
+    ]
+    const stage = stages[Math.min(mockRestorePollStep - 1, stages.length - 1)] ?? 'done'
+    if (stage === 'done') {
+      mockRestoreActive = false
+    }
+    return ok({
+      stage,
+      tables_done: stage === 'restoring_db' ? 9 : stage === 'done' ? 14 : 0,
+      tables_total: 14,
+      rows_done: stage === 'restoring_db' ? 3800 : stage === 'done' ? 6320 : 0,
+    })
+  }),
+
+  /* ==================== V9-C33 Personal Mail Export & Import ==================== */
+  http.post('/api/email/export', async () => {
+    await delay(100)
+    const id = `exp-${Date.now()}`
+    const initial: MailExportJobStatus = {
+      id,
+      state: 'running',
+      exported_count: 18,
+      total_count: 146,
+    }
+    mockExportJobs.set(id, { step: 0, status: initial })
+    return ok(initial)
+  }),
+
+  http.get('/api/email/export/:id', async ({ params }) => {
+    await delay(50)
+    const id = String(params.id || '')
+    const entry = mockExportJobs.get(id)
+    if (!entry) return fail('导出任务不存在', 100, 404)
+    entry.step += 1
+    if (entry.step === 1) {
+      entry.status = { ...entry.status, exported_count: 92 }
+    } else {
+      entry.status = {
+        ...entry.status,
+        state: 'done',
+        exported_count: 146,
+        total_count: 146,
+        size: 4_825_088,
+        expires_at: dayjs().add(24, 'hour').toISOString(),
+      }
+    }
+    return ok(entry.status)
+  }),
+
+  http.get('/api/email/export/:id/download', async ({ params }) => {
+    const id = String(params.id || 'export')
+    return new HttpResponse(`PK-MOCK-MBOX-ZIP:${id}`, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="pmail-export-${id}.zip"`,
+      },
+    })
+  }),
+
+  http.post('/api/email/import', async ({ request }) => {
+    await delay(200)
+    const formData = await request.formData()
+    const file = formData.get('file')
+    if (!(file instanceof File)) {
+      return fail('请选择要导入的邮件文件', 100, 400)
+    }
+    const id = `imp-${Date.now()}`
+    const errOverride =
+      typeof window !== 'undefined' ? localStorage.getItem('pmail_mock_import_err') : null
+    const initial: MailImportJobStatus = {
+      id,
+      state: 'running',
+      total: 42,
+      imported: 12,
+      skipped: 2,
+      failed: 0,
+      ...(errOverride === 'quota_exceeded' ? { error_code: 'quota_exceeded' } : {}),
+    }
+    mockImportJobs.set(id, { step: 0, status: initial })
+    return ok(initial)
+  }),
+
+  http.get('/api/email/import/:id', async ({ params }) => {
+    await delay(60)
+    const id = String(params.id || '')
+    const entry = mockImportJobs.get(id)
+    if (!entry) return fail('导入任务不存在', 100, 404)
+    entry.step += 1
+    if (entry.status.error_code === 'quota_exceeded') {
+      entry.status = {
+        ...entry.status,
+        state: 'failed',
+        total: 42,
+        imported: 25,
+        skipped: 3,
+        failed: 1,
+        error_code: 'quota_exceeded',
+      }
+    } else if (entry.step === 1) {
+      entry.status = {
+        ...entry.status,
+        total: 42,
+        imported: 28,
+        skipped: 4,
+        failed: 0,
+      }
+    } else {
+      entry.status = {
+        ...entry.status,
+        state: 'done',
+        total: 42,
+        imported: 36,
+        skipped: 5,
+        failed: 1,
+      }
+    }
+    return ok(entry.status)
+  }),
+
+  /* ==================== V9-C34 / V9-U8 Mail Reports & Report Auto-Sort ==================== */
+
+  http.get('/api/settings/report-mail', async () => {
+    await delay(40)
+    return ok({ ...mockReportMailPref })
+  }),
+
+  http.put('/api/settings/report-mail', async ({ request }) => {
+    await delay(70)
+    const body = (await request.json().catch(() => ({}))) as Partial<ReportMailPreference>
+    if (typeof body.enabled === 'boolean') mockReportMailPref.enabled = body.enabled
+    if (typeof body.group_id === 'number') mockReportMailPref.group_id = body.group_id
+    if (typeof body.mark_read === 'boolean') mockReportMailPref.mark_read = body.mark_read
+    return ok({ ...mockReportMailPref })
+  }),
+
+  http.post('/api/settings/report-mail/apply', async () => {
+    await delay(180)
+    let targetGroupId = mockReportMailPref.group_id
+    if (targetGroupId === 0) {
+      let reportsGroup = customGroups.find((g) => g.name === '报告' || g.name === 'Reports')
+      if (!reportsGroup) {
+        reportsGroup = {
+          id: nextGroupId++,
+          name: '报告',
+          parent_id: 0,
+          full_path: '报告',
+        }
+        customGroups = [...customGroups, reportsGroup]
+      }
+      targetGroupId = reportsGroup.id
+      mockReportMailPref.group_id = targetGroupId
+    }
+    return ok({ moved: 6, group_id: targetGroupId })
+  }),
+
+  http.get('/api/admin/mail-reports/summary', async ({ request }) => {
+    await delay(80)
+    const url = new URL(request.url)
+    const domain = url.searchParams.get('domain') || mockPrimaryDomain
+    const fromParam = url.searchParams.get('from') || ''
+    const toParam = url.searchParams.get('to') || ''
+    const forceEmpty =
+      (typeof window !== 'undefined' && localStorage.getItem('pmail_mock_reports_empty') === '1') ||
+      domain === 'studio.cn'
+
+    const today = dayjs()
+    const toDate = toParam ? dayjs(toParam) : today
+    const fromDate = fromParam ? dayjs(fromParam) : toDate.subtract(29, 'day')
+    const days = Math.max(1, Math.min(90, toDate.diff(fromDate, 'day') + 1))
+
+    if (forceEmpty) {
+      const empty: MailReportSummaryResponse = {
+        domain,
+        from: fromDate.format('YYYY-MM-DD'),
+        to: toDate.format('YYYY-MM-DD'),
+        report_count: 0,
+        latest_policy: null,
+        totals: {
+          total: 0,
+          dmarc_pass: 0,
+          dmarc_pass_rate: 0,
+          spf_pass: 0,
+          spf_pass_rate: 0,
+          dkim_pass: 0,
+          dkim_pass_rate: 0,
+          quarantined: 0,
+          rejected: 0,
+        },
+        daily: [],
+        reporters: [],
+        sources: [],
+        tls: null,
+      }
+      return ok(empty)
+    }
+
+    const daily: MailReportDailyPoint[] = []
+    let totalPass = 0
+    let totalFail = 0
+    for (let i = days - 1; i >= 0; i--) {
+      const d = toDate.subtract(i, 'day')
+      const seed = (d.date() * 7 + d.month() * 13) % 19
+      const pass = 28 + seed * 3
+      const fail = i % 6 === 2 ? 3 : i % 11 === 4 ? 2 : i === 1 ? 4 : 0
+      totalPass += pass
+      totalFail += fail
+      daily.push({
+        date: d.format('YYYY-MM-DD'),
+        pass,
+        fail,
+      })
+    }
+
+    const total = totalPass + totalFail
+    const spfPass = Math.max(0, totalPass - Math.round(total * 0.014))
+    const dkimPass = Math.max(0, totalPass - Math.round(total * 0.005))
+    const googleCount = Math.round(total * 0.56)
+    const msCount = Math.round(total * 0.29)
+    const yahooCount = Math.max(0, total - googleCount - msCount)
+
+    const ownCount = Math.max(0, totalPass - 18)
+    const relayCount = 18
+    const suspiciousCount = totalFail
+
+    const summary: MailReportSummaryResponse = {
+      domain,
+      from: fromDate.format('YYYY-MM-DD'),
+      to: toDate.format('YYYY-MM-DD'),
+      report_count: days * 3,
+      latest_report_at: toDate.format('YYYY-MM-DD'),
+      latest_policy: {
+        p: 'none',
+        sp: 'none',
+        pct: 100,
+        adkim: 'r',
+        aspf: 'r',
+        report_date: toDate.format('YYYY-MM-DD'),
+        org_name: 'google.com',
+      },
+      totals: {
+        total,
+        dmarc_pass: totalPass,
+        dmarc_pass_rate: total > 0 ? Number(((totalPass / total) * 100).toFixed(2)) : 0,
+        spf_pass: spfPass,
+        spf_pass_rate: total > 0 ? Number(((spfPass / total) * 100).toFixed(2)) : 0,
+        dkim_pass: dkimPass,
+        dkim_pass_rate: total > 0 ? Number(((dkimPass / total) * 100).toFixed(2)) : 0,
+        quarantined: 0,
+        rejected: 0,
+      },
+      daily,
+      reporters: [
+        { org_name: 'Google', count: googleCount, pass_count: Math.max(0, googleCount - Math.ceil(totalFail * 0.5)), pass_rate: googleCount > 0 ? Number((((googleCount - Math.ceil(totalFail * 0.5)) / googleCount) * 100).toFixed(1)) : 100 },
+        { org_name: 'Microsoft', count: msCount, pass_count: Math.max(0, msCount - Math.floor(totalFail * 0.35)), pass_rate: msCount > 0 ? Number((((msCount - Math.floor(totalFail * 0.35)) / msCount) * 100).toFixed(1)) : 100 },
+        { org_name: 'Yahoo', count: yahooCount, pass_count: Math.max(0, yahooCount - (totalFail - Math.ceil(totalFail * 0.5) - Math.floor(totalFail * 0.35))), pass_rate: yahooCount > 0 ? Number((((yahooCount - Math.max(0, totalFail - Math.ceil(totalFail * 0.5) - Math.floor(totalFail * 0.35))) / yahooCount) * 100).toFixed(1)) : 100 },
+      ],
+      sources: [
+        {
+          source_ip: '203.0.113.10',
+          count: ownCount,
+          pass_count: ownCount,
+          pass_rate: 100,
+          is_own: true,
+          suspicious: false,
+        },
+        {
+          source_ip: '198.51.100.24',
+          count: relayCount,
+          pass_count: relayCount,
+          pass_rate: 100,
+          is_own: false,
+          suspicious: false,
+        },
+        ...(suspiciousCount > 0
+          ? [
+              {
+                source_ip: '185.220.101.42',
+                count: suspiciousCount,
+                pass_count: 0,
+                pass_rate: 0,
+                is_own: false,
+                suspicious: true,
+              },
+            ]
+          : []),
+      ],
+      tls: {
+        success_count: Math.round(total * 0.85),
+        failure_count: 3,
+        report_count: Math.min(days, 24),
+        failure_types: [
+          { result_type: 'starttls-not-supported', count: 2 },
+          { result_type: 'certificate-expired', count: 1 },
+        ],
+      },
+    }
+    return ok(summary)
+  }),
+
+  http.get('/api/admin/mail-reports/records', async ({ request }) => {
+    await delay(70)
+    const url = new URL(request.url)
+    const domain = url.searchParams.get('domain') || mockPrimaryDomain
+    const page = Math.max(1, Number(url.searchParams.get('page') || 1))
+    const pageSize = 10
+    const forceEmpty =
+      (typeof window !== 'undefined' && localStorage.getItem('pmail_mock_reports_empty') === '1') ||
+      domain === 'studio.cn'
+
+    if (forceEmpty) {
+      return ok({ items: [], total: 0, page, page_size: pageSize })
+    }
+
+    const today = dayjs()
+    const allFailures: MailReportFailureRecord[] = [
+      {
+        id: 1,
+        date: today.subtract(1, 'day').format('YYYY-MM-DD'),
+        source_ip: '185.220.101.42',
+        count: 4,
+        disposition: 'none',
+        header_from: domain,
+        envelope_from: 'bounce@spoof-relay.example',
+        dkim_result: 'fail',
+        dkim_domain: 'spoof-relay.example',
+        spf_result: 'fail',
+        spf_domain: 'spoof-relay.example',
+        org_name: 'Google',
+        email_id: 101,
+      },
+      {
+        id: 2,
+        date: today.subtract(4, 'day').format('YYYY-MM-DD'),
+        source_ip: '185.220.101.42',
+        count: 3,
+        disposition: 'none',
+        header_from: domain,
+        envelope_from: 'mailer@spoof-relay.example',
+        dkim_result: 'none',
+        spf_result: 'softfail',
+        spf_domain: domain,
+        org_name: 'Microsoft',
+        email_id: 102,
+      },
+      {
+        id: 3,
+        date: today.subtract(8, 'day').format('YYYY-MM-DD'),
+        source_ip: '185.220.101.42',
+        count: 3,
+        disposition: 'none',
+        header_from: domain,
+        dkim_result: 'fail',
+        spf_result: 'fail',
+        org_name: 'Google',
+        email_id: 103,
+      },
+      {
+        id: 4,
+        date: today.subtract(14, 'day').format('YYYY-MM-DD'),
+        source_ip: '185.220.101.42',
+        count: 2,
+        disposition: 'none',
+        header_from: domain,
+        dkim_result: 'fail',
+        spf_result: 'fail',
+        org_name: 'Yahoo',
+        email_id: 104,
+      },
+      {
+        id: 5,
+        date: today.subtract(20, 'day').format('YYYY-MM-DD'),
+        source_ip: '185.220.101.42',
+        count: 3,
+        disposition: 'none',
+        header_from: domain,
+        dkim_result: 'none',
+        spf_result: 'fail',
+        org_name: 'Microsoft',
+        email_id: 105,
+      },
+    ]
+
+    const start = (page - 1) * pageSize
+    return ok({
+      items: allFailures.slice(start, start + pageSize),
+      total: allFailures.length,
+      page,
+      page_size: pageSize,
+    })
+  }),
+
+  http.get('/api/admin/mail-reports/reports', async ({ request }) => {
+    await delay(60)
+    const url = new URL(request.url)
+    const domain = url.searchParams.get('domain') || mockPrimaryDomain
+    const page = Math.max(1, Number(url.searchParams.get('page') || 1))
+    const today = dayjs()
+    const items: MailReportItem[] = [
+      {
+        id: 1,
+        kind: 'dmarc_aggregate',
+        domain,
+        org_name: 'Google',
+        report_id: '1649302948571029384',
+        begin_at: today.subtract(1, 'day').startOf('day').toISOString(),
+        end_at: today.subtract(1, 'day').endOf('day').toISOString(),
+        email_id: 101,
+      },
+      {
+        id: 2,
+        kind: 'tls_report',
+        domain,
+        org_name: 'Google',
+        report_id: '2026-11-23T00:00:00Z_pmail',
+        begin_at: today.subtract(1, 'day').startOf('day').toISOString(),
+        end_at: today.subtract(1, 'day').endOf('day').toISOString(),
+        email_id: 102,
+      },
+    ]
+    return ok({ items, total: items.length, page, page_size: 20 })
   }),
 ]

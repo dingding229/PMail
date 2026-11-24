@@ -19,6 +19,7 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/address"
+	"github.com/Jinnrry/pmail/services/maintenance"
 	"github.com/Jinnrry/pmail/services/user"
 	"github.com/Jinnrry/pmail/utils/password"
 	log "github.com/sirupsen/logrus"
@@ -248,7 +249,9 @@ func StartNotices(ctx context.Context, webDomain string) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if !logNotice(ctx, webDomain) {
+				keep := true
+				maintenance.Work(ctx, func(ctx context.Context) { keep = logNotice(ctx, webDomain) })
+				if !keep {
 					return
 				}
 			}

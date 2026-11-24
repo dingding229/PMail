@@ -27,7 +27,7 @@ paths:
     get:
       operationId: pingGet
       tags: [Bootstrap]
-      summary: Check HTTP liveness
+      summary: Check HTTP liveness and browser readiness
       x-permission: public
       security: []
       responses:
@@ -36,10 +36,15 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/PongLiteralSuccess'}
+        '503':
+          description: Maintenance in progress for public/browser requests. The local container health probe remains available.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
     post:
       operationId: pingPost
       tags: [Bootstrap]
-      summary: Check HTTP liveness
+      summary: Check HTTP liveness and browser readiness
       x-permission: public
       security: []
       responses:
@@ -48,6 +53,11 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/PongLiteralSuccess'}
+        '503':
+          description: Maintenance in progress for public/browser requests. The local container health probe remains available.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/C9Error'}
   /api/bootstrap:
     get:
       operationId: bootstrap
@@ -5526,6 +5536,337 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/C9Error'
+  /api/admin/backups:
+    get:
+      operationId: listSiteBackups
+      tags: [Admin]
+      summary: List encrypted backups and the latest backup task
+      x-permission: admin
+      responses:
+        '200':
+          description: Existing encrypted files and the current or most recent task.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SiteBackupListEnvelope'}
+        '401': {$ref: '#/components/responses/BackupArchiveError'}
+        '403': {$ref: '#/components/responses/BackupArchiveError'}
+        '500': {$ref: '#/components/responses/BackupArchiveError'}
+        '503': {$ref: '#/components/responses/BackupArchiveError'}
+    post:
+      operationId: exportSiteBackup
+      tags: [Admin]
+      summary: Start encrypted site backup
+      description: Creates an authenticated PMAILBAK1 archive asynchronously. Only one site backup operation may run at once.
+      x-permission: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [passphrase]
+              additionalProperties: false
+              properties:
+                passphrase: {$ref: '#/components/schemas/SiteBackupPassphrase'}
+                include_tls: {type: boolean, default: true}
+      responses:
+        '202':
+          description: Task accepted; poll GET /api/admin/backups.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SiteBackupStartEnvelope'}
+        '400': {$ref: '#/components/responses/BackupArchiveError'}
+        '401': {$ref: '#/components/responses/BackupArchiveError'}
+        '403': {$ref: '#/components/responses/BackupArchiveError'}
+        '409': {$ref: '#/components/responses/BackupArchiveError'}
+        '415': {$ref: '#/components/responses/BackupArchiveError'}
+        '500': {$ref: '#/components/responses/BackupArchiveError'}
+        '503': {$ref: '#/components/responses/BackupArchiveError'}
+  /api/admin/backups/{name}/download:
+    parameters:
+    - {$ref: '#/components/parameters/SiteBackupName'}
+    get:
+      operationId: downloadSiteBackup
+      tags: [Admin]
+      summary: Download an encrypted backup (supports byte ranges)
+      x-permission: admin
+      parameters:
+      - {in: header, name: Range, schema: {type: string}, example: 'bytes=0-65535'}
+      responses:
+        '200':
+          description: Encrypted PMAILBAK1 bytes, with Content-Disposition and Accept-Ranges.
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        '206':
+          description: Requested byte range, with Content-Range (or multipart/byteranges for multiple ranges).
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+            multipart/byteranges:
+              schema: {type: string, format: binary}
+        '401': {$ref: '#/components/responses/BackupArchiveError'}
+        '403': {$ref: '#/components/responses/BackupArchiveError'}
+        '404': {$ref: '#/components/responses/BackupArchiveError'}
+        '416': {description: Range not satisfiable.}
+        '503': {$ref: '#/components/responses/BackupArchiveError'}
+  /api/admin/backups/{name}:
+    parameters:
+    - {$ref: '#/components/parameters/SiteBackupName'}
+    delete:
+      operationId: deleteSiteBackup
+      tags: [Admin]
+      summary: Delete one backup file
+      x-permission: admin
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NullValueSuccess'}
+        '401': {$ref: '#/components/responses/BackupArchiveError'}
+        '403': {$ref: '#/components/responses/BackupArchiveError'}
+        '404': {$ref: '#/components/responses/BackupArchiveError'}
+        '409': {$ref: '#/components/responses/BackupArchiveError'}
+        '503': {$ref: '#/components/responses/BackupArchiveError'}
+  /api/admin/backups/upload:
+    post:
+      operationId: uploadSiteBackup
+      tags: [Admin]
+      summary: Stream a .pmailbak file to persistent storage
+      description: Only the outer header is checked on upload. The whole archive is authenticated before restore. The application cap is 50 GiB; a reverse proxy may enforce a smaller cap.
+      x-permission: admin
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+      responses:
+        '201':
+          description: Uploaded file; use the returned name. Arbitrary filenames are replaced by a safe generated name, and unknown versions remain empty until inspection with the passphrase.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SiteBackupFileEnvelope'}
+        '400': {$ref: '#/components/responses/BackupArchiveError'}
+        '401': {$ref: '#/components/responses/BackupArchiveError'}
+        '403': {$ref: '#/components/responses/BackupArchiveError'}
+        '409': {$ref: '#/components/responses/BackupArchiveError'}
+        '413': {$ref: '#/components/responses/BackupArchiveError'}
+        '500': {$ref: '#/components/responses/BackupArchiveError'}
+        '503': {$ref: '#/components/responses/BackupArchiveError'}
+  /api/admin/backups/{name}/restore:
+    parameters:
+    - {$ref: '#/components/parameters/SiteBackupName'}
+    post:
+      operationId: restoreSiteBackup
+      tags: [Admin]
+      summary: Replace site data from an encrypted backup
+      description: Destructive. Verifies the entire archive, drains other work, creates a pre-restore backup, replaces the DB and key files, clears sessions, and exits cleanly. Asynchronous validation errors are returned in restore-status. All users must log in again after restart.
+      x-permission: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [passphrase, confirm]
+              additionalProperties: false
+              properties:
+                passphrase: {$ref: '#/components/schemas/SiteBackupPassphrase'}
+                confirm: {type: string, const: RESTORE}
+      responses:
+        '202':
+          description: Task accepted, not yet validated. The response sets a path-scoped HttpOnly cookie authorizing progress during maintenance. Non-browser clients can use the job ID as a progress-only capability.
+          headers:
+            Set-Cookie:
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SiteBackupStartEnvelope'}
+        '400': {$ref: '#/components/responses/BackupArchiveError'}
+        '401': {$ref: '#/components/responses/BackupArchiveError'}
+        '403': {$ref: '#/components/responses/BackupArchiveError'}
+        '404': {$ref: '#/components/responses/BackupArchiveError'}
+        '409': {$ref: '#/components/responses/BackupArchiveError'}
+        '500': {$ref: '#/components/responses/BackupArchiveError'}
+        '503': {$ref: '#/components/responses/BackupArchiveError'}
+  /api/admin/backups/restore-status:
+    get:
+      operationId: getSiteRestoreStatus
+      tags: [Admin]
+      summary: Poll restore progress during maintenance
+      description: Requires admin authentication or the specific restore capability issued to the initiating admin. While maintenance is active use that capability (browser cookie or header), because the DB-backed session store is not available. No credentials or backup content are returned.
+      x-permission: admin-or-restore-capability
+      parameters:
+      - {in: header, name: X-PMail-Restore-ID, schema: {type: string, pattern: '^[a-f0-9]{48}$'}}
+      responses:
+        '200':
+          description: Current stage or idle. Failed stage contains a stable error code, including backup_bad_passphrase, backup_corrupt, backup_version_newer, backup_secret_mismatch or backup_failed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SiteRestoreStatusEnvelope'}
+        '401': {$ref: '#/components/responses/BackupArchiveError'}
+        '403': {$ref: '#/components/responses/BackupArchiveError'}
+        '404': {$ref: '#/components/responses/BackupArchiveError'}
+        '503': {$ref: '#/components/responses/BackupArchiveError'}
+  /api/email/export:
+    post:
+      operationId: exportPersonalMailbox
+      tags: [Mail]
+      summary: Start a personal ZIP of mboxrd files
+      description: Empty folders selects Inbox, Sent, Drafts, Junk and custom folders. Trash is included only with include_trash. Folder tags can be built-in names, group:<id>, or existing mailbox list tags.
+      x-permission: owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [format]
+              properties:
+                folders: {type: array, maxItems: 256, items: {type: string, maxLength: 256}, default: []}
+                format: {type: string, const: mbox}
+                include_trash: {type: boolean, default: false}
+      responses:
+        '202':
+          description: Owner-scoped export task.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MailExportEnvelope'}
+        '400': {$ref: '#/components/responses/BackupArchiveError'}
+        '401': {$ref: '#/components/responses/BackupArchiveError'}
+        '409': {$ref: '#/components/responses/BackupArchiveError'}
+        '500': {$ref: '#/components/responses/BackupArchiveError'}
+        '503': {$ref: '#/components/responses/BackupArchiveError'}
+  /api/email/export/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/PersonalArchiveID'}
+    get:
+      operationId: getPersonalMailboxExport
+      tags: [Mail]
+      summary: Get an owned export task and its progress
+      x-permission: owner
+      responses:
+        '200':
+          description: Task progress, or final size and expiry.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MailExportEnvelope'}
+        '401': {$ref: '#/components/responses/BackupArchiveError'}
+        '404': {$ref: '#/components/responses/BackupArchiveError'}
+        '503': {$ref: '#/components/responses/BackupArchiveError'}
+  /api/email/export/{id}/download:
+    parameters:
+    - {$ref: '#/components/parameters/PersonalArchiveID'}
+    get:
+      operationId: downloadPersonalMailboxExport
+      tags: [Mail]
+      summary: Download an owned, completed export within 24 hours
+      x-permission: owner
+      responses:
+        '200':
+          description: ZIP containing one .mbox per selected folder.
+          content:
+            application/zip:
+              schema: {type: string, format: binary}
+        '206':
+          description: Partial ZIP bytes.
+          content:
+            application/zip:
+              schema: {type: string, format: binary}
+            multipart/byteranges:
+              schema: {type: string, format: binary}
+        '401': {$ref: '#/components/responses/BackupArchiveError'}
+        '404': {$ref: '#/components/responses/BackupArchiveError'}
+        '416': {description: Range not satisfiable.}
+        '503': {$ref: '#/components/responses/BackupArchiveError'}
+  /api/email/import:
+    post:
+      operationId: importPersonalMailbox
+      tags: [Mail]
+      summary: Import EML, mbox or a ZIP of either into an owned folder
+      description: Default 50 MiB per upload, adjustable by the administrator. Deduplicates by Message-ID within the user mailbox, observes quota, and never triggers mail delivery or rules. Successes before a quota stop are retained. After upload, processing is asynchronous.
+      x-permission: owner
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary, description: '.eml, .mbox, or .zip containing only email files.'}
+                target: {type: string, default: inbox, maxLength: 256, description: 'inbox, sent, drafts, junk, trash, group:<id>, or an existing mailbox list tag.'}
+      responses:
+        '202':
+          description: Owner-scoped import accepted. Poll its status for per-message outcomes.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MailImportEnvelope'}
+        '400': {$ref: '#/components/responses/BackupArchiveError'}
+        '401': {$ref: '#/components/responses/BackupArchiveError'}
+        '409': {$ref: '#/components/responses/BackupArchiveError'}
+        '413': {$ref: '#/components/responses/BackupArchiveError'}
+        '500': {$ref: '#/components/responses/BackupArchiveError'}
+        '503': {$ref: '#/components/responses/BackupArchiveError'}
+  /api/email/import/{id}:
+    parameters:
+    - {$ref: '#/components/parameters/PersonalArchiveID'}
+    get:
+      operationId: getPersonalMailboxImport
+      tags: [Mail]
+      summary: Get import totals and stable task errors
+      x-permission: owner
+      responses:
+        '200':
+          description: Task status. Totals count messages processed so far; a quota stop reports quota_exceeded.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MailImportEnvelope'}
+        '401': {$ref: '#/components/responses/BackupArchiveError'}
+        '404': {$ref: '#/components/responses/BackupArchiveError'}
+        '503': {$ref: '#/components/responses/BackupArchiveError'}
+  /api/admin/mail-archive:
+    get:
+      operationId: getMailArchiveSettings
+      tags: [Admin]
+      summary: Read the personal mail archive upload limit
+      x-permission: admin
+      responses:
+        '200':
+          description: Current per-upload limit for personal archive files.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MailArchiveSettingsEnvelope'}
+        '401': {$ref: '#/components/responses/BackupArchiveError'}
+        '403': {$ref: '#/components/responses/BackupArchiveError'}
+        '503': {$ref: '#/components/responses/BackupArchiveError'}
+    put:
+      operationId: setMailArchiveSettings
+      tags: [Admin]
+      summary: Change the personal mail archive upload limit
+      x-permission: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MailArchiveSettings'}
+      responses:
+        '200':
+          description: Saved limit.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MailArchiveSettingsEnvelope'}
+        '400': {$ref: '#/components/responses/BackupArchiveError'}
+        '401': {$ref: '#/components/responses/BackupArchiveError'}
+        '403': {$ref: '#/components/responses/BackupArchiveError'}
+        '503': {$ref: '#/components/responses/BackupArchiveError'}
+
 components:
   securitySchemes:
     SetupToken:
@@ -5536,6 +5877,17 @@ components:
     BearerToken: {type: http, scheme: bearer}
     LegacyToken: {type: apiKey, in: header, name: Token}
   parameters:
+    SiteBackupName:
+      in: path
+      name: name
+      required: true
+      description: Canonical PMail backup filename returned by list or upload. Other paths and symlinks are rejected.
+      schema: {type: string, maxLength: 96}
+    PersonalArchiveID:
+      in: path
+      name: id
+      required: true
+      schema: {type: string, pattern: '^[a-f0-9]{32}$'}
     MailboxAddressQuery:
       name: address
       in: query
@@ -5604,6 +5956,16 @@ components:
         type: integer
         description: Omit or use zero for the current account; only an administrator can select another user.
   responses:
+    BackupArchiveError:
+      description: >-
+        Error envelope with a stable data.code. Authentication uses inbound_login_required or inbound_permission_denied.
+        Site backup codes include backup_passphrase_invalid, backup_bad_passphrase, backup_corrupt, backup_version_newer,
+        backup_confirmation_required, backup_busy, backup_not_found, backup_too_large, backup_secret_mismatch and backup_failed.
+        Personal archive codes include export_busy, import_busy, mail_archive_invalid, mail_archive_invalid_folder,
+        mail_archive_not_found, mail_archive_too_large, mail_archive_failed and quota_exceeded. HTTP 503 uses maintenance.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/C9Error'}
     C8InboundInvalidParameters:
       description: Localized error with a machine-readable data.code.
       content:
@@ -6047,6 +6409,145 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error404EmptyData'}
   schemas:
+    SiteBackupPassphrase:
+      type: string
+      format: password
+      minLength: 12
+      maxLength: 1024
+      writeOnly: true
+      description: At least 12 Unicode characters and at most 1024 UTF-8 bytes. Not retained after the operation.
+    SiteBackupFile:
+      type: object
+      required: [name, size, created_at, pmail_version]
+      properties:
+        name: {type: string, example: pmail-1.0.0-20261124T083000.000000000Z.pmailbak}
+        size: {type: integer, format: int64, minimum: 0}
+        created_at: {type: string, format: date-time}
+        pmail_version: {type: string, description: 'Inferred from the canonical filename; the authenticated version is checked on restore.'}
+        is_pre_restore: {type: boolean}
+    SiteBackupProgress:
+      type: object
+      properties:
+        tables_done: {type: integer, minimum: 0}
+        tables_total: {type: integer, minimum: 0}
+        rows_done: {type: integer, format: int64, minimum: 0}
+    SiteBackupJob:
+      allOf:
+      - {$ref: '#/components/schemas/SiteBackupProgress'}
+      - type: object
+        required: [id, kind, state, stage, tables_done, tables_total, rows_done]
+        properties:
+          id: {type: string, pattern: '^[a-f0-9]{48}$'}
+          kind: {type: string, enum: [export, restore]}
+          state: {type: string, enum: [running, done, failed]}
+          stage: {type: string}
+          file_name: {type: string}
+          error: {type: string, description: Stable machine error code.}
+    SiteRestoreStatus:
+      allOf:
+      - {$ref: '#/components/schemas/SiteBackupProgress'}
+      - type: object
+        required: [stage]
+        properties:
+          stage: {type: string, enum: [idle, verifying, entering_maintenance, pre_backup, restoring_db, restoring_files, clearing_sessions, restarting, failed]}
+          error_code: {type: string}
+          error: {type: string, description: Localized error.}
+    MailArchiveSettings:
+      type: object
+      additionalProperties: false
+      required: [max_upload_bytes]
+      properties:
+        max_upload_bytes: {type: integer, format: int64, minimum: 1048576, maximum: 536870912, default: 52428800}
+    MailArchiveTask:
+      type: object
+      required: [id, state, expires_at]
+      properties:
+        id: {type: string, pattern: '^[a-f0-9]{32}$'}
+        state: {type: string, enum: [running, done, failed]}
+        expires_at: {type: string, format: date-time}
+        error_code: {type: string}
+        error: {type: string}
+    MailExportStatus:
+      allOf:
+      - {$ref: '#/components/schemas/MailArchiveTask'}
+      - type: object
+        required: [exported_count, total_count]
+        properties:
+          exported_count: {type: integer, format: int64, minimum: 0}
+          total_count: {type: integer, format: int64, minimum: 0, description: Estimated snapshot count.}
+          size: {type: integer, format: int64, minimum: 0}
+    MailImportStatus:
+      allOf:
+      - {$ref: '#/components/schemas/MailArchiveTask'}
+      - type: object
+        required: [total, imported, skipped, failed]
+        properties:
+          total: {type: integer, format: int64, minimum: 0}
+          imported: {type: integer, format: int64, minimum: 0}
+          skipped: {type: integer, format: int64, minimum: 0}
+          failed: {type: integer, format: int64, minimum: 0}
+    SiteBackupFileEnvelope:
+      type: object
+      required: [errorNo, errorMsg, data]
+      properties:
+        errorNo: {const: 0}
+        errorMsg: {type: string}
+        data: {$ref: '#/components/schemas/SiteBackupFile'}
+    SiteRestoreStatusEnvelope:
+      type: object
+      required: [errorNo, errorMsg, data]
+      properties:
+        errorNo: {const: 0}
+        errorMsg: {type: string}
+        data: {$ref: '#/components/schemas/SiteRestoreStatus'}
+    MailExportEnvelope:
+      type: object
+      required: [errorNo, errorMsg, data]
+      properties:
+        errorNo: {const: 0}
+        errorMsg: {type: string}
+        data: {$ref: '#/components/schemas/MailExportStatus'}
+    MailImportEnvelope:
+      type: object
+      required: [errorNo, errorMsg, data]
+      properties:
+        errorNo: {const: 0}
+        errorMsg: {type: string}
+        data: {$ref: '#/components/schemas/MailImportStatus'}
+    MailArchiveSettingsEnvelope:
+      type: object
+      required: [errorNo, errorMsg, data]
+      properties:
+        errorNo: {const: 0}
+        errorMsg: {type: string}
+        data: {$ref: '#/components/schemas/MailArchiveSettings'}
+    SiteBackupStartEnvelope:
+      type: object
+      required: [errorNo, errorMsg, data]
+      properties:
+        errorNo: {const: 0}
+        errorMsg: {type: string}
+        data:
+          type: object
+          required: [job_id]
+          properties:
+            job_id: {type: string, pattern: '^[a-f0-9]{48}$'}
+            started: {type: boolean, const: true, description: Present for restore.}
+    SiteBackupListEnvelope:
+      type: object
+      required: [errorNo, errorMsg, data]
+      properties:
+        errorNo: {const: 0}
+        errorMsg: {type: string}
+        data:
+          type: object
+          required: [items, active_job]
+          properties:
+            items: {type: array, items: {$ref: '#/components/schemas/SiteBackupFile'}}
+            active_job:
+              oneOf:
+              - {$ref: '#/components/schemas/SiteBackupJob'}
+              - {type: 'null'}
     MailChanges:
       type: object
       required: [cursor, changed, new_count, new_items]

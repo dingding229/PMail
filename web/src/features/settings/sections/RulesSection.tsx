@@ -49,6 +49,7 @@ import {
   SectionHeader,
   SectionLoadingState,
 } from '@/components/settings'
+import { ReportMailSection } from './ReportMailSection'
 
 const FIELDS: RuleConditionField[] = ['From', 'Subject', 'To', 'Cc', 'Text', 'Html', 'Content']
 const OPERATORS: RuleConditionType[] = ['contains', 'equal', 'regex']
@@ -209,7 +210,8 @@ export function RulesSection() {
   }
 
   return (
-    <SectionCard>
+    <div className="space-y-5">
+      <SectionCard>
       <SectionHeader
         icon={Filter}
         title={t('settings.rules.title')}
@@ -557,6 +559,9 @@ export function RulesSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </SectionCard>
+      </SectionCard>
+
+      <ReportMailSection />
+    </div>
   )
 }

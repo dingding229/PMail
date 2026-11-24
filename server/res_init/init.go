@@ -26,6 +26,7 @@ import (
 	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/services/mailstore"
+	"github.com/Jinnrry/pmail/services/maintenance"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/services/registration"
@@ -180,20 +181,24 @@ func Init(serverVersion string) {
 		projectionDone := make(chan struct{})
 		go func() {
 			defer close(projectionDone)
-			if err := mailstore.Backfill(ctx, db.Instance); err != nil && ctx.Err() == nil {
-				log.Errorf("mail projection backfill: %v", err)
-			}
+			maintenance.Work(ctx, func(ctx stdcontext.Context) {
+				if err := mailstore.Backfill(ctx, db.Instance); err != nil && ctx.Err() == nil {
+					log.Errorf("mail projection backfill: %v", err)
+				}
+			})
 		}()
 		addressDone := make(chan struct{})
 		go func() {
 			defer close(addressDone)
-			started := time.Now()
-			n, err := mailaddress.Backfill(ctx, db.Instance)
-			if err != nil && ctx.Err() == nil {
-				log.Errorf("mail address backfill: %v", err)
-			} else if err == nil {
-				log.Infof("mail address backfill complete rows=%d duration=%s", n, time.Since(started).Round(time.Millisecond))
-			}
+			maintenance.Work(ctx, func(ctx stdcontext.Context) {
+				started := time.Now()
+				n, err := mailaddress.Backfill(ctx, db.Instance)
+				if err != nil && ctx.Err() == nil {
+					log.Errorf("mail address backfill: %v", err)
+				} else if err == nil {
+					log.Infof("mail address backfill complete rows=%d duration=%s", n, time.Since(started).Round(time.Millisecond))
+				}
+			})
 		}()
 		c9Workers = append(c9Workers, addressDone)
 		drainScheduler := cron_server.Start(ctx, cfg, cert)
@@ -203,6 +208,8 @@ func Init(serverVersion string) {
 		case <-signal.RestartChan:
 			restart = true
 			log.Info("Server restarting")
+		case <-signal.BackupExitChan:
+			log.Info("Server exiting after committed backup restore")
 		case <-signal.UpdateExitChan:
 			log.Info("Server draining before staged update startup")
 		case <-signal.StopChan:

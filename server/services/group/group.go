@@ -4,6 +4,7 @@ import (
 	errors2 "errors"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Jinnrry/pmail/consts"
 	"github.com/Jinnrry/pmail/db"
@@ -31,6 +32,17 @@ type GroupItem struct {
 const maxGroupDepth = 16
 
 var ErrInvalidParent = errors2.New("invalid parent or group hierarchy")
+
+// ErrInvalidName rejects names the group.name column cannot store.
+var ErrInvalidName = errors2.New("invalid group name")
+
+// MaxGroupNameRunes matches models.Group.Name varchar(10).
+const MaxGroupNameRunes = 10
+
+func validName(name string) bool {
+	n := utf8.RuneCountInString(name)
+	return strings.TrimSpace(name) != "" && n <= MaxGroupNameRunes
+}
 
 func parentPath(owner, parent int, excluded int) (string, error) {
 	seen := map[int]bool{}
@@ -83,6 +95,9 @@ func ValidMoveTarget(ctx *context.Context, id int) bool {
 }
 
 func CreateGroup(ctx *context.Context, name string, parentId int) (*models.Group, error) {
+	if !validName(name) {
+		return nil, ErrInvalidName
+	}
 	prefix, pathErr := parentPath(ctx.UserID, parentId, 0)
 	if pathErr != nil {
 		return nil, pathErr
@@ -115,6 +130,9 @@ func Rename(ctx *context.Context, oldName, newName string) error {
 	}
 	if oldGroupInfo == nil || oldGroupInfo.ID == 0 {
 		return errors2.New("group not found")
+	}
+	if !validName(newName) {
+		return ErrInvalidName
 	}
 	oldGroupInfo.Name = newName
 	prefix, err := parentPath(ctx.UserID, oldGroupInfo.ParentId, oldGroupInfo.ID)

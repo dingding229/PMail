@@ -7,6 +7,7 @@ import { PreferencesProvider } from '@/lib/PreferencesProvider'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { OfflineBanner } from '@/components/common/OfflineBanner'
 import { ErrorBoundary } from '@/components/common/ErrorBoundary'
+import { MaintenanceGate } from '@/components/common/MaintenanceGate'
 import { router } from './router'
 
 const queryClient = new QueryClient({
@@ -41,10 +42,12 @@ export function App() {
         <PreferencesProvider>
           <TooltipProvider delayDuration={350}>
             <ErrorBoundary>
-              <RouterProvider router={router} />
+              <MaintenanceGate>
+                <RouterProvider router={router} />
+                <OfflineBanner />
+                <ThemedToaster />
+              </MaintenanceGate>
             </ErrorBoundary>
-            <OfflineBanner />
-            <ThemedToaster />
           </TooltipProvider>
         </PreferencesProvider>
       </ThemeProvider>

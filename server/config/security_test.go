@@ -70,3 +70,30 @@ func TestVerifiedStagedWebRootKeepsSensitivePathChecks(t *testing.T) {
 		t.Fatal("staged served files must still not overlap secrets or databases")
 	}
 }
+
+func TestValidateWebRootRecreatesMissingDataDirectories(t *testing.T) {
+	old := ROOT_PATH
+	root := t.TempDir()
+	ROOT_PATH = root
+	t.Cleanup(func() { ROOT_PATH = old })
+	if err := os.MkdirAll(filepath.Join(root, "config"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Root-level aliases left dangling, as after a restore removed the target.
+	for _, name := range []string{"backups", "exports"} {
+		if err := os.Symlink(filepath.Join("config", name), filepath.Join(root, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"backups", "exports"} {
+		_ = os.Mkdir(filepath.Join(root, "config", name), 0700)
+		_ = os.Remove(filepath.Join(root, "config", name))
+	}
+	t.Setenv("PMAIL_WEB_ROOT", t.TempDir())
+	_ = ValidateWebRoot(&Config{})
+	for _, name := range []string{"backups", "exports"} {
+		if _, err := filepath.EvalSymlinks(filepath.Join(root, name)); err != nil {
+			t.Fatalf("%s alias still dangling: %v", name, err)
+		}
+	}
+}

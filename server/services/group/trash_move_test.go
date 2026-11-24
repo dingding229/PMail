@@ -84,3 +84,26 @@ func TestMoveOutOfTrashToCustomFolder(t *testing.T) {
 		t.Fatalf("mail invisible in target group: %d/%v", len(rows), err)
 	}
 }
+
+func TestGroupNameLengthIsValidated(t *testing.T) {
+	e, err := xorm.NewEngine("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := db.Instance
+	db.Instance = e
+	t.Cleanup(func() { db.Instance = old; e.Close() })
+	if err := db.SyncSchema(e); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &context.Context{Context: t.Context(), UserID: 1}
+	if _, err := CreateGroup(ctx, "这是一个超过十个字符的文件夹名", 0); err != ErrInvalidName {
+		t.Fatalf("long name: %v", err)
+	}
+	if _, err := CreateGroup(ctx, "十个字符的文件夹名称", 0); err != nil {
+		t.Fatalf("10 runes rejected: %v", err)
+	}
+	if err := Rename(ctx, "十个字符的文件夹名称", "elevenchars"); err != ErrInvalidName {
+		t.Fatalf("long rename: %v", err)
+	}
+}

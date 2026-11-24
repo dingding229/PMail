@@ -17,6 +17,7 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/maintenance"
 	"github.com/Jinnrry/pmail/services/quota"
 	"github.com/Jinnrry/pmail/utils/mailbudget"
 	"golang.org/x/net/html"
@@ -320,7 +321,7 @@ func Start(ctx context.Context) <-chan struct{} {
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()
 		for ctx.Err() == nil {
-			_ = Cleanup(ctx, time.Now())
+			maintenance.Work(ctx, func(ctx context.Context) { _ = Cleanup(ctx, time.Now()) })
 			select {
 			case <-ctx.Done():
 				return

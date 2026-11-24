@@ -11,3 +11,6 @@ var StopChan = make(chan bool)
 
 // UpdateExitChan requests a full process exit after draining the current generation.
 var UpdateExitChan = make(chan struct{}, 1)
+
+// BackupExitChan requests a clean exit after an online restore commits.
+var BackupExitChan = make(chan struct{}, 1)

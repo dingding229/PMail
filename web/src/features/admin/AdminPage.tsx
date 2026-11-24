@@ -3,7 +3,9 @@ import { useTranslation } from 'react-i18next'
 import {
   ArrowUpCircle,
   AtSign,
+  BarChart3,
   ClipboardCheck,
+  DatabaseBackup,
   Globe,
   Languages,
   Send,
@@ -25,9 +27,11 @@ import { UsersSection } from './UsersSection'
 import { AdminAddressesSection } from './AdminAddressesSection'
 import { AdminAddressApprovalSection } from './AdminAddressApprovalSection'
 import { InboundSecuritySection } from './InboundSecuritySection'
+import { MailReportsSection } from './MailReportsSection'
 import { AdminTelegramSection } from './AdminTelegramSection'
 import { AdminTranslationSection } from './AdminTranslationSection'
 import { TrashSettingsSection } from './TrashSettingsSection'
+import { BackupSection } from './BackupSection'
 import { SystemUpdateSection } from './SystemUpdateSection'
 
 type AdminTabKey =
@@ -36,9 +40,11 @@ type AdminTabKey =
   | 'addresses'
   | 'address-approval'
   | 'inbound'
+  | 'mail-reports'
   | 'translation'
   | 'telegram'
   | 'trash'
+  | 'backup'
   | 'update'
   | 'queue'
 
@@ -69,9 +75,11 @@ export function AdminPage() {
         ) : undefined,
     },
     { key: 'inbound', label: t('admin.tabs.inbound'), icon: ShieldCheck },
+    { key: 'mail-reports', label: t('admin.tabs.mailReports'), icon: BarChart3 },
     { key: 'translation', label: t('admin.tabs.translation'), icon: Languages },
     { key: 'telegram', label: t('admin.tabs.telegram'), icon: Send },
     { key: 'trash', label: t('admin.tabs.trash'), icon: Trash2 },
+    { key: 'backup', label: t('admin.tabs.backup'), icon: DatabaseBackup },
     { key: 'update', label: t('admin.tabs.update'), icon: ArrowUpCircle },
     { key: 'queue', label: t('admin.tabs.queue'), icon: SendToBack },
   ]
@@ -125,9 +133,11 @@ export function AdminPage() {
       {activeTab === 'addresses' && <AdminAddressesSection />}
       {activeTab === 'address-approval' && <AdminAddressApprovalSection />}
       {activeTab === 'inbound' && <InboundSecuritySection />}
+      {activeTab === 'mail-reports' && <MailReportsSection />}
       {activeTab === 'translation' && <AdminTranslationSection />}
       {activeTab === 'telegram' && <AdminTelegramSection />}
       {activeTab === 'trash' && <TrashSettingsSection />}
+      {activeTab === 'backup' && <BackupSection />}
       {activeTab === 'update' && <SystemUpdateSection />}
       {activeTab === 'queue' && <QueueSection scope="global" />}
     </SettingsLayout>

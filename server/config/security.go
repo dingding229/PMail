@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Jinnrry/pmail/internal/releasebundle"
+	log "github.com/sirupsen/logrus"
 )
 
 func Flag(name string) bool {
@@ -91,11 +93,21 @@ func UseStagedWebRoot(tag string) error {
 }
 
 func ValidateWebRoot(cfg *Config) error {
+	// Backup and export directories live in the config volume and the
+	// root-level names are symlinks to them. Recreate a missing directory so a
+	// dangling alias does not stop startup; real symlink problems still fail.
+	if info, err := os.Stat(filepath.Join(ROOT_PATH, "config")); err == nil && info.IsDir() {
+		for _, name := range []string{"backups", "exports"} {
+			if err := os.Mkdir(filepath.Join(ROOT_PATH, "config", name), 0700); err != nil && !errors.Is(err, os.ErrExist) {
+				log.Warnf("create %s directory: %v", name, err)
+			}
+		}
+	}
 	root, err := canonicalPath(WebRoot())
 	if err != nil {
 		return fmt.Errorf("validate PMAIL_WEB_ROOT: %w", err)
 	}
-	sensitive := []string{filepath.Join(ROOT_PATH, "data")}
+	sensitive := []string{filepath.Join(ROOT_PATH, "data"), filepath.Join(ROOT_PATH, "backups"), filepath.Join(ROOT_PATH, "exports"), filepath.Join(ROOT_PATH, "config", "backups"), filepath.Join(ROOT_PATH, "config", "exports")}
 	if stagedWebRoot == "" || root != stagedWebRoot {
 		sensitive = append(sensitive, filepath.Join(ROOT_PATH, "config"))
 	}

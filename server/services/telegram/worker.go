@@ -18,6 +18,7 @@ import (
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/inbound"
+	"github.com/Jinnrry/pmail/services/maintenance"
 	"github.com/Jinnrry/pmail/services/translation"
 	pctx "github.com/Jinnrry/pmail/utils/context"
 	log "github.com/sirupsen/logrus"
@@ -531,8 +532,12 @@ func Start(ctx context.Context) <-chan struct{} {
 	var wg sync.WaitGroup
 	done := make(chan struct{})
 	wg.Go(func() {
-		for ctx.Err() == nil {
-			if err := w.pollOnce(ctx); err != nil {
+		for maintenance.Wait(ctx) {
+			var err error
+			if !maintenance.Work(ctx, func(ctx context.Context) { err = w.pollOnce(ctx) }) {
+				continue
+			}
+			if err != nil {
 				delay := 3 * time.Second
 				var api *botError
 				if errors.As(err, &api) && api.Status == 429 {
@@ -546,14 +551,18 @@ func Start(ctx context.Context) <-chan struct{} {
 	})
 	wg.Go(func() {
 		var last time.Time
-		for ctx.Err() == nil {
-			if time.Since(last) > time.Hour {
-				now := time.Now()
-				_, _ = db.Instance.Context(ctx).Where("expires<=?", now.UnixMilli()).Delete(&models.TelegramPush{})
-				_, _ = db.Instance.Context(ctx).Where("expires<=?", now.Unix()).Delete(&models.TelegramCode{})
-				last = now
-			}
-			if w.queueOnce(ctx) {
+		for maintenance.Wait(ctx) {
+			var worked bool
+			maintenance.Work(ctx, func(ctx context.Context) {
+				if time.Since(last) > time.Hour {
+					now := time.Now()
+					_, _ = db.Instance.Context(ctx).Where("expires<=?", now.UnixMilli()).Delete(&models.TelegramPush{})
+					_, _ = db.Instance.Context(ctx).Where("expires<=?", now.Unix()).Delete(&models.TelegramCode{})
+					last = now
+				}
+				worked = w.queueOnce(ctx)
+			})
+			if worked {
 				wait(ctx, 40*time.Millisecond)
 			} else {
 				wait(ctx, 500*time.Millisecond)

@@ -8,6 +8,7 @@ import (
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/migration"
 	"github.com/Jinnrry/pmail/res_init"
+	"github.com/Jinnrry/pmail/services/sitebackup"
 	"github.com/Jinnrry/pmail/services/update"
 	log "github.com/sirupsen/logrus"
 )
@@ -47,15 +48,26 @@ func main() {
 		}
 		return
 	}
+	if version == "" {
+		version = "dev"
+	}
+	if len(os.Args) > 1 && os.Args[1] == "backup" {
+		if err := sitebackup.CLI(os.Args[2:], version); err != nil {
+			fmt.Fprintln(os.Stderr, sitebackup.ErrorCode(err))
+			os.Exit(1)
+		}
+		return
+	}
 	if err := update.Boot(version); err != nil {
 		log.Fatal(err)
 	}
+	instanceLock, err := sitebackup.Acquire(config.ROOT_PATH)
+	if err != nil {
+		log.Fatal("PMail data volume is unavailable or already in use")
+	}
+	defer instanceLock.Close()
 	if err := config.Init(); err != nil {
 		log.Fatal(err)
-	}
-
-	if version == "" {
-		version = "dev"
 	}
 
 	log.Infoln("*******************************************************************")

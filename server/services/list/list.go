@@ -64,7 +64,7 @@ func countSQLFor(ctx *context.Context, tagInfo dto.SearchTag, keyword string, fi
 		sql += " and type =? "
 		sqlParams = append(sqlParams, tagInfo.Type)
 	} else if !tagInfo.Starred && tagInfo.Type == consts.EmailTypeSend && tagInfo.Status != consts.EmailStatusDrafts {
-		sql += " and (type =? or ue.group_id=?)"
+		sql += " and (type =? or ue.group_id=? or ue.status=1)"
 		sqlParams = append(sqlParams, tagInfo.Type, models.Sent)
 	}
 

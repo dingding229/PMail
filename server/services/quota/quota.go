@@ -10,6 +10,7 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/mailaddress"
+	"github.com/Jinnrry/pmail/services/maintenance"
 	log "github.com/sirupsen/logrus"
 	"xorm.io/builder"
 	"xorm.io/xorm"
@@ -238,9 +239,11 @@ func Reconcile(ctx context.Context) error {
 
 func RunReconciliation(ctx context.Context) {
 	for ctx.Err() == nil {
-		if err := Reconcile(ctx); err != nil && ctx.Err() == nil {
-			log.Errorf("quota reconciliation failed: %v", err)
-		}
+		maintenance.Work(ctx, func(ctx context.Context) {
+			if err := Reconcile(ctx); err != nil && ctx.Err() == nil {
+				log.Errorf("quota reconciliation failed: %v", err)
+			}
+		})
 		t := time.NewTimer(time.Hour)
 		select {
 		case <-ctx.Done():

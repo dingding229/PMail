@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"net"
 
+	"github.com/Jinnrry/pmail/services/maintenance"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	log "github.com/sirupsen/logrus"
@@ -45,9 +46,11 @@ func start(addr string, cert tls.Certificate, implicitTLS bool) *imapserver.Serv
 		log.Errorf("IMAP %s: %v", addr, err)
 		return nil
 	}
+	var implicit *tls.Config
 	if implicitTLS {
-		socket = tls.NewListener(socket, &tls.Config{Certificates: []tls.Certificate{cert}})
+		implicit = &tls.Config{Certificates: []tls.Certificate{cert}}
 	}
+	socket = maintenance.Listen(socket, implicit, "* BYE [UNAVAILABLE] maintenance\r\n")
 	sockets = append(sockets, socket)
 	log.Infof("IMAP listening on %s (implicit TLS: %t)", addr, implicitTLS)
 	go func() {

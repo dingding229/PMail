@@ -640,6 +640,91 @@ export interface EmailChangesResponse {
   new_items: EmailChangeItem[]
 }
 
+/* ==================== V9-C33 / V9-U7 Backup, Export & Import ==================== */
+
+export interface BackupFileItem {
+  name: string
+  size: number
+  created_at: string
+  pmail_version: string
+  is_pre_restore?: boolean
+}
+
+export interface BackupJobStatus {
+  id: string
+  state: 'running' | 'done' | 'failed'
+  tables_done: number
+  tables_total: number
+  rows_done: number
+  current_table?: string
+  file_name?: string
+  error?: string
+}
+
+export interface AdminBackupsResponse {
+  items: BackupFileItem[]
+  active_job: BackupJobStatus | null
+}
+
+export interface BackupCreatePayload {
+  passphrase: string
+  include_tls: boolean
+}
+
+export interface BackupRestorePayload {
+  passphrase: string
+  confirm: 'RESTORE'
+}
+
+export type RestoreStage =
+  | 'idle'
+  | 'verifying'
+  | 'pre_backup'
+  | 'entering_maintenance'
+  | 'restoring_db'
+  | 'restoring_files'
+  | 'clearing_sessions'
+  | 'restarting'
+  | 'done'
+  | 'failed'
+
+export interface RestoreStatusResponse {
+  stage: RestoreStage
+  tables_done?: number
+  tables_total?: number
+  rows_done?: number
+  message?: string
+  error_code?: string
+  error?: string
+}
+
+export interface MailExportPayload {
+  folders: string[]
+  format: 'mbox'
+  include_trash: boolean
+}
+
+export interface MailExportJobStatus {
+  id: string
+  state: 'running' | 'done' | 'failed'
+  exported_count: number
+  total_count: number
+  size?: number
+  expires_at?: string
+  error?: string
+}
+
+export interface MailImportJobStatus {
+  id: string
+  state: 'running' | 'done' | 'failed'
+  total: number
+  imported: number
+  skipped: number
+  failed: number
+  error_code?: string
+  error?: string
+}
+
 export interface EmailListItem {
   deleted_at?: number | null
   purge_at?: number | null
@@ -990,3 +1075,128 @@ export const SYSTEM_GROUP_IDS = {
   DELETED: 2000000003,
   JUNK: 2000000004,
 } as const
+
+/* ==================== V9-C34 / V9-U8 Mail Reports & Report Auto-Sort ==================== */
+
+export interface ReportMailPreference {
+  enabled: boolean
+  group_id: number
+  mark_read: boolean
+}
+
+export interface ReportMailApplyResponse {
+  moved: number
+  group_id?: number
+}
+
+export interface MailReportTotals {
+  total: number
+  dmarc_pass: number
+  dmarc_pass_rate?: number
+  spf_pass: number
+  spf_pass_rate?: number
+  dkim_pass: number
+  dkim_pass_rate?: number
+  quarantined: number
+  rejected: number
+}
+
+export interface MailReportDailyPoint {
+  date: string
+  pass: number
+  fail: number
+}
+
+export interface MailReportReporterItem {
+  org_name: string
+  count: number
+  pass_count?: number
+  pass_rate: number
+}
+
+export interface MailReportSourceItem {
+  source_ip: string
+  count: number
+  pass_count?: number
+  pass_rate: number
+  is_own: boolean
+  suspicious: boolean
+}
+
+export interface MailReportTlsFailureType {
+  result_type: string
+  count: number
+}
+
+export interface MailReportTlsSummary {
+  success_count: number
+  failure_count: number
+  report_count?: number
+  failure_types: MailReportTlsFailureType[]
+}
+
+export interface MailReportLatestPolicy {
+  p: string
+  sp?: string
+  pct?: number
+  adkim?: string
+  aspf?: string
+  report_date?: string
+  org_name?: string
+}
+
+export interface MailReportSummaryResponse {
+  domain: string
+  from: string
+  to: string
+  report_count: number
+  latest_report_at?: string
+  latest_policy?: MailReportLatestPolicy | null
+  totals: MailReportTotals
+  daily: MailReportDailyPoint[]
+  reporters: MailReportReporterItem[]
+  sources: MailReportSourceItem[]
+  tls: MailReportTlsSummary | null
+}
+
+export interface MailReportFailureRecord {
+  id: number
+  date: string
+  source_ip: string
+  count: number
+  disposition: string
+  header_from: string
+  envelope_from?: string
+  dkim_result: string
+  dkim_domain?: string
+  dkim_selector?: string
+  spf_result: string
+  spf_domain?: string
+  org_name: string
+  email_id?: number
+}
+
+export interface MailReportRecordsResponse {
+  items: MailReportFailureRecord[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface MailReportItem {
+  id: number
+  kind: 'dmarc_aggregate' | 'tls_report'
+  domain: string
+  org_name: string
+  report_id: string
+  begin_at: string
+  end_at: string
+  email_id?: number
+}
+
+export interface MailReportListResponse {
+  items: MailReportItem[]
+  total: number
+  page: number
+  page_size: number
+}

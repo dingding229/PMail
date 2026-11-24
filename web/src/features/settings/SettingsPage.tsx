@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import {
+  ArrowDownUp,
   AtSign,
   Filter,
   Folder,
@@ -30,6 +31,7 @@ import { TranslationAISection } from './sections/TranslationAISection'
 import { TelegramSection } from './sections/TelegramSection'
 import { GroupsSection } from './sections/GroupsSection'
 import { TokensSection } from './sections/TokensSection'
+import { MailImportExportSection } from './sections/MailImportExportSection'
 import { QueueSection } from './sections/QueueSection'
 
 type SettingsTabKey =
@@ -43,6 +45,7 @@ type SettingsTabKey =
   | 'translation'
   | 'telegram'
   | 'groups'
+  | 'import-export'
   | 'tokens'
   | 'queue'
 
@@ -63,6 +66,7 @@ export function SettingsPage() {
     { key: 'translation', label: t('settings.tabs.translation'), icon: Languages },
     { key: 'telegram', label: t('settings.tabs.telegram'), icon: Send },
     { key: 'groups', label: t('settings.tabs.groups'), icon: Folder },
+    { key: 'import-export', label: t('settings.tabs.importExport'), icon: ArrowDownUp },
     { key: 'tokens', label: t('settings.tabs.tokens'), icon: KeyRound },
     { key: 'queue', label: t('settings.tabs.queue'), icon: SendToBack },
   ]
@@ -104,6 +108,7 @@ export function SettingsPage() {
       {activeTab === 'translation' && <TranslationAISection />}
       {activeTab === 'telegram' && <TelegramSection />}
       {activeTab === 'groups' && <GroupsSection />}
+      {activeTab === 'import-export' && <MailImportExportSection />}
       {activeTab === 'tokens' && <TokensSection />}
       {activeTab === 'queue' && <QueueSection scope="mine" />}
     </SettingsLayout>

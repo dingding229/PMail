@@ -1,14 +1,15 @@
 package http_server
 
 import (
-	"github.com/Jinnrry/pmail/controllers"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/Jinnrry/pmail/config"
+	"github.com/Jinnrry/pmail/controllers"
 	"github.com/Jinnrry/pmail/dto/response"
 	"github.com/Jinnrry/pmail/i18n"
+	"github.com/Jinnrry/pmail/services/maintenance"
 	"github.com/Jinnrry/pmail/services/registration"
 	"github.com/Jinnrry/pmail/session"
 	log "github.com/sirupsen/logrus"
@@ -26,7 +27,21 @@ func apiOrAttachment(path string) bool {
 func apiSessions(next *http.ServeMux) http.Handler {
 	withSession := session.SecureCookies(session.Instance.Cookie.Name, session.Instance.LoadAndSave(next))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == controllers.BackupStatusPath && controllers.RestoreCapability(r) != "" {
+			w.Header().Set("Content-Type", "application/json")
+			controllers.BackupRestoreProgress(i18n.ForRequest(r), w, r)
+			return
+		}
 		if apiOrAttachment(r.URL.Path) && r.URL.Path != "/api/ping" {
+			done, ok := maintenance.Default.Enter(nil)
+			if !ok {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Retry-After", "5")
+				controllers.InboundError(i18n.ForRequest(r), w, http.StatusServiceUnavailable, response.ServerError, "maintenance")
+				return
+			}
+			defer done()
 			if _, pattern := next.Handler(r); pattern == "/" || pattern == "" {
 				next.ServeHTTP(w, r)
 				return
@@ -39,13 +54,13 @@ func apiSessions(next *http.ServeMux) http.Handler {
 					ctx := i18n.ForRequest(r)
 					if err != nil {
 						log.WithContext(ctx).Errorf("Read registration state: %v", err)
-						if controllers.InboundAPIPath(r.URL.Path) || controllers.C9Path(r.URL.Path) || controllers.TranslationAPIPath(r.URL.Path) || controllers.AddressApprovalAPIPath(r.URL.Path) {
+						if controllers.InboundAPIPath(r.URL.Path) || controllers.C9Path(r.URL.Path) || controllers.TranslationAPIPath(r.URL.Path) || controllers.AddressApprovalAPIPath(r.URL.Path) || controllers.BackupAPIPath(r.URL.Path) {
 							controllers.InboundError(ctx, w, http.StatusInternalServerError, response.ServerError, "inbound_internal_error")
 						} else {
 							response.Localized(ctx, response.ServerError, "internal_error").FPrintStatus(w, http.StatusInternalServerError)
 						}
 					} else {
-						if controllers.InboundAPIPath(r.URL.Path) || controllers.C9Path(r.URL.Path) || controllers.TranslationAPIPath(r.URL.Path) || controllers.AddressApprovalAPIPath(r.URL.Path) {
+						if controllers.InboundAPIPath(r.URL.Path) || controllers.C9Path(r.URL.Path) || controllers.TranslationAPIPath(r.URL.Path) || controllers.AddressApprovalAPIPath(r.URL.Path) || controllers.BackupAPIPath(r.URL.Path) {
 							controllers.InboundError(ctx, w, http.StatusForbidden, response.NoAccessPrivileges, "inbound_permission_denied")
 						} else {
 							response.Localized(ctx, response.NoAccessPrivileges, "registration_required").FPrintStatus(w, http.StatusForbidden)
@@ -102,7 +117,7 @@ func webMiddleware(next http.Handler) http.Handler {
 		}
 		if preflight {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept-Language, Lang, Token, X-PMail-Lang, Range")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept-Language, Lang, Token, X-PMail-Lang, X-PMail-Restore-ID, Range")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -116,7 +131,7 @@ func allowedCORSRequest(method, headers string) bool {
 	}
 	for header := range strings.SplitSeq(headers, ",") {
 		switch strings.ToLower(strings.TrimSpace(header)) {
-		case "", "authorization", "content-type", "accept-language", "lang", "token", "x-pmail-lang", "range":
+		case "", "authorization", "content-type", "accept-language", "lang", "token", "x-pmail-lang", "x-pmail-restore-id", "range":
 		default:
 			return false
 		}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/maintenance"
 	"github.com/emersion/go-smtp"
 	log "github.com/sirupsen/logrus"
 )
@@ -55,9 +56,11 @@ func start(addr string, cert *tls.Certificate, implicitTLS bool) {
 		log.Errorf("SMTP %s: %v", addr, err)
 		return
 	}
+	var implicit *tls.Config
 	if implicitTLS {
-		socket = tls.NewListener(socket, server.TLSConfig)
+		implicit = server.TLSConfig
 	}
+	socket = maintenance.Listen(socket, implicit, "421 4.3.2 maintenance\r\n")
 	listeners = append(listeners, listener{server, socket})
 	log.Infof("SMTP listening on %s (implicit TLS: %t, certificate loaded: %t)", addr, implicitTLS, cert != nil)
 	go func() {

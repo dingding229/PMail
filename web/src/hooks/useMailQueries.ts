@@ -58,9 +58,15 @@ export const queryKeys = {
   adminTranslation: ['admin', 'translation'] as const,
   adminOverview: ['admin', 'overview'] as const,
   adminAddressSettings: ['admin', 'address-settings'] as const,
+  adminMailReportsSummary: (domain: string, from: string, to: string) =>
+    ['admin', 'mail-reports', 'summary', domain, from, to] as const,
+  adminMailReportsRecords: (domain: string, from: string, to: string, page: number) =>
+    ['admin', 'mail-reports', 'records', domain, from, to, page] as const,
+  reportMailPreference: ['settings', 'report-mail'] as const,
   adminAddressRequestsRoot: ['admin', 'address-requests'] as const,
   adminAddressRequests: (status: string, page: number, pageSize: number) =>
     ['admin', 'address-requests', status, page, pageSize] as const,
+  adminBackups: ['admin', 'backups'] as const,
   adminUpdate: ['admin', 'update'] as const,
   userTelegram: ['settings', 'telegram'] as const,
   userTranslation: ['settings', 'translation'] as const,

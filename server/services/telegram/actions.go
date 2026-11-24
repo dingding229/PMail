@@ -14,6 +14,7 @@ import (
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/inbound"
+	"github.com/Jinnrry/pmail/services/maintenance"
 	"github.com/Jinnrry/pmail/services/translation"
 	pctx "github.com/Jinnrry/pmail/utils/context"
 )
@@ -299,7 +300,7 @@ func (w *worker) callbackLoop(ctx context.Context) {
 			return
 		case job := <-w.jobs:
 			if ctx.Err() == nil {
-				w.runCallback(ctx, job)
+				maintenance.Work(ctx, func(ctx context.Context) { w.runCallback(ctx, job) })
 			}
 		}
 	}

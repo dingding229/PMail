@@ -11,8 +11,11 @@ import (
 	"github.com/Jinnrry/pmail/services/auth"
 	"github.com/Jinnrry/pmail/services/del_email"
 	"github.com/Jinnrry/pmail/services/domain"
+	"github.com/Jinnrry/pmail/services/mailarchive"
+	"github.com/Jinnrry/pmail/services/maintenance"
 	"github.com/Jinnrry/pmail/services/queue"
 	"github.com/Jinnrry/pmail/services/setup/ssl"
+	"github.com/Jinnrry/pmail/services/sitebackup"
 	"github.com/Jinnrry/pmail/signal"
 	log "github.com/sirupsen/logrus"
 )
@@ -28,6 +31,7 @@ const (
 func Start(ctx context.Context, cfg *config.Config, active *tls.Certificate) func(context.Context) error {
 	go certificateMaintenance(ctx, cfg, active)
 	go auth.RunCleanup(ctx)
+	go archiveCleanup(ctx)
 	trashDone := make(chan struct{})
 	go func() { defer close(trashDone); del_email.RunCleanup(ctx) }()
 	queueDone := queue.Start(ctx)
@@ -50,23 +54,37 @@ func certificateMaintenance(ctx context.Context, cfg *config.Config, active *tls
 
 	backoff := certificateRetryMin
 	for ctx.Err() == nil {
-		current := *cfg
-		current.Domain, current.Domains = domain.DefaultName(), domain.Names()
-		cert, err := ssl.LoadCertificate(&current)
-		if err == nil && certificateChanged(active, cert) {
-			requestCertificateReload(ctx)
+		var err error
+		reload := false
+		if !maintenance.Wait(ctx) {
 			return
 		}
-		if ssl.Automatic(cfg) {
-			var replaced bool
-			replaced, err = ssl.MaintainCertificate(ctx, &current, cert)
-			if replaced {
-				cert, err = ssl.LoadCertificate(&current)
-				if err == nil && certificateChanged(active, cert) {
-					requestCertificateReload(ctx)
-					return
+		if !maintenance.Work(ctx, func(ctx context.Context) {
+			current := *cfg
+			current.Domain, current.Domains = domain.DefaultName(), domain.Names()
+			var cert *tls.Certificate
+			cert, err = ssl.LoadCertificate(&current)
+			if err == nil && certificateChanged(active, cert) {
+				reload = true
+				return
+			}
+			if ssl.Automatic(cfg) {
+				var replaced bool
+				replaced, err = ssl.MaintainCertificate(ctx, &current, cert)
+				if replaced {
+					cert, err = ssl.LoadCertificate(&current)
+					if err == nil && certificateChanged(active, cert) {
+						reload = true
+						return
+					}
 				}
 			}
+		}) {
+			continue
+		}
+		if reload && !maintenance.Default.Active() {
+			requestCertificateReload(ctx)
+			return
 		}
 		if ctx.Err() != nil {
 			return
@@ -103,5 +121,22 @@ func requestCertificateReload(ctx context.Context) {
 	select {
 	case signal.RestartChan <- true:
 	case <-ctx.Done():
+	}
+}
+
+func archiveCleanup(ctx context.Context) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		maintenance.Work(ctx, func(context.Context) {
+			now := time.Now()
+			sitebackup.Jobs.Cleanup(config.ROOT_PATH, now)
+			mailarchive.Jobs.Cleanup(config.ROOT_PATH, now)
+		})
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }

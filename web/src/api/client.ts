@@ -40,6 +40,10 @@ export class ApiError extends Error {
 type AuthHandler = () => void
 let unauthorizedHandler: AuthHandler | null = null
 let needBootstrapHandler: AuthHandler | null = null
+let maintenanceHandler: ((active: boolean) => void) | null = null
+// A request can hit maintenance before the gate registers its handler (child
+// effects run first on a cold load). Remember it and replay on registration.
+let maintenanceSeen = false
 
 export function setUnauthorizedHandler(handler: AuthHandler | null): void {
   unauthorizedHandler = handler
@@ -47,6 +51,22 @@ export function setUnauthorizedHandler(handler: AuthHandler | null): void {
 
 export function setNeedBootstrapHandler(handler: AuthHandler | null): void {
   needBootstrapHandler = handler
+}
+
+export function setMaintenanceHandler(handler: ((active: boolean) => void) | null): void {
+  maintenanceHandler = handler
+  if (handler && maintenanceSeen) {
+    handler(true)
+  }
+}
+
+function signalMaintenance(active: boolean): void {
+  maintenanceSeen = active
+  maintenanceHandler?.(active)
+}
+
+export function notifyMaintenanceState(active: boolean): void {
+  signalMaintenance(active)
 }
 
 export function getBearerToken(): string | null {
@@ -67,6 +87,7 @@ interface RequestOptions {
   signal?: AbortSignal
   cache?: RequestCache
   skipAuthRedirect?: boolean
+  skipMaintenanceOverlay?: boolean
   /** Set true for endpoints like GET /api/bootstrap that return raw JSON without { errorNo, errorMsg, data } */
   rawJson?: boolean
 }
@@ -145,6 +166,14 @@ const MACHINE_ERROR_KEY_MAP: Record<string, string> = {
   address_already_reviewed: 'admin.addressApproval.errors.alreadyReviewed',
   address_exists: 'admin.addressApproval.errors.addressExists',
   live_updates_busy: 'mail.live.busy',
+  backup_busy: 'admin.backup.errors.busy',
+  backup_bad_passphrase: 'admin.backup.errors.badPassphrase',
+  backup_version_newer: 'admin.backup.errors.versionNewer',
+  backup_corrupt: 'admin.backup.errors.corrupt',
+  maintenance: 'common.maintenance.title',
+  quota_exceeded: 'settings.importExport.errors.quotaExceeded',
+  export_busy: 'settings.importExport.errors.exportBusy',
+  import_busy: 'settings.importExport.errors.importBusy',
 }
 
 function resolveApiErrorMessage(rawMessage: string | undefined, status: number): string {
@@ -183,6 +212,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     signal,
     cache,
     skipAuthRedirect = false,
+    skipMaintenanceOverlay = false,
     rawJson = false,
   } = options
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
@@ -233,6 +263,28 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
         return rawText as unknown as T
       }
     }
+  }
+
+  // Maintenance mode (HTTP 503 + code=maintenance) applies to every endpoint,
+  // including raw JSON ones such as /api/bootstrap on a cold page load.
+  const maintenanceEnvelope = isApiEnvelope(parsed) ? parsed : null
+  const dataCode =
+    maintenanceEnvelope?.data && typeof maintenanceEnvelope.data === 'object' && 'code' in maintenanceEnvelope.data
+      ? String((maintenanceEnvelope.data as { code?: unknown }).code ?? '')
+      : ''
+  const isMaintenance =
+    response.status === 503 &&
+    (dataCode === 'maintenance' || maintenanceEnvelope?.errorMsg === 'maintenance')
+  if (isMaintenance) {
+    if (!skipMaintenanceOverlay) {
+      signalMaintenance(true)
+    }
+    throw new ApiError(resolveApiErrorMessage('maintenance', 503), {
+      status: 503,
+      errorNo: maintenanceEnvelope?.errorNo ?? 503,
+      data: maintenanceEnvelope?.data,
+      serverMessage: 'maintenance',
+    })
   }
 
   // Endpoints returning raw JSON (e.g. GET /api/bootstrap); still tolerate legacy envelope if ever returned
@@ -314,14 +366,14 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     })
   }
 
-  // 5. Rate limited
+  // 6. Rate limited
   if (response.status === 429 || envelope?.errorNo === API_ERROR_NO.RATE_LIMITED) {
     const msg = resolveApiErrorMessage(envelope?.errorMsg, 429)
     throw new ApiError(msg, { status: 429, errorNo: 429, data: envelope?.data, serverMessage })
   }
 
   if (!response.ok) {
-    const msg = resolveApiErrorMessage(envelope?.errorMsg, response.status)
+    const msg = resolveApiErrorMessage(dataCode || envelope?.errorMsg, response.status)
     throw new ApiError(msg, {
       status: response.status,
       errorNo: envelope?.errorNo ?? response.status,
@@ -372,3 +424,87 @@ export const apiUpload = <T>(
   formData: FormData,
   options?: Omit<RequestOptions, 'method' | 'body'>,
 ) => apiRequest<T>(path, { ...options, method: 'POST', body: formData })
+
+/**
+ * Multipart upload with real progress callback (0..100).
+ * Falls back to fetch-based apiUpload when XMLHttpRequest is unavailable (e.g. Node tests).
+ */
+export function apiUploadWithProgress<T>(
+  path: string,
+  formData: FormData,
+  onProgress?: (percent: number) => void,
+): Promise<T> {
+  if (typeof XMLHttpRequest === 'undefined') {
+    onProgress?.(50)
+    return apiUpload<T>(path, formData).then((res) => {
+      onProgress?.(100)
+      return res
+    })
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', path, true)
+    xhr.withCredentials = true
+
+    const lang = getAppLanguage()
+    xhr.setRequestHeader('X-PMail-Lang', lang)
+    xhr.setRequestHeader('Lang', lang.startsWith('zh') ? 'zh' : 'en')
+    const token = getBearerToken()
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    }
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) {
+        onProgress?.(Math.min(99, Math.round((e.loaded / e.total) * 100)))
+      }
+    }
+
+    xhr.onerror = () => {
+      reject(new ApiError(i18n.t('common.networkError'), { status: 0, errorNo: 0 }))
+    }
+
+    xhr.onload = () => {
+      onProgress?.(100)
+      let parsed: unknown = null
+      try {
+        parsed = xhr.responseText ? JSON.parse(xhr.responseText) : null
+      } catch {
+        parsed = null
+      }
+      const envelope = isApiEnvelope(parsed) ? parsed : null
+      const dataCode =
+        envelope?.data && typeof envelope.data === 'object' && 'code' in envelope.data
+          ? String((envelope.data as { code?: unknown }).code ?? '')
+          : ''
+
+      if (xhr.status === 503 && (dataCode === 'maintenance' || envelope?.errorMsg === 'maintenance')) {
+        signalMaintenance(true)
+        reject(new ApiError(resolveApiErrorMessage('maintenance', 503), { status: 503, errorNo: 503, data: envelope?.data }))
+        return
+      }
+      if (xhr.status === 401 || envelope?.errorNo === API_ERROR_NO.NEED_LOGIN) {
+        unauthorizedHandler?.()
+        reject(new ApiError(resolveApiErrorMessage(envelope?.errorMsg, 401), { status: 401, errorNo: 401, isUnauthenticated: true }))
+        return
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const msg = resolveApiErrorMessage(dataCode || envelope?.errorMsg, xhr.status)
+        reject(new ApiError(msg, { status: xhr.status, errorNo: envelope?.errorNo ?? xhr.status, data: envelope?.data }))
+        return
+      }
+      if (envelope) {
+        if (envelope.errorNo !== 0) {
+          reject(new ApiError(resolveApiErrorMessage(dataCode || envelope.errorMsg, xhr.status), { status: xhr.status, errorNo: envelope.errorNo, data: envelope.data }))
+          return
+        }
+        resolve(envelope.data as T)
+        return
+      }
+      resolve(parsed as T)
+    }
+
+    xhr.send(formData)
+  })
+}

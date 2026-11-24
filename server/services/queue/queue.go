@@ -19,6 +19,7 @@ import (
 	"github.com/Jinnrry/pmail/db"
 	"github.com/Jinnrry/pmail/dto/parsemail"
 	"github.com/Jinnrry/pmail/models"
+	"github.com/Jinnrry/pmail/services/maintenance"
 	pcontext "github.com/Jinnrry/pmail/utils/context"
 	smtp "github.com/emersion/go-smtp"
 	log "github.com/sirupsen/logrus"
@@ -263,32 +264,39 @@ func Start(ctx context.Context) <-chan struct{} {
 	}
 	wg.Go(func() { leaseRecovery(ctx) })
 	wg.Go(func() { parentReconcileLoop(ctx) })
-	wg.Go(func() { migrateLegacyPayloads(ctx) })
+	wg.Go(func() { maintenance.Work(ctx, migrateLegacyPayloads) })
 	go func() { wg.Wait(); close(done) }()
 	return done
 }
 
 func worker(ctx context.Context, id int) {
-	interval := time.Second
-	for ctx.Err() == nil {
-		row, ok, err := claimOneContext(ctx)
-		if err != nil {
-			log.Errorf("outbound queue worker %d claim failed: %v", id, err)
-			wait(ctx, 5*time.Second)
-			continue
-		}
-		if !ok {
-			wait(ctx, interval)
-			continue
-		}
-		if err := deliver(ctx, row); err != nil {
-			if ctx.Err() != nil {
-				requeueCancelled(row)
-			} else {
-				handleFailure(ctx, row, err)
+	for maintenance.Wait(ctx) {
+		delay := time.Second
+		maintenance.Work(ctx, func(ctx context.Context) {
+			row, ok, err := claimOneContext(ctx)
+			if err != nil {
+				if ctx.Err() == nil {
+					log.Errorf("outbound queue worker %d claim failed: %v", id, err)
+				}
+				delay = 5 * time.Second
+				return
 			}
-		} else {
-			handleSuccess(row)
+			if !ok {
+				return
+			}
+			delay = 0
+			if err := deliver(ctx, row); err != nil {
+				if ctx.Err() != nil {
+					requeueCancelled(row)
+				} else {
+					handleFailure(ctx, row, err)
+				}
+			} else {
+				handleSuccess(row)
+			}
+		})
+		if delay > 0 {
+			wait(ctx, delay)
 		}
 	}
 }
@@ -321,9 +329,11 @@ func leaseRecovery(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := recoverExpiredLeases(time.Now()); err != nil {
-				log.Errorf("outbound queue lease recovery failed: %v", err)
-			}
+			maintenance.Work(ctx, func(context.Context) {
+				if err := recoverExpiredLeases(time.Now()); err != nil {
+					log.Errorf("outbound queue lease recovery failed: %v", err)
+				}
+			})
 		}
 	}
 }
@@ -475,16 +485,21 @@ func parentReconcileLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			var parents []models.UserEmail
-			if err := db.Instance.Where("status=?", consts.EmailStatusDeliveryPending).Limit(200).Find(&parents); err != nil {
-				log.Errorf("queue parent reconciliation scan failed: %v", err)
-				continue
-			}
-			for _, parent := range parents {
-				if err := ReconcileParent(parent.EmailID, parent.UserID); err != nil {
-					log.Errorf("queue parent reconciliation email=%d user=%d failed: %v", parent.EmailID, parent.UserID, err)
+			maintenance.Work(ctx, func(ctx context.Context) {
+				var parents []models.UserEmail
+				if err := db.Instance.Context(ctx).Where("status=?", consts.EmailStatusDeliveryPending).Limit(200).Find(&parents); err != nil {
+					log.Errorf("queue parent reconciliation scan failed: %v", err)
+					return
 				}
-			}
+				for _, parent := range parents {
+					if ctx.Err() != nil {
+						return
+					}
+					if err := ReconcileParent(parent.EmailID, parent.UserID); err != nil {
+						log.Errorf("queue parent reconciliation email=%d user=%d failed: %v", parent.EmailID, parent.UserID, err)
+					}
+				}
+			})
 		}
 	}
 }

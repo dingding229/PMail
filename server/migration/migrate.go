@@ -13,25 +13,14 @@ import (
 
 	"github.com/Jinnrry/pmail/config"
 	"github.com/Jinnrry/pmail/db"
+	"github.com/Jinnrry/pmail/internal/backupcatalog"
 	"github.com/go-sql-driver/mysql"
 	"github.com/lib/pq"
 	"modernc.org/sqlite"
 )
 
-// Required tables are present in the oldest supported source. The rest
-// may not exist yet; do not confuse an absent source with a target error.
-var requiredTables = []string{"user", "email", "group", "rule", "user_email", "version"}
-var optionalTables = []string{
-	"domain", "mailbox_address", "address_settings", "api_token",
-	"totp_config", "recovery_code", "app_password",
-	"user_email_address", "user_email_address_progress", "imap_mailbox", "imap_mailbox_uid",
-	"forward_setting", "outbound_payload", "outbound_queue", "bounce_notice", "inbound_settings", "trash_settings",
-	"spam_preference", "spam_rule", "spam_training", "spam_totals", "spam_token",
-	"telegram_config", "telegram_binding", "telegram_code", "telegram_preference", "telegram_push",
-	"compose_image", "draft_inline_image", "signature", "translation_settings", "user_ai_config",
-	"translation_preference", "translation_usage", "email_translation", "email_ai_result",
-}
-var tables = slices.Concat(requiredTables, optionalTables)
+var optionalTables = backupcatalog.Optional
+var tables = backupcatalog.Tables
 var errSourceTableAbsent = errors.New("source table absent")
 
 const batchSize = 200
@@ -220,14 +209,14 @@ func copyTable(source, target *sql.Tx, driver, name, dest string) error {
 		return err
 	}
 	var sourceNames, targetNames, params []string
-	idColumn := migrationKeyColumn(name)
+	idColumn := backupcatalog.KeyColumn(name)
 	binary := map[int]bool{}
 	idIndex := -1
 	for i, col := range cols {
 		if !slices.Contains(targetCols, col) {
 			return fmt.Errorf("source column %q is missing from PostgreSQL; refusing to drop data", col)
 		}
-		if col == "wire_data" || col == "raw_data" || (name == "compose_image" && col == "content") {
+		if backupcatalog.Binary(name, col) {
 			binary[i] = true
 		}
 		if col == idColumn {
@@ -330,16 +319,6 @@ func copyRows(rows *sql.Rows, insert *sql.Stmt, width, idIndex int, lastID *int6
 	return count, rows.Err()
 }
 
-func migrationKeyColumn(table string) string {
-	switch table {
-	case "totp_config", "forward_setting", "spam_preference", "spam_totals", "telegram_binding", "telegram_code", "telegram_preference", "user_ai_config", "translation_preference", "translation_usage":
-		return "user_id"
-	case "recovery_code", "user_email_address", "imap_mailbox_uid", "spam_training", "spam_token", "compose_image", "draft_inline_image", "email_translation", "email_ai_result":
-		return ""
-	}
-	return "id"
-}
-
 func isMissingSourceTable(err error) bool {
 	var my *mysql.MySQLError
 	var lite *sqlite.Error
@@ -347,24 +326,13 @@ func isMissingSourceTable(err error) bool {
 		(errors.As(err, &lite) && lite.Code() == 1 && strings.Contains(lite.Error(), "no such table:"))
 }
 
-func hasIDSequence(table string) bool {
-	if migrationKeyColumn(table) != "id" {
-		return false
-	}
-	switch table {
-	case "address_settings", "inbound_settings", "trash_settings", "telegram_config", "translation_settings", "user_email_address_progress":
-		return false
-	}
-	return true
-}
-
 func resetSequence(tx *sql.Tx, table, qualified string) error {
-	if !hasIDSequence(table) {
+	if !backupcatalog.HasIDSequence(table) {
 		return nil
 	}
-	var value int64
-	return tx.QueryRow(`SELECT setval(s.seqrelid, greatest(coalesce(m.max_id, s.seqmin), s.seqmin),
-		coalesce(m.max_id >= s.seqmin, false))
-		FROM pg_sequence s CROSS JOIN (SELECT max(id) AS max_id FROM `+qualified+`) m
-		WHERE s.seqrelid = pg_get_serial_sequence($1, 'id')::regclass`, qualified).Scan(&value)
+	var last int64
+	if err := tx.QueryRow("SELECT COALESCE(max(id),0) FROM " + qualified).Scan(&last); err != nil {
+		return err
+	}
+	return backupcatalog.ResetPostgresSequence(context.Background(), tx, qualified, last)
 }
