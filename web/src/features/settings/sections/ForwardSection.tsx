@@ -7,9 +7,14 @@ import { forwardApi } from '@/api'
 import { isValidEmail } from '@/lib/format'
 import { queryKeys } from '@/hooks/useMailQueries'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Skeleton } from '@/components/ui/skeleton'
+import {
+  FormRow,
+  SectionCard,
+  SectionFooter,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 import { RecipientChipInput } from '@/features/mail/RecipientChipInput'
 
 export function ForwardSection() {
@@ -61,41 +66,39 @@ export function ForwardSection() {
   }
 
   if (isLoading) {
-    return <Skeleton className="h-64 w-full rounded-[var(--radius-lg)]" />
+    return (
+      <SectionCard>
+        <SectionLoadingState rows={3} rowHeight="h-16" />
+      </SectionCard>
+    )
   }
 
   return (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)]">
-      <div className="mb-5 flex items-center gap-2.5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--accent-soft)] text-[var(--accent)]">
-          <Forward className="h-4 w-4" />
-        </div>
-        <div>
-          <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-            {t('settings.forward.title')}
-          </h2>
-          <p className="text-[12.5px] text-[var(--ink-secondary)]">
-            {t('settings.forward.desc')}
-          </p>
-        </div>
-      </div>
+    <SectionCard>
+      <SectionHeader
+        icon={Forward}
+        title={t('settings.forward.title')}
+        description={t('settings.forward.desc')}
+      />
 
-      <form onSubmit={handleSave} className="space-y-5 max-w-xl">
-        <div className="flex items-center justify-between gap-4 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-subtle)]/50 px-4 py-3">
-          <div>
-            <p className="text-[13.5px] font-medium text-[var(--ink-primary)]">
-              {t('settings.forward.enableLabel')}
-            </p>
-            <p className="text-[12px] text-[var(--ink-muted)]">
-              {t('settings.forward.enableDesc')}
-            </p>
-          </div>
+      <form onSubmit={handleSave} className="space-y-4">
+        <FormRow
+          layout="horizontal"
+          surface
+          label={t('settings.forward.enableLabel')}
+          description={t('settings.forward.enableDesc')}
+        >
           <Switch checked={enabled} onCheckedChange={setEnabled} />
-        </div>
+        </FormRow>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="forward_targets">{t('settings.forward.targetsLabel')}</Label>
-          <div className="rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-2.5 py-0.5 focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-ring)]">
+        <FormRow
+          surface
+          label={t('settings.forward.targetsLabel')}
+          htmlFor="forward_targets"
+          description={t('settings.forward.targetsHint')}
+          error={errorMsg ?? undefined}
+        >
+          <div className="rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-2.5 py-0.5 focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-ring)]">
             <RecipientChipInput
               id="forward_targets"
               values={targets}
@@ -107,29 +110,24 @@ export function ForwardSection() {
               placeholder={t('settings.forward.targetsPlaceholder')}
             />
           </div>
-          <p className="text-[12px] text-[var(--ink-muted)]">
-            {t('settings.forward.targetsHint')}
-          </p>
-          {errorMsg && <p className="text-[12px] text-[var(--danger)]">{errorMsg}</p>}
-        </div>
+        </FormRow>
 
-        <div className="flex items-center justify-between gap-4 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-subtle)]/50 px-4 py-3">
-          <div>
-            <p className="text-[13.5px] font-medium text-[var(--ink-primary)]">
-              {t('settings.forward.keepCopyLabel')}
-            </p>
-            <p className="text-[12px] text-[var(--ink-muted)]">
-              {t('settings.forward.keepCopyDesc')}
-            </p>
-          </div>
+        <FormRow
+          layout="horizontal"
+          surface
+          label={t('settings.forward.keepCopyLabel')}
+          description={t('settings.forward.keepCopyDesc')}
+        >
           <Switch checked={keepCopy} onCheckedChange={setKeepCopy} />
-        </div>
+        </FormRow>
 
-        <Button type="submit" size="sm" disabled={saveMutation.isPending}>
-          {saveMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {t('common.save')}
-        </Button>
+        <SectionFooter>
+          <Button type="submit" size="sm" disabled={saveMutation.isPending}>
+            {saveMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {t('common.save')}
+          </Button>
+        </SectionFooter>
       </form>
-    </section>
+    </SectionCard>
   )
 }

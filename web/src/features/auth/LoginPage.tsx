@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Eye, EyeOff, Loader2 } from 'lucide-react'
+import { ArrowLeft, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react'
 import { authApi, type AuthSessionUser } from '@/api'
 import { ApiError } from '@/api/client'
 import { queryKeys } from '@/hooks/useMailQueries'
@@ -135,18 +135,50 @@ export function LoginPage() {
 
       {pending ? (
         <form key="factor" onSubmit={submitFactor} className="space-y-4">
-          <p className="text-sm text-[var(--ink-secondary)]">{t('security.loginPrompt')}</p>
-          <SecondFactorField autoFocus code={code} recovery={recovery} onCode={setCode} onRecovery={setRecovery} disabled={verifying} />
+          <div className="flex items-start gap-2.5 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-subtle)]/70 px-3.5 py-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--accent-soft)] text-[var(--accent)]">
+              <ShieldCheck className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 space-y-0.5">
+              <p className="text-[12px] font-semibold text-[var(--accent-ink)]">
+                {t('security.stepBadge')}
+              </p>
+              <p className="text-[12.5px] leading-relaxed text-[var(--ink-secondary)]">
+                {t('security.loginPrompt')}
+              </p>
+            </div>
+          </div>
+
+          <SecondFactorField
+            autoFocus
+            code={code}
+            recovery={recovery}
+            onCode={setCode}
+            onRecovery={setRecovery}
+            disabled={verifying}
+          />
+
           <Button type="submit" size="lg" className="w-full" disabled={verifying}>
             {verifying && <Loader2 className="h-4 w-4 animate-spin" />}
             {t('security.verify')}
           </Button>
-          <Button type="button" variant="ghost" className="w-full" disabled={verifying} onClick={() => {
-            setPending(null)
-            setRecovery(false)
-            setCode('')
-            setServerError(null)
-          }}>{t('security.backToPassword')}</Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full text-[var(--ink-secondary)]"
+            disabled={verifying}
+            onClick={() => {
+              setPending(null)
+              setRecovery(false)
+              setCode('')
+              setServerError(null)
+            }}
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            {t('security.backToPassword')}
+          </Button>
         </form>
       ) : (
         <form key="password" onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>

@@ -302,8 +302,12 @@ export const EmailListItem = memo(function EmailListItem({
               {email.title || t('mail.noSubject')}
             </p>
             {mailboxLabels.length > 0 && (
-              <span title={mailboxLabels.join(', ')} className="max-w-[44%] shrink-0 truncate rounded-[var(--radius-xs)] bg-[var(--surface-subtle)] px-1.5 text-[10px] leading-5 text-[var(--ink-secondary)]">
-                {mailboxLabels[0]}{mailboxLabels.length > 1 ? ` +${mailboxLabels.length - 1}` : ''}
+              <span
+                title={mailboxLabels.join(', ')}
+                className="max-w-[44%] shrink-0 truncate rounded-full border border-[var(--border-hairline)] bg-[var(--surface-subtle)] px-2 py-0.5 font-mono text-[10px] leading-tight text-[var(--ink-secondary)]"
+              >
+                {mailboxLabels[0]}
+                {mailboxLabels.length > 1 ? ` +${mailboxLabels.length - 1}` : ''}
               </span>
             )}
           </div>

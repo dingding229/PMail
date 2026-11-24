@@ -14,7 +14,7 @@ import {
 import { useUserMeQuery } from '@/hooks/useMailQueries'
 import { prefetchSettingsPage } from '@/lib/prefetch'
 import { Button } from '@/components/ui/button'
-import { SectionPanelShell, type PanelTabItem } from '@/components/common/SectionPanelShell'
+import { SettingsLayout, type SettingsNavItem } from '@/components/settings'
 import { QueueSection } from '@/features/settings/sections/QueueSection'
 import { DomainsSection } from './DomainsSection'
 import { UsersSection } from './UsersSection'
@@ -31,7 +31,7 @@ export function AdminPage() {
   const { tab } = useParams<{ tab?: string }>()
   const { data: user } = useUserMeQuery(true)
 
-  const tabs: PanelTabItem<AdminTabKey>[] = [
+  const tabs: SettingsNavItem<AdminTabKey>[] = [
     { key: 'domains', label: t('admin.tabs.domains'), icon: Globe },
     { key: 'users', label: t('admin.tabs.users'), icon: Users },
     { key: 'addresses', label: t('admin.tabs.addresses'), icon: AtSign },
@@ -64,7 +64,7 @@ export function AdminPage() {
     ) : undefined
 
   return (
-    <SectionPanelShell
+    <SettingsLayout
       title={t('admin.title')}
       backLabel={t('admin.backToMail')}
       onBack={() => navigate('/mail/inbox')}
@@ -92,7 +92,7 @@ export function AdminPage() {
       {activeTab === 'telegram' && <AdminTelegramSection />}
       {activeTab === 'update' && <SystemUpdateSection />}
       {activeTab === 'queue' && <QueueSection scope="global" />}
-    </SectionPanelShell>
+    </SettingsLayout>
   )
 }
 

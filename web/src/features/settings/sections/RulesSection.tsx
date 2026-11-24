@@ -28,7 +28,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -44,6 +43,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  EmptyState,
+  SectionCard,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 
 const FIELDS: RuleConditionField[] = ['From', 'Subject', 'To', 'Cc', 'Text', 'Html', 'Content']
 const OPERATORS: RuleConditionType[] = ['contains', 'equal', 'regex']
@@ -204,37 +209,33 @@ export function RulesSection() {
   }
 
   return (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-            {t('settings.rules.title')}
-          </h2>
-          <p className="mt-0.5 text-[12.5px] text-[var(--ink-secondary)]">
-            {t('settings.rules.desc')}
-          </p>
-        </div>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="h-3.5 w-3.5" />
-          {t('settings.rules.addButton')}
-        </Button>
-      </div>
+    <SectionCard>
+      <SectionHeader
+        icon={Filter}
+        title={t('settings.rules.title')}
+        description={t('settings.rules.desc')}
+        action={
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="h-3.5 w-3.5" />
+            {t('settings.rules.addButton')}
+          </Button>
+        }
+      />
 
       {isLoading ? (
-        <div className="space-y-2.5">
-          <Skeleton className="h-20 w-full rounded-[var(--radius-md)]" />
-          <Skeleton className="h-20 w-full rounded-[var(--radius-md)]" />
-        </div>
+        <SectionLoadingState rows={2} rowHeight="h-20" />
       ) : sortedRules.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[var(--border-subtle)] py-12 text-center">
-          <Filter className="h-6 w-6 text-[var(--ink-muted)]" />
-          <p className="mt-2 text-[13.5px] font-medium text-[var(--ink-primary)]">
-            {t('settings.rules.empty')}
-          </p>
-          <p className="mt-1 text-[12.5px] text-[var(--ink-muted)]">
-            {t('settings.rules.emptyDesc')}
-          </p>
-        </div>
+        <EmptyState
+          icon={Filter}
+          title={t('settings.rules.empty')}
+          description={t('settings.rules.emptyDesc')}
+          action={
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="h-3.5 w-3.5" />
+              {t('settings.rules.addButton')}
+            </Button>
+          }
+        />
       ) : (
         <div className="space-y-2">
           {sortedRules.map((rule, idx) => (
@@ -556,6 +557,6 @@ export function RulesSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </SectionCard>
   )
 }

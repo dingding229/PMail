@@ -16,7 +16,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -25,12 +24,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  SectionCard,
+  SectionErrorState,
+  SectionFooter,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 
 export function AdminTelegramSection() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
-  const { data: status, isLoading } = useQuery({
+  const { data: status, isLoading, error, refetch } = useQuery({
     queryKey: queryKeys.adminTelegram,
     queryFn: () => adminTelegramApi.get(),
   })
@@ -105,39 +111,33 @@ export function AdminTelegramSection() {
   const showTokenInput = !status?.configured || replacingToken
 
   return (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-soft)] text-[var(--accent)]">
-            <Send className="h-4.5 w-4.5" />
-          </div>
-          <div>
-            <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-              {t('admin.telegram.title')}
-            </h2>
-            <p className="mt-0.5 text-[12.5px] text-[var(--ink-secondary)]">
-              {t('admin.telegram.desc')}
-            </p>
-          </div>
-        </div>
+    <SectionCard>
+      <SectionHeader
+        icon={Send}
+        title={t('admin.telegram.title')}
+        description={t('admin.telegram.desc')}
+        action={
+          !isLoading && status ? (
+            <>
+              <Badge variant={status.configured ? 'success' : 'default'}>
+                {status.configured && status.bot_username
+                  ? t('admin.telegram.configuredBadge', { username: status.bot_username })
+                  : t('admin.telegram.notConfiguredBadge')}
+              </Badge>
+              <Badge variant="default">{t('admin.telegram.webhookModeLabel')}</Badge>
+            </>
+          ) : undefined
+        }
+      />
 
-        {!isLoading && status && (
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={status.configured ? 'success' : 'default'}>
-              {status.configured && status.bot_username
-                ? t('admin.telegram.configuredBadge', { username: status.bot_username })
-                : t('admin.telegram.notConfiguredBadge')}
-            </Badge>
-            <Badge variant="default">{t('admin.telegram.webhookModeLabel')}</Badge>
-          </div>
-        )}
-      </div>
-
-      {isLoading ? (
-        <div className="space-y-3">
-          <Skeleton className="h-16 w-full rounded-[var(--radius-md)]" />
-          <Skeleton className="h-16 w-full rounded-[var(--radius-md)]" />
-        </div>
+      {error ? (
+        <SectionErrorState
+          message={error instanceof Error ? error.message : t('common.unknownError')}
+          retryLabel={t('app.retry')}
+          onRetry={() => void refetch()}
+        />
+      ) : isLoading ? (
+        <SectionLoadingState rows={2} rowHeight="h-16" />
       ) : (
         <form
           onSubmit={(e) => {
@@ -237,7 +237,7 @@ export function AdminTelegramSection() {
             </div>
           )}
 
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <SectionFooter align="between">
             <Button
               type="button"
               variant="secondary"
@@ -266,7 +266,7 @@ export function AdminTelegramSection() {
               {saveMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               {t('common.save')}
             </Button>
-          </div>
+          </SectionFooter>
         </form>
       )}
 
@@ -299,6 +299,6 @@ export function AdminTelegramSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </SectionCard>
   )
 }

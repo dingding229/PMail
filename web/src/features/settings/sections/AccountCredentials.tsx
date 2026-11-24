@@ -1,18 +1,37 @@
 import { useState, type FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import {
+  AlertTriangle,
+  Check,
+  Copy,
+  Download,
+  Info,
+  KeyRound,
+  Loader2,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  ShieldOff,
+  Trash2,
+} from 'lucide-react'
 import { securityApi } from '@/api/security'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  EmptyState,
+  FormRow,
+  SectionCard,
+  SectionErrorState,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 import { SecondFactorField } from '@/features/auth/SecondFactorField'
 import { queryKeys } from '@/hooks/useMailQueries'
 import { formatMailFullTime } from '@/lib/date'
-
-const card = 'space-y-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)]'
-const heading = 'text-[15px] font-semibold text-[var(--ink-primary)]'
-const hint = 'text-sm text-[var(--ink-secondary)]'
-const errorStyle = 'text-sm text-[var(--danger)]'
 
 type FactorForm = 'enable' | 'disable' | 'regenerate'
 
@@ -23,6 +42,7 @@ export function AccountCredentials({ userID }: { userID: number }) {
   const appKey = ['app-passwords', userID]
   const factor = useQuery({ queryKey: factorKey, queryFn: securityApi.status })
   const apps = useQuery({ queryKey: appKey, queryFn: securityApi.listAppPasswords })
+
   const [form, setForm] = useState<FactorForm | null>(null)
   const [setup, setSetup] = useState<{ secret: string; qr: string | null } | null>(null)
   const [code, setCode] = useState('')
@@ -31,10 +51,15 @@ export function AccountCredentials({ userID }: { userID: number }) {
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
   const [factorBusy, setFactorBusy] = useState(false)
   const [factorError, setFactorError] = useState('')
+
   const [appName, setAppName] = useState('')
   const [newApp, setNewApp] = useState('')
   const [appBusy, setAppBusy] = useState(false)
   const [appError, setAppError] = useState('')
+
+  const [copiedKey, setCopiedKey] = useState(false)
+  const [copiedCodes, setCopiedCodes] = useState(false)
+  const [copiedApp, setCopiedApp] = useState(false)
 
   const message = (err: unknown) => err instanceof Error ? err.message : t('common.unknownError')
   const choose = (next: FactorForm | null) => {
@@ -44,6 +69,21 @@ export function AccountCredentials({ userID }: { userID: number }) {
     setRecovery(false)
     setFactorError('')
     setSetup(null)
+  }
+
+  const copyText = async (
+    text: string,
+    onCopied: (v: boolean) => void,
+    toastMsg: string,
+  ) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      onCopied(true)
+      toast.success(toastMsg)
+      window.setTimeout(() => onCopied(false), 1800)
+    } catch {
+      toast.error(t('common.copyFailed'))
+    }
   }
 
   const startSetup = async () => {
@@ -72,9 +112,12 @@ export function AccountCredentials({ userID }: { userID: number }) {
     setFactorError('')
     try {
       const confirm = { password, code: code.trim(), recovery }
-      const result = form === 'enable' ? await securityApi.enable(confirm.code)
-        : form === 'disable' ? await securityApi.disable(confirm)
-          : await securityApi.regenerate(confirm)
+      const result =
+        form === 'enable'
+          ? await securityApi.enable(confirm.code)
+          : form === 'disable'
+            ? await securityApi.disable(confirm)
+            : await securityApi.regenerate(confirm)
       await client.cancelQueries({ queryKey: factorKey })
       client.setQueryData(factorKey, { enabled: result.enabled })
       void client.invalidateQueries({ queryKey: queryKeys.userMe })
@@ -132,96 +175,402 @@ export function AccountCredentials({ userID }: { userID: number }) {
     }
   }
 
+  const isEnabled = Boolean(factor.data?.enabled)
+
   return (
     <>
-      <section className={card} aria-labelledby="factor-title">
-        <h2 className={heading} id="factor-title">{t('security.title')}</h2>
-        {factor.isPending && <p className={hint}>{t('common.loading')}</p>}
-        {factor.error && <p className={errorStyle} role="alert">{factor.error.message}</p>}
-        {factorError && <p className={errorStyle} role="alert">{factorError}</p>}
-        {factor.data && <p className={hint} role="status">{factor.data.enabled ? t('security.enabled') : t('security.disabled')}</p>}
-        {factor.data && !form && !factor.data.enabled && (
-          <Button type="button" disabled={factorBusy} onClick={() => void startSetup()}>{t('security.startSetup')}</Button>
-        )}
-        {factor.data?.enabled && !form && (
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => choose('regenerate')}>{t('security.regenerate')}</Button>
-            <Button type="button" variant="outline" onClick={() => choose('disable')}>{t('security.disable')}</Button>
-          </div>
-        )}
+      {/* Two-Step Verification Card */}
+      <SectionCard aria-labelledby="factor-title">
+        <SectionHeader
+          icon={isEnabled ? ShieldCheck : ShieldOff}
+          iconTone={isEnabled ? 'success' : 'accent'}
+          title={t('security.title')}
+          titleId="factor-title"
+          description={t('security.desc')}
+          badge={
+            factor.data ? (
+              <Badge variant={isEnabled ? 'success' : 'default'} role="status">
+                {isEnabled ? t('security.enabled') : t('security.disabled')}
+              </Badge>
+            ) : undefined
+          }
+          action={
+            factor.data && !form ? (
+              isEnabled ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => choose('regenerate')}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    {t('security.regenerate')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="dangerGhost"
+                    size="sm"
+                    onClick={() => choose('disable')}
+                  >
+                    {t('security.disable')}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={factorBusy}
+                  onClick={() => void startSetup()}
+                >
+                  {factorBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {t('security.startSetup')}
+                </Button>
+              )
+            ) : undefined
+          }
+        />
+
+        {/* IMAP/SMTP Client Notice */}
+        <div className="flex items-start gap-2.5 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] px-3.5 py-2.5 text-[12.5px] text-[var(--ink-secondary)]">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" />
+          <span>{t('security.imapSmtpNote')}</span>
+        </div>
+
+        {factor.isPending && <SectionLoadingState rows={1} rowHeight="h-16" />}
+        {factor.error && <SectionErrorState message={factor.error.message} />}
+        {factorError && <SectionErrorState message={factorError} />}
+
+        {/* Setup / Disable / Regenerate Form */}
         {form && (
-          <form onSubmit={submitFactor} className="max-w-lg space-y-3">
+          <form
+            onSubmit={submitFactor}
+            className="space-y-4 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-4"
+          >
             {form === 'enable' && setup && (
-              <div className="space-y-2">
-                <p className={hint}>{t('security.scanHint')}</p>
-                {setup.qr && <img className="rounded bg-white" src={setup.qr} width={192} height={192} alt={t('security.qrAlt')} />}
-                <Label htmlFor="totp-manual-key">{t('security.manualKey')}</Label>
-                <Input id="totp-manual-key" value={setup.secret} readOnly className="font-mono" autoComplete="off" />
+              <div className="space-y-4">
+                <p className="text-[13px] leading-relaxed text-[var(--ink-secondary)]">
+                  {t('security.scanHint')}
+                </p>
+                <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
+                  {setup.qr && (
+                    <div className="flex shrink-0 flex-col items-center justify-center rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-white p-3 shadow-[var(--shadow-xs)] self-start">
+                      <img
+                        className="block rounded"
+                        src={setup.qr}
+                        width={176}
+                        height={176}
+                        alt={t('security.qrAlt')}
+                      />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1 space-y-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="totp-manual-key">{t('security.manualKey')}</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id="totp-manual-key"
+                          value={setup.secret}
+                          readOnly
+                          className="font-mono text-[13px] tracking-wider"
+                          autoComplete="off"
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="h-9 shrink-0"
+                          onClick={() =>
+                            void copyText(setup.secret, setCopiedKey, t('common.copied'))
+                          }
+                        >
+                          {copiedKey ? (
+                            <Check className="h-3.5 w-3.5 text-[var(--success)]" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                          )}
+                          {t('common.copy')}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <SecondFactorField
+                      autoFocus
+                      code={code}
+                      recovery={recovery}
+                      onCode={setCode}
+                      disabled={factorBusy}
+                    />
+                  </div>
+                </div>
               </div>
             )}
+
             {form !== 'enable' && (
-              <div className="space-y-2">
-                <p className={hint}>{form === 'disable' ? t('security.disableHint') : t('security.regenerateHint')}</p>
-                <Label htmlFor="factor-current-password">{t('settings.profile.oldPassword')}</Label>
-                <Input id="factor-current-password" value={password} onChange={(e) => setPassword(e.target.value)} type="password" autoComplete="current-password" required disabled={factorBusy} />
+              <div className="max-w-md space-y-4">
+                <p className="text-[13px] leading-relaxed text-[var(--ink-secondary)]">
+                  {form === 'disable' ? t('security.disableHint') : t('security.regenerateHint')}
+                </p>
+                <FormRow
+                  label={t('settings.profile.oldPassword')}
+                  htmlFor="factor-current-password"
+                >
+                  <Input
+                    id="factor-current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                    disabled={factorBusy}
+                  />
+                </FormRow>
+                <SecondFactorField
+                  code={code}
+                  recovery={recovery}
+                  onCode={setCode}
+                  onRecovery={setRecovery}
+                  disabled={factorBusy}
+                />
               </div>
             )}
-            <SecondFactorField code={code} recovery={recovery} onCode={setCode}
-              onRecovery={form !== 'enable' ? setRecovery : undefined} disabled={factorBusy} />
-            <div className="flex flex-wrap gap-2">
-              <Button type="submit" disabled={factorBusy}>{form === 'enable' ? t('security.enable') : form === 'disable' ? t('security.disable') : t('security.regenerate')}</Button>
-              <Button type="button" variant="ghost" disabled={factorBusy} onClick={() => choose(null)}>{t('common.cancel')}</Button>
+
+            <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border-hairline)] pt-3">
+              <Button
+                type="submit"
+                size="sm"
+                variant={form === 'disable' ? 'danger' : 'primary'}
+                disabled={factorBusy}
+              >
+                {factorBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {form === 'enable'
+                  ? t('security.enable')
+                  : form === 'disable'
+                    ? t('security.disable')
+                    : t('security.regenerate')}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={factorBusy}
+                onClick={() => choose(null)}
+              >
+                {t('common.cancel')}
+              </Button>
             </div>
           </form>
         )}
+
+        {/* Recovery Codes Grid (Shown Once) */}
         {recoveryCodes.length > 0 && (
-          <div className="space-y-2">
-            <h3 className={heading}>{t('security.recoveryCodes')}</h3>
-            <p className={hint}>{t('security.recoveryWarning')}</p>
-            <ul className="grid gap-1 font-mono text-sm sm:grid-cols-2">
-              {recoveryCodes.map((item) => <li key={item}>{item}</li>)}
+          <div className="space-y-4 rounded-[var(--radius-md)] border border-[var(--warning)]/40 bg-[var(--warning-soft)]/55 p-4">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="mt-0.5 h-4.5 w-4.5 shrink-0 text-[var(--warning)]" />
+              <div className="min-w-0 space-y-0.5">
+                <h3 className="text-[14px] font-semibold text-[var(--ink-primary)]">
+                  {t('security.recoveryCodes')}
+                </h3>
+                <p className="text-[12.5px] leading-relaxed text-[var(--ink-secondary)]">
+                  {t('security.recoveryWarning')}
+                </p>
+              </div>
+            </div>
+
+            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {recoveryCodes.map((item, idx) => (
+                <li
+                  key={item}
+                  className="flex items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-3 py-2 font-mono text-[13px] tracking-wider text-[var(--ink-primary)]"
+                >
+                  <span className="text-[11px] tabular-nums text-[var(--ink-muted)] select-none">
+                    {String(idx + 1).padStart(2, '0')}
+                  </span>
+                  <span className="select-all font-semibold">{item}</span>
+                </li>
+              ))}
             </ul>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={downloadCodes}>{t('security.downloadCodes')}</Button>
-              <Button type="button" variant="ghost" onClick={() => setRecoveryCodes([])}>{t('security.done')}</Button>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  void copyText(
+                    recoveryCodes.join('\n'),
+                    setCopiedCodes,
+                    t('security.allCodesCopied'),
+                  )
+                }
+              >
+                {copiedCodes ? (
+                  <Check className="h-3.5 w-3.5 text-[var(--success)]" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+                {t('security.copyAllCodes')}
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={downloadCodes}>
+                <Download className="h-3.5 w-3.5" />
+                {t('security.downloadCodes')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="ml-auto"
+                onClick={() => setRecoveryCodes([])}
+              >
+                {t('security.done')}
+              </Button>
             </div>
           </div>
         )}
-      </section>
-      <section className={card} aria-labelledby="apps-title">
-        <h2 id="apps-title" className={heading}>{t('security.appPasswords')}</h2>
-        <p className={hint}>{t('security.clientHint')}</p>
-        {apps.isPending && <p className={hint}>{t('common.loading')}</p>}
-        {apps.error && <p className={errorStyle} role="alert">{apps.error.message}</p>}
-        {appError && <p className={errorStyle} role="alert">{appError}</p>}
-        {apps.data?.length === 0 && <p className={hint}>{t('security.noApps')}</p>}
-        {!!apps.data?.length && (
-          <ul className="space-y-2">
+      </SectionCard>
+
+      {/* App Passwords Card */}
+      <SectionCard aria-labelledby="apps-title">
+        <SectionHeader
+          icon={KeyRound}
+          iconTone="neutral"
+          title={t('security.appPasswords')}
+          titleId="apps-title"
+          description={t('security.clientHint')}
+        />
+
+        {apps.error && <SectionErrorState message={apps.error.message} />}
+        {appError && <SectionErrorState message={appError} />}
+
+        {/* One-time reveal box for newly generated app password */}
+        {newApp && (
+          <div className="space-y-3 rounded-[var(--radius-md)] border border-[var(--warning)]/45 bg-[var(--warning-soft)]/60 p-4">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="mt-0.5 h-4.5 w-4.5 shrink-0 text-[var(--warning)]" />
+              <div className="min-w-0 space-y-0.5">
+                <p className="text-[13.5px] font-semibold text-[var(--ink-primary)]">
+                  {t('security.oneTimeTitle')}
+                </p>
+                <Label
+                  htmlFor="app-password-new"
+                  className="text-[12.5px] font-normal text-[var(--ink-secondary)]"
+                >
+                  {t('security.newAppWarning')}
+                </Label>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                id="app-password-new"
+                value={newApp}
+                readOnly
+                autoComplete="off"
+                className="min-w-0 flex-1 bg-[var(--surface-canvas)] font-mono text-[14px] font-semibold tracking-wider"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-9 shrink-0"
+                onClick={() => void copyText(newApp, setCopiedApp, t('common.copied'))}
+              >
+                {copiedApp ? (
+                  <Check className="h-3.5 w-3.5 text-[var(--success)]" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+                {t('common.copy')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="h-9 shrink-0"
+                onClick={() => setNewApp('')}
+              >
+                {t('security.done')}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Create new app password */}
+        <form
+          onSubmit={createApp}
+          className="flex flex-col gap-2.5 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-3.5 sm:flex-row sm:items-end"
+        >
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <Label htmlFor="app-password-name">{t('security.appName')}</Label>
+            <Input
+              id="app-password-name"
+              value={appName}
+              onChange={(e) => setAppName(e.target.value)}
+              placeholder={t('security.appNamePlaceholder')}
+              maxLength={80}
+              required
+              disabled={appBusy}
+            />
+          </div>
+          <Button
+            type="submit"
+            size="sm"
+            className="h-9 shrink-0"
+            disabled={appBusy || !appName.trim()}
+          >
+            {appBusy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Plus className="h-3.5 w-3.5" />
+            )}
+            {t('security.createApp')}
+          </Button>
+        </form>
+
+        {/* Existing app passwords list */}
+        {apps.isPending ? (
+          <SectionLoadingState rows={2} rowHeight="h-14" />
+        ) : apps.data?.length === 0 ? (
+          <EmptyState icon={KeyRound} title={t('security.noApps')} compact />
+        ) : apps.data && apps.data.length > 0 ? (
+          <ul className="divide-y divide-[var(--border-hairline)] rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
             {apps.data.map((app) => (
-              <li key={app.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-[var(--border-subtle)] p-2.5">
-                <div className="min-w-0 break-words">
-                  <p className="text-sm font-medium">{app.name}</p>
-                  <p className={hint}>{t('security.createdAt', { date: formatMailFullTime(app.created_at, i18n.language) })}</p>
-                  <p className={hint}>{app.last_used_at ? t('security.lastUsed', { date: formatMailFullTime(app.last_used_at, i18n.language) }) : t('security.neverUsed')}</p>
+              <li
+                key={app.id}
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+              >
+                <div className="min-w-0 space-y-0.5">
+                  <p className="truncate text-[13.5px] font-medium text-[var(--ink-primary)]">
+                    {app.name}
+                  </p>
+                  <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-[var(--ink-muted)]">
+                    <span>
+                      {t('security.createdAt', {
+                        date: formatMailFullTime(app.created_at, i18n.language),
+                      })}
+                    </span>
+                    <span>
+                      {app.last_used_at
+                        ? t('security.lastUsed', {
+                            date: formatMailFullTime(app.last_used_at, i18n.language),
+                          })
+                        : t('security.neverUsed')}
+                    </span>
+                  </p>
                 </div>
-                <Button type="button" variant="outline" size="sm" disabled={appBusy} onClick={() => void removeApp(app.id, app.name)}>{t('security.removeApp')}</Button>
+                <Button
+                  type="button"
+                  variant="dangerGhost"
+                  size="sm"
+                  disabled={appBusy}
+                  onClick={() => void removeApp(app.id, app.name)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {t('security.removeApp')}
+                </Button>
               </li>
             ))}
           </ul>
-        )}
-        <form onSubmit={createApp} className="max-w-lg space-y-2">
-          <Label htmlFor="app-password-name">{t('security.appName')}</Label>
-          <Input id="app-password-name" value={appName} onChange={(e) => setAppName(e.target.value)} maxLength={80} required disabled={appBusy} />
-          <Button type="submit" disabled={appBusy || !appName.trim()}>{t('security.createApp')}</Button>
-        </form>
-        {newApp && (
-          <div className="max-w-lg space-y-2">
-            <Label htmlFor="app-password-new">{t('security.newAppWarning')}</Label>
-            <Input id="app-password-new" value={newApp} readOnly autoComplete="off" className="font-mono" />
-            <Button type="button" variant="ghost" onClick={() => setNewApp('')}>{t('security.done')}</Button>
-          </div>
-        )}
-      </section>
+        ) : null}
+      </SectionCard>
     </>
   )
 }

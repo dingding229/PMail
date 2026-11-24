@@ -5,6 +5,7 @@ import {
   List,
   Monitor,
   Moon,
+  Palette,
   PanelBottom,
   PanelRight,
   Sun,
@@ -16,6 +17,7 @@ import {
   type ReadingPanePosition,
 } from '@/lib/preferences'
 import { cn } from '@/lib/cn'
+import { SectionCard, SectionHeader } from '@/components/settings'
 
 export function AppearanceSection() {
   const { t } = useTranslation()
@@ -94,15 +96,12 @@ export function AppearanceSection() {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-6">
-        <div>
-          <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-            {t('settings.appearance.title')}
-          </h2>
-          <p className="mt-0.5 text-[12.5px] text-[var(--ink-secondary)]">
-            {t('settings.appearance.desc')}
-          </p>
-        </div>
+      <SectionCard className="space-y-6">
+        <SectionHeader
+          icon={Palette}
+          title={t('settings.appearance.title')}
+          description={t('settings.appearance.desc')}
+        />
 
         {/* Theme Mode */}
         <div className="space-y-2.5">
@@ -207,7 +206,7 @@ export function AppearanceSection() {
             })}
           </div>
         </div>
-      </div>
+      </SectionCard>
     </div>
   )
 }

@@ -13,8 +13,6 @@ import { formatBytes } from '@/lib/format'
 import { queryKeys, useUserMeQuery } from '@/hooks/useMailQueries'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
   SelectContent,
@@ -22,6 +20,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  FormRow,
+  SectionCard,
+  SectionFooter,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 
 import { AccountCredentials } from './AccountCredentials'
 
@@ -120,11 +125,9 @@ export function ProfileSecuritySection() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-48 w-full rounded-[var(--radius-lg)]" />
-        <Skeleton className="h-28 w-full rounded-[var(--radius-lg)]" />
-        <Skeleton className="h-56 w-full rounded-[var(--radius-lg)]" />
-      </div>
+      <SectionCard>
+        <SectionLoadingState rows={3} rowHeight="h-24" />
+      </SectionCard>
     )
   }
 
@@ -135,97 +138,87 @@ export function ProfileSecuritySection() {
   return (
     <div className="space-y-5">
       {/* Profile & Language Card */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)]">
-        <div className="mb-4 flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--accent-soft)] text-[var(--accent)]">
-            <User className="h-4 w-4" />
-          </div>
-          <div>
-            <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-              {t('settings.profile.title')}
-            </h2>
-            <p className="text-[12.5px] text-[var(--ink-secondary)]">
-              {t('settings.profile.desc')}
-            </p>
-          </div>
-        </div>
+      <SectionCard>
+        <SectionHeader
+          icon={User}
+          title={t('settings.profile.title')}
+          description={t('settings.profile.desc')}
+        />
 
-        <form onSubmit={profileForm.handleSubmit(onProfileSubmit)} className="space-y-4 max-w-lg">
-          <div className="space-y-1.5">
-            <Label>{t('settings.profile.account')}</Label>
-            <Input value={user?.account ?? ''} disabled />
-          </div>
+        <form onSubmit={profileForm.handleSubmit(onProfileSubmit)} className="space-y-4">
+          <div className="max-w-lg space-y-4">
+            <FormRow label={t('settings.profile.account')}>
+              <Input value={user?.account ?? ''} disabled />
+            </FormRow>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="profile_display_name">{t('settings.profile.displayName')}</Label>
-            <Input
-              id="profile_display_name"
-              {...profileForm.register('display_name')}
-              placeholder={t('settings.profile.displayNamePlaceholder')}
-            />
-            {profileForm.formState.errors.display_name && (
-              <p className="text-[12px] text-[var(--danger)]">
-                {profileForm.formState.errors.display_name.message}
-              </p>
-            )}
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="profile_language">{t('settings.profile.language')}</Label>
-            <Select
-              value={lang}
-              onValueChange={(v) => void handleLanguageChange(v as SupportedLanguage)}
+            <FormRow
+              label={t('settings.profile.displayName')}
+              htmlFor="profile_display_name"
+              error={profileForm.formState.errors.display_name?.message}
             >
-              <SelectTrigger id="profile_language" className="h-9">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="zh-CN">{t('language.zhCN')}</SelectItem>
-                <SelectItem value="en">{t('language.en')}</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-[12px] text-[var(--ink-muted)]">
-              {t('settings.profile.languageHint')}
-            </p>
+              <Input
+                id="profile_display_name"
+                {...profileForm.register('display_name')}
+                placeholder={t('settings.profile.displayNamePlaceholder')}
+              />
+            </FormRow>
+
+            <FormRow
+              label={t('settings.profile.language')}
+              htmlFor="profile_language"
+              description={t('settings.profile.languageHint')}
+            >
+              <Select
+                value={lang}
+                onValueChange={(v) => void handleLanguageChange(v as SupportedLanguage)}
+              >
+                <SelectTrigger id="profile_language" className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="zh-CN">{t('language.zhCN')}</SelectItem>
+                  <SelectItem value="en">{t('language.en')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormRow>
           </div>
 
-          <Button type="submit" size="sm" disabled={profileForm.formState.isSubmitting}>
-            {profileForm.formState.isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {t('common.save')}
-          </Button>
+          <SectionFooter>
+            <Button type="submit" size="sm" disabled={profileForm.formState.isSubmitting}>
+              {profileForm.formState.isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {t('common.save')}
+            </Button>
+          </SectionFooter>
         </form>
-      </section>
+      </SectionCard>
 
       {/* Storage Quota Card */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)]">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--surface-subtle)] text-[var(--ink-secondary)]">
-              <HardDrive className="h-4 w-4" />
-            </div>
-            <div>
-              <h2 className="text-[14.5px] font-semibold text-[var(--ink-primary)]">
-                {t('settings.profile.storageTitle')}
-              </h2>
-              <p className="text-[12.5px] tabular-nums text-[var(--ink-secondary)]">
-                {quotaBytes > 0
-                  ? t('settings.profile.storageUsed', {
-                      used: formatBytes(usedBytes),
-                      total: formatBytes(quotaBytes),
-                    })
-                  : t('settings.profile.storageUnlimited', { used: formatBytes(usedBytes) })}
-              </p>
-            </div>
-          </div>
-          {quotaBytes > 0 && (
-            <span className="text-[13px] font-semibold tabular-nums text-[var(--ink-primary)]">
-              {quotaPct}%
+      <SectionCard>
+        <SectionHeader
+          icon={HardDrive}
+          iconTone="neutral"
+          title={t('settings.profile.storageTitle')}
+          description={
+            <span className="tabular-nums">
+              {quotaBytes > 0
+                ? t('settings.profile.storageUsed', {
+                    used: formatBytes(usedBytes),
+                    total: formatBytes(quotaBytes),
+                  })
+                : t('settings.profile.storageUnlimited', { used: formatBytes(usedBytes) })}
             </span>
-          )}
-        </div>
+          }
+          action={
+            quotaBytes > 0 ? (
+              <span className="text-[13px] font-semibold tabular-nums text-[var(--ink-primary)]">
+                {quotaPct}%
+              </span>
+            ) : undefined
+          }
+        />
 
         {quotaBytes > 0 && (
-          <div className="mt-3.5 h-2 w-full overflow-hidden rounded-full bg-[var(--surface-subtle)]">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--surface-subtle)]">
             <div
               style={{ width: `${quotaPct}%` }}
               className={`h-full rounded-full transition-all ${
@@ -238,98 +231,89 @@ export function ProfileSecuritySection() {
             />
           </div>
         )}
-      </section>
+      </SectionCard>
 
       {/* Change Password Card */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)]">
-        <div className="mb-4 flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--warning-soft)] text-[var(--warning)]">
-            <Lock className="h-4 w-4" />
-          </div>
-          <div>
-            <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-              {t('settings.profile.passwordTitle')}
-            </h2>
-            <p className="text-[12.5px] text-[var(--ink-secondary)]">
-              {t('settings.profile.passwordDesc')}
-            </p>
-          </div>
-        </div>
+      <SectionCard>
+        <SectionHeader
+          icon={Lock}
+          iconTone="warning"
+          title={t('settings.profile.passwordTitle')}
+          description={t('settings.profile.passwordDesc')}
+        />
 
-        <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4 max-w-lg">
-          <div className="space-y-1.5">
-            <Label htmlFor="old_password">{t('settings.profile.oldPassword')}</Label>
-            <div className="relative">
-              <Input
-                id="old_password"
-                type={showOldPwd ? 'text' : 'password'}
-                autoComplete="current-password"
-                className="pr-9"
-                {...passwordForm.register('old_password')}
-              />
-              <button
-                type="button"
-                onClick={() => setShowOldPwd((v) => !v)}
-                aria-label={showOldPwd ? t('auth.hidePassword') : t('auth.showPassword')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--ink-muted)] hover:text-[var(--ink-primary)]"
-              >
-                {showOldPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-            {passwordForm.formState.errors.old_password && (
-              <p className="text-[12px] text-[var(--danger)]">
-                {passwordForm.formState.errors.old_password.message}
-              </p>
-            )}
-          </div>
+        <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4">
+          <div className="max-w-lg space-y-4">
+            <FormRow
+              label={t('settings.profile.oldPassword')}
+              htmlFor="old_password"
+              error={passwordForm.formState.errors.old_password?.message}
+            >
+              <div className="relative">
+                <Input
+                  id="old_password"
+                  type={showOldPwd ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  className="pr-9"
+                  {...passwordForm.register('old_password')}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowOldPwd((v) => !v)}
+                  aria-label={showOldPwd ? t('auth.hidePassword') : t('auth.showPassword')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--ink-muted)] hover:text-[var(--ink-primary)]"
+                >
+                  {showOldPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </FormRow>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="new_password">{t('settings.profile.newPassword')}</Label>
-            <div className="relative">
+            <FormRow
+              label={t('settings.profile.newPassword')}
+              htmlFor="new_password"
+              error={passwordForm.formState.errors.new_password?.message}
+            >
+              <div className="relative">
+                <Input
+                  id="new_password"
+                  type={showNewPwd ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  className="pr-9"
+                  {...passwordForm.register('new_password')}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPwd((v) => !v)}
+                  aria-label={showNewPwd ? t('auth.hidePassword') : t('auth.showPassword')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--ink-muted)] hover:text-[var(--ink-primary)]"
+                >
+                  {showNewPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </FormRow>
+
+            <FormRow
+              label={t('settings.profile.confirmPassword')}
+              htmlFor="confirm_password"
+              error={passwordForm.formState.errors.confirm_password?.message}
+            >
               <Input
-                id="new_password"
+                id="confirm_password"
                 type={showNewPwd ? 'text' : 'password'}
                 autoComplete="new-password"
-                className="pr-9"
-                {...passwordForm.register('new_password')}
+                {...passwordForm.register('confirm_password')}
               />
-              <button
-                type="button"
-                onClick={() => setShowNewPwd((v) => !v)}
-                aria-label={showNewPwd ? t('auth.hidePassword') : t('auth.showPassword')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--ink-muted)] hover:text-[var(--ink-primary)]"
-              >
-                {showNewPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-            {passwordForm.formState.errors.new_password && (
-              <p className="text-[12px] text-[var(--danger)]">
-                {passwordForm.formState.errors.new_password.message}
-              </p>
-            )}
+            </FormRow>
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="confirm_password">{t('settings.profile.confirmPassword')}</Label>
-            <Input
-              id="confirm_password"
-              type={showNewPwd ? 'text' : 'password'}
-              autoComplete="new-password"
-              {...passwordForm.register('confirm_password')}
-            />
-            {passwordForm.formState.errors.confirm_password && (
-              <p className="text-[12px] text-[var(--danger)]">
-                {passwordForm.formState.errors.confirm_password.message}
-              </p>
-            )}
-          </div>
-
-          <Button type="submit" size="sm" disabled={passwordForm.formState.isSubmitting}>
-            {passwordForm.formState.isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {t('settings.profile.passwordSubmit')}
-          </Button>
+          <SectionFooter>
+            <Button type="submit" size="sm" disabled={passwordForm.formState.isSubmitting}>
+              {passwordForm.formState.isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {t('settings.profile.passwordSubmit')}
+            </Button>
+          </SectionFooter>
         </form>
-      </section>
+      </SectionCard>
       {user && <AccountCredentials key={user.id} userID={user.id} />}
     </div>
   )

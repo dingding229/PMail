@@ -17,7 +17,7 @@ import {
 import { useUserMeQuery } from '@/hooks/useMailQueries'
 import { prefetchAdminPage } from '@/lib/prefetch'
 import { Button } from '@/components/ui/button'
-import { SectionPanelShell, type PanelTabItem } from '@/components/common/SectionPanelShell'
+import { SettingsLayout, type SettingsNavItem } from '@/components/settings'
 import { ProfileSecuritySection } from './sections/ProfileSecuritySection'
 import { AppearanceSection } from './sections/AppearanceSection'
 import { AddressesSection } from './sections/AddressesSection'
@@ -49,7 +49,7 @@ export function SettingsPage() {
   const { tab } = useParams<{ tab?: string }>()
   const { data: me } = useUserMeQuery(true)
 
-  const tabs: PanelTabItem<SettingsTabKey>[] = [
+  const tabs: SettingsNavItem<SettingsTabKey>[] = [
     { key: 'profile', label: t('settings.tabs.profile'), icon: UserCog },
     { key: 'appearance', label: t('settings.tabs.appearance'), icon: Palette },
     { key: 'addresses', label: t('settings.tabs.addresses'), icon: AtSign },
@@ -68,7 +68,7 @@ export function SettingsPage() {
     : 'profile'
 
   return (
-    <SectionPanelShell
+    <SettingsLayout
       title={t('settings.title')}
       backLabel={t('settings.backToMail')}
       onBack={() => navigate('/mail/inbox')}
@@ -101,7 +101,7 @@ export function SettingsPage() {
       {activeTab === 'groups' && <GroupsSection />}
       {activeTab === 'tokens' && <TokensSection />}
       {activeTab === 'queue' && <QueueSection scope="mine" />}
-    </SectionPanelShell>
+    </SettingsLayout>
   )
 }
 

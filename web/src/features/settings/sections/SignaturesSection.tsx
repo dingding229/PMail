@@ -31,7 +31,6 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -40,6 +39,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  EmptyState,
+  SectionCard,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 
 const MAX_SIGNATURES = 20
 const MAX_SIGNATURE_HTML_BYTES = 64 * 1024
@@ -208,26 +213,23 @@ export function SignaturesSection() {
   const isAtLimit = signatures.length >= MAX_SIGNATURES
 
   return (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-              {t('settings.signatures.title')}
-            </h2>
-            <Badge variant={isAtLimit ? 'danger' : 'default'}>
-              {t('settings.signatures.count', { count: signatures.length })}
-            </Badge>
-          </div>
-          <p className="mt-0.5 text-[12.5px] text-[var(--ink-secondary)]">
-            {t('settings.signatures.desc')}
-          </p>
-        </div>
-        <Button size="sm" disabled={isAtLimit} onClick={openCreate}>
-          <Plus className="h-3.5 w-3.5" />
-          {t('settings.signatures.createButton')}
-        </Button>
-      </div>
+    <SectionCard>
+      <SectionHeader
+        icon={PenLine}
+        title={t('settings.signatures.title')}
+        description={t('settings.signatures.desc')}
+        badge={
+          <Badge variant={isAtLimit ? 'danger' : 'default'}>
+            {t('settings.signatures.count', { count: signatures.length })}
+          </Badge>
+        }
+        action={
+          <Button size="sm" disabled={isAtLimit} onClick={openCreate}>
+            <Plus className="h-3.5 w-3.5" />
+            {t('settings.signatures.createButton')}
+          </Button>
+        }
+      />
 
       {isAtLimit && (
         <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--danger)]/35 bg-[var(--danger-soft)] px-3 py-2 text-[12.5px] text-[var(--danger)]">
@@ -237,20 +239,19 @@ export function SignaturesSection() {
       )}
 
       {isLoading ? (
-        <div className="space-y-2.5">
-          <Skeleton className="h-24 w-full rounded-[var(--radius-md)]" />
-          <Skeleton className="h-24 w-full rounded-[var(--radius-md)]" />
-        </div>
+        <SectionLoadingState rows={2} rowHeight="h-24" />
       ) : signatures.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[var(--border-subtle)] py-12 text-center">
-          <PenLine className="h-6 w-6 text-[var(--ink-muted)]" />
-          <p className="mt-2 text-[13.5px] font-medium text-[var(--ink-primary)]">
-            {t('settings.signatures.empty')}
-          </p>
-          <p className="mt-1 max-w-md text-[12.5px] text-[var(--ink-muted)]">
-            {t('settings.signatures.emptyDesc')}
-          </p>
-        </div>
+        <EmptyState
+          icon={PenLine}
+          title={t('settings.signatures.empty')}
+          description={t('settings.signatures.emptyDesc')}
+          action={
+            <Button size="sm" disabled={isAtLimit} onClick={openCreate}>
+              <Plus className="h-3.5 w-3.5" />
+              {t('settings.signatures.createButton')}
+            </Button>
+          }
+        />
       ) : (
         <div className="space-y-3">
           {signatures.map((sig) => {
@@ -504,7 +505,7 @@ export function SignaturesSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </SectionCard>
   )
 }
 

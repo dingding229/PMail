@@ -61,6 +61,38 @@ let mockClamAV: ClamAVStatus = {
   database: null, last_update: null, scanned: 0, blocked: 0, memory_warning: false,
 }
 
+function getMockClamAV(): ClamAVStatus {
+  const mode =
+    typeof window !== 'undefined' ? localStorage.getItem('pmail_mock_clamav') : null
+  if (mode === 'running') {
+    return {
+      enabled: true,
+      env_controlled: false,
+      state: 'running',
+      updating: false,
+      database: { version: 27462, updated_at: dayjs().subtract(2, 'hour').toISOString() },
+      last_update: { status: 'success', at: dayjs().subtract(2, 'hour').toISOString() },
+      scanned: 1284,
+      blocked: 3,
+      memory_warning: true,
+    }
+  }
+  if (mode === 'env_disabled') {
+    return {
+      enabled: false,
+      env_controlled: true,
+      state: 'disabled',
+      updating: false,
+      database: null,
+      last_update: null,
+      scanned: 0,
+      blocked: 0,
+      memory_warning: false,
+    }
+  }
+  return mockClamAV
+}
+
 let mockInboundSettings: InboundSettings = {
   dnsbl_enabled: true,
   dnsbl_zones: ['zen.spamhaus.org', 'bl.spamcop.net'],
@@ -1853,7 +1885,7 @@ export const handlers = [
     return ok('')
   }),
 
-  http.get('/api/admin/inbound/clamav', () => ok(mockClamAV)),
+  http.get('/api/admin/inbound/clamav', () => ok(getMockClamAV())),
   http.put('/api/admin/inbound/clamav', async ({ request }) => {
     const { enabled } = await request.json() as { enabled: boolean }
     mockClamAV = { ...mockClamAV, enabled, state: enabled ? 'running' : 'disabled' }

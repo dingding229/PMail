@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
+  AlertTriangle,
   AtSign,
   Ban,
   CheckCircle2,
@@ -15,6 +16,7 @@ import {
   KeyRound,
   Loader2,
   Plus,
+  ShieldCheck,
   ShieldOff,
   Users,
 } from 'lucide-react'
@@ -26,7 +28,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -35,6 +36,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
+  EmptyState,
+  SectionCard,
+  SectionErrorState,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 import { SenderAvatar } from '@/components/common/SenderAvatar'
 import { AddressesSection } from '@/features/settings/sections/AddressesSection'
 
@@ -53,7 +67,7 @@ export function UsersSection({ currentUserID }: { currentUserID?: number }) {
   const [disablingUser, setDisablingUser] = useState<UserProfile | null>(null)
   const [managingAddrUser, setManagingAddrUser] = useState<UserProfile | null>(null)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: queryKeys.users(page, PAGE_SIZE),
     queryFn: () => userApi.list({ current_page: page, page_size: PAGE_SIZE }),
   })
@@ -156,7 +170,15 @@ export function UsersSection({ currentUserID }: { currentUserID?: number }) {
   })
 
   const renderFactorStatus = (u: UserProfile) => (
-    <Badge variant={u.totp_enabled ? 'success' : 'default'}>
+    <Badge
+      variant={u.totp_enabled ? 'success' : 'default'}
+      title={u.totp_enabled ? t('security.enabled') : t('security.disabled')}
+    >
+      {u.totp_enabled ? (
+        <ShieldCheck className="h-3 w-3" />
+      ) : (
+        <ShieldOff className="h-3 w-3 opacity-70" />
+      )}
       {u.totp_enabled ? t('security.enabled') : t('security.disabled')}
     </Badge>
   )
@@ -237,160 +259,169 @@ export function UsersSection({ currentUserID }: { currentUserID?: number }) {
   }
 
   return (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-            {t('admin.users.title')}
-          </h2>
-          <p className="mt-0.5 text-[12.5px] text-[var(--ink-secondary)]">
-            {t('admin.users.desc')}
-          </p>
-        </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-3.5 w-3.5" />
-          {t('admin.users.addButton')}
-        </Button>
-      </div>
+    <SectionCard>
+      <SectionHeader
+        icon={Users}
+        title={t('admin.users.title')}
+        description={t('admin.users.desc')}
+        action={
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            {t('admin.users.addButton')}
+          </Button>
+        }
+      />
 
-      {isLoading ? (
-        <div className="space-y-2.5">
-          <Skeleton className="h-16 w-full rounded-[var(--radius-md)]" />
-          <Skeleton className="h-16 w-full rounded-[var(--radius-md)]" />
-          <Skeleton className="h-16 w-full rounded-[var(--radius-md)]" />
-        </div>
+      {error ? (
+        <SectionErrorState
+          message={error instanceof Error ? error.message : t('common.unknownError')}
+          retryLabel={t('app.retry')}
+          onRetry={() => void refetch()}
+        />
+      ) : isLoading ? (
+        <SectionLoadingState rows={3} rowHeight="h-16" />
       ) : users.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[var(--border-subtle)] py-12 text-center">
-          <Users className="h-6 w-6 text-[var(--ink-muted)]" />
-          <p className="mt-2 text-[13.5px] text-[var(--ink-secondary)]">
-            {t('admin.users.empty')}
-          </p>
-        </div>
+        <EmptyState
+          icon={Users}
+          title={t('admin.users.empty')}
+          action={
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              {t('admin.users.addButton')}
+            </Button>
+          }
+        />
       ) : (
         <>
           {/* Desktop Table */}
-          <div className="hidden overflow-x-auto rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] md:block">
-            <table className="w-full text-left text-[13px]">
-              <thead className="border-b border-[var(--border-hairline)] bg-[var(--surface-subtle)]/70 text-[12px] font-medium text-[var(--ink-muted)]">
-                <tr>
-                  <th className="px-4 py-2.5">{t('admin.users.account')}</th>
-                  <th className="px-4 py-2.5">{t('common.status')}</th>
-                  <th className="px-4 py-2.5">{t('admin.users.quota')}</th>
-                  <th className="px-4 py-2.5">{t('admin.users.lastLogin')}</th>
-                  <th className="px-4 py-2.5 text-right">{t('common.actions')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--border-hairline)]">
-                {users.map((u) => (
-                  <tr key={u.id} className="hover:bg-[var(--surface-hover)]/50 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <SenderAvatar
-                          name={u.display_name || u.name}
-                          email={u.account}
-                          size="sm"
-                        />
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-medium text-[var(--ink-primary)]">
-                              {u.display_name || u.name}
-                            </span>
-                            {u.is_admin === 1 && (
-                              <Badge variant="accent">{t('admin.users.roleAdmin')}</Badge>
-                            )}
-                            {renderFactorStatus(u)}
-                          </div>
-                          <p className="font-mono text-[11.5px] text-[var(--ink-muted)]">
-                            {u.account} ·{' '}
-                            {t('admin.users.addressesCount', {
-                              count: u.addresses?.length ?? 0,
-                            })}
-                          </p>
+          <DataTable className="hidden md:block">
+            <DataTableHead>
+              <tr>
+                <DataTableHeaderCell className="px-3">{t('admin.users.account')}</DataTableHeaderCell>
+                <DataTableHeaderCell className="px-3 whitespace-nowrap">{t('common.status')}</DataTableHeaderCell>
+                <DataTableHeaderCell className="px-3 whitespace-nowrap">{t('security.status2fa')}</DataTableHeaderCell>
+                <DataTableHeaderCell className="px-3 whitespace-nowrap">{t('admin.users.quota')}</DataTableHeaderCell>
+                <DataTableHeaderCell className="px-3 whitespace-nowrap">{t('admin.users.lastLogin')}</DataTableHeaderCell>
+                <DataTableHeaderCell align="right" className="px-3 whitespace-nowrap">{t('common.actions')}</DataTableHeaderCell>
+              </tr>
+            </DataTableHead>
+            <DataTableBody>
+              {users.map((u) => (
+                <DataTableRow key={u.id}>
+                  <DataTableCell className="px-3">
+                    <div className="flex items-center gap-2.5">
+                      <SenderAvatar
+                        name={u.display_name || u.name}
+                        email={u.account}
+                        size="sm"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="whitespace-nowrap font-medium text-[var(--ink-primary)]">
+                            {u.display_name || u.name}
+                          </span>
+                          {u.is_admin === 1 && (
+                            <Badge variant="accent">{t('admin.users.roleAdmin')}</Badge>
+                          )}
                         </div>
+                        <p className="whitespace-nowrap font-mono text-[11.5px] text-[var(--ink-muted)]">
+                          {u.account} ·{' '}
+                          {t('admin.users.addressesCount', {
+                            count: u.addresses?.length ?? 0,
+                          })}
+                        </p>
                       </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={u.disabled === 1 ? 'danger' : 'success'}>
-                        {u.disabled === 1
-                          ? t('admin.users.statusDisabled')
-                          : t('admin.users.statusActive')}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3">{renderQuotaBar(u)}</td>
-                    <td className="px-4 py-3 text-[12px] tabular-nums text-[var(--ink-muted)]">
-                      {pickDate(u.last_login_at_iso, u.last_login_at)
-                        ? formatMailFullTime(
-                            pickDate(u.last_login_at_iso, u.last_login_at),
-                            i18n.language,
-                          )
-                        : t('common.never')}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
+                    </div>
+                  </DataTableCell>
+                  <DataTableCell className="px-3 whitespace-nowrap">
+                    <Badge variant={u.disabled === 1 ? 'danger' : 'success'}>
+                      {u.disabled === 1
+                        ? t('admin.users.statusDisabled')
+                        : t('admin.users.statusActive')}
+                    </Badge>
+                  </DataTableCell>
+                  <DataTableCell className="px-3 whitespace-nowrap">{renderFactorStatus(u)}</DataTableCell>
+                  <DataTableCell className="px-3">{renderQuotaBar(u)}</DataTableCell>
+                  <DataTableCell className="px-3 whitespace-nowrap text-[12px] tabular-nums text-[var(--ink-muted)]">
+                    {pickDate(u.last_login_at_iso, u.last_login_at)
+                      ? formatMailFullTime(
+                          pickDate(u.last_login_at_iso, u.last_login_at),
+                          i18n.language,
+                        )
+                      : t('common.never')}
+                  </DataTableCell>
+                  <DataTableCell align="right" className="px-3 whitespace-nowrap">
+                    <div className="flex items-center justify-end gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="iconSm"
+                        title={t('admin.users.manageAddresses')}
+                        aria-label={t('admin.users.manageAddresses')}
+                        onClick={() => setManagingAddrUser(u)}
+                      >
+                        <AtSign className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="iconSm"
+                        title={t('common.edit')}
+                        aria-label={t('common.edit')}
+                        onClick={() => openEdit(u)}
+                      >
+                        <Edit3 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="iconSm"
+                        title={t('admin.users.resetPassword')}
+                        aria-label={t('admin.users.resetPassword')}
+                        onClick={() => {
+                          setResetPwdUser(u)
+                          setNewPassword('')
+                        }}
+                      >
+                        <KeyRound className="h-3.5 w-3.5" />
+                      </Button>
+                      {canResetFactor(u) && (
                         <Button
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => setManagingAddrUser(u)}
+                          variant="dangerGhost"
+                          size="iconSm"
+                          title={t('security.reset')}
+                          aria-label={t('security.reset')}
+                          onClick={() => setResetFactorUser(u)}
                         >
-                          <AtSign className="h-3.5 w-3.5" />
-                          {t('admin.users.manageAddresses')}
+                          <ShieldOff className="h-3.5 w-3.5" />
                         </Button>
+                      )}
+                      {u.disabled === 1 ? (
                         <Button
                           variant="ghost"
                           size="iconSm"
-                          title={t('common.edit')}
-                          aria-label={t('common.edit')}
-                          onClick={() => openEdit(u)}
+                          title={t('admin.users.enable')}
+                          aria-label={t('admin.users.enable')}
+                          onClick={() =>
+                            toggleDisableMutation.mutate({ user: u, disabled: 0 })
+                          }
                         >
-                          <Edit3 className="h-3.5 w-3.5" />
+                          <CheckCircle2 className="h-3.5 w-3.5 text-[var(--success)]" />
                         </Button>
+                      ) : (
                         <Button
-                          variant="ghost"
+                          variant="dangerGhost"
                           size="iconSm"
-                          title={t('admin.users.resetPassword')}
-                          aria-label={t('admin.users.resetPassword')}
-                          onClick={() => {
-                            setResetPwdUser(u)
-                            setNewPassword('')
-                          }}
+                          title={t('admin.users.disable')}
+                          aria-label={t('admin.users.disable')}
+                          onClick={() => setDisablingUser(u)}
                         >
-                          <KeyRound className="h-3.5 w-3.5" />
+                          <Ban className="h-3.5 w-3.5" />
                         </Button>
-                        {canResetFactor(u) && (
-                          <Button variant="ghost" size="iconSm" title={t('security.reset')} aria-label={t('security.reset')} onClick={() => setResetFactorUser(u)}>
-                            <ShieldOff className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                        {u.disabled === 1 ? (
-                          <Button
-                            variant="ghost"
-                            size="iconSm"
-                            title={t('admin.users.enable')}
-                            aria-label={t('admin.users.enable')}
-                            onClick={() =>
-                              toggleDisableMutation.mutate({ user: u, disabled: 0 })
-                            }
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5 text-[var(--success)]" />
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="dangerGhost"
-                            size="iconSm"
-                            title={t('admin.users.disable')}
-                            aria-label={t('admin.users.disable')}
-                            onClick={() => setDisablingUser(u)}
-                          >
-                            <Ban className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      )}
+                    </div>
+                  </DataTableCell>
+                </DataTableRow>
+              ))}
+            </DataTableBody>
+          </DataTable>
 
           {/* Mobile Card Layout */}
           <div className="space-y-3 md:hidden">
@@ -601,19 +632,51 @@ export function UsersSection({ currentUserID }: { currentUserID?: number }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={resetFactorUser !== null} onOpenChange={(open) => {
-        if (!open && !resetFactorMutation.isPending) setResetFactorUser(null)
-      }}>
-        <DialogContent className="max-w-sm">
+      {/* Reset Two-Step Verification Confirm Dialog */}
+      <Dialog
+        open={resetFactorUser !== null}
+        onOpenChange={(open) => {
+          if (!open && !resetFactorMutation.isPending) setResetFactorUser(null)
+        }}
+      >
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{t('security.reset')}</DialogTitle>
-            <DialogDescription>{t('security.resetConfirm', { account: resetFactorUser?.account })}</DialogDescription>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--danger-soft)] text-[var(--danger)]">
+                <ShieldOff className="h-4 w-4" />
+              </span>
+              {t('security.reset')}
+            </DialogTitle>
+            <DialogDescription>
+              {t('security.resetConfirm', { account: resetFactorUser?.account })}
+            </DialogDescription>
           </DialogHeader>
+          <div className="mt-2 flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] px-3 py-2.5 text-[12px] text-[var(--warning)]">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{t('security.resetWarningNote')}</span>
+          </div>
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={resetFactorMutation.isPending} onClick={() => setResetFactorUser(null)}>{t('common.cancel')}</Button>
-            <Button type="button" variant="danger" disabled={!resetFactorUser || resetFactorMutation.isPending} onClick={() => {
-              if (resetFactorUser) resetFactorMutation.mutate(resetFactorUser.id)
-            }}>{t('common.confirm')}</Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={resetFactorMutation.isPending}
+              onClick={() => setResetFactorUser(null)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              disabled={!resetFactorUser || resetFactorMutation.isPending}
+              onClick={() => {
+                if (resetFactorUser) resetFactorMutation.mutate(resetFactorUser.id)
+              }}
+            >
+              {resetFactorMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {t('common.confirm')}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -718,6 +781,6 @@ export function UsersSection({ currentUserID }: { currentUserID?: number }) {
           )}
         </DialogContent>
       </Dialog>
-    </section>
+    </SectionCard>
   )
 }

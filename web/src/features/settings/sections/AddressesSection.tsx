@@ -13,7 +13,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -29,6 +28,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  EmptyState,
+  SectionCard,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 
 interface AddressesSectionProps {
   /** Omit for current user; pass userId when used inside Admin Console */
@@ -168,43 +173,33 @@ export function AddressesSection({ userId, embedded = false }: AddressesSectionP
     setAddOpen(true)
   }
 
-  return (
-    <section
-      className={
-        embedded
-          ? 'space-y-4'
-          : 'rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-4'
-      }
-    >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {!embedded && (
-          <div>
-            <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-              {t('settings.addresses.title')}
-            </h2>
-            <p className="mt-0.5 text-[12.5px] text-[var(--ink-secondary)]">
-              {t('settings.addresses.desc')}
-            </p>
-          </div>
-        )}
-        <Button size="sm" onClick={openAddModal} disabled={domainOptions.length === 0}>
-          <Plus className="h-3.5 w-3.5" />
-          {t('settings.addresses.addButton')}
-        </Button>
-      </div>
+  const content = (
+    <>
+      {embedded ? (
+        <div className="flex items-center justify-end">
+          <Button size="sm" onClick={openAddModal} disabled={domainOptions.length === 0}>
+            <Plus className="h-3.5 w-3.5" />
+            {t('settings.addresses.addButton')}
+          </Button>
+        </div>
+      ) : (
+        <SectionHeader
+          icon={AtSign}
+          title={t('settings.addresses.title')}
+          description={t('settings.addresses.desc')}
+          action={
+            <Button size="sm" onClick={openAddModal} disabled={domainOptions.length === 0}>
+              <Plus className="h-3.5 w-3.5" />
+              {t('settings.addresses.addButton')}
+            </Button>
+          }
+        />
+      )}
 
       {isLoading ? (
-        <div className="space-y-2.5">
-          <Skeleton className="h-16 w-full rounded-[var(--radius-md)]" />
-          <Skeleton className="h-16 w-full rounded-[var(--radius-md)]" />
-        </div>
+        <SectionLoadingState rows={2} rowHeight="h-16" />
       ) : addresses.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[var(--border-subtle)] py-10 text-center">
-          <AtSign className="h-6 w-6 text-[var(--ink-muted)]" />
-          <p className="mt-2 text-[13.5px] text-[var(--ink-secondary)]">
-            {t('settings.addresses.empty')}
-          </p>
-        </div>
+        <EmptyState icon={AtSign} title={t('settings.addresses.empty')} compact />
       ) : (
         <div className="divide-y divide-[var(--border-hairline)] rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
           {addresses.map((addr) => (
@@ -378,6 +373,12 @@ export function AddressesSection({ userId, embedded = false }: AddressesSectionP
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </>
   )
+
+  if (embedded) {
+    return <div className="space-y-4">{content}</div>
+  }
+
+  return <SectionCard>{content}</SectionCard>
 }

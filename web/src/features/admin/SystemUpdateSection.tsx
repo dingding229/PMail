@@ -12,6 +12,7 @@ import {
   ChevronUp,
   Copy,
   ExternalLink,
+  History,
   Loader2,
   RefreshCw,
   Terminal,
@@ -21,7 +22,6 @@ import { formatMailFullTime } from '@/lib/date'
 import { queryKeys, useAdminUpdateQuery } from '@/hooks/useMailQueries'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -30,6 +30,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  EmptyState,
+  SectionCard,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 
 const SAFE_MD_TAGS = [
   'p',
@@ -213,39 +219,29 @@ export function SystemUpdateSection() {
   return (
     <div className="space-y-5">
       {/* Version Overview & Action Card */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-soft)] text-[var(--accent)]">
-              <ArrowUpCircle className="h-4.5 w-4.5" />
-            </div>
-            <div>
-              <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-                {t('admin.update.title')}
-              </h2>
-              <p className="mt-0.5 text-[12.5px] text-[var(--ink-secondary)]">
-                {t('admin.update.desc')}
-              </p>
-            </div>
-          </div>
-
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={checkMutation.isPending || isUpdating}
-            onClick={() => checkMutation.mutate()}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${checkMutation.isPending ? 'animate-spin' : ''}`} />
-            {checkMutation.isPending ? t('admin.update.checking') : t('admin.update.checkNow')}
-          </Button>
-        </div>
+      <SectionCard>
+        <SectionHeader
+          icon={ArrowUpCircle}
+          title={t('admin.update.title')}
+          description={t('admin.update.desc')}
+          action={
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={checkMutation.isPending || isUpdating}
+              onClick={() => checkMutation.mutate()}
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${checkMutation.isPending ? 'animate-spin' : ''}`}
+              />
+              {checkMutation.isPending ? t('admin.update.checking') : t('admin.update.checkNow')}
+            </Button>
+          }
+        />
 
         {isLoading || !info ? (
-          <div className="space-y-3">
-            <Skeleton className="h-20 w-full rounded-[var(--radius-md)]" />
-            <Skeleton className="h-24 w-full rounded-[var(--radius-md)]" />
-          </div>
+          <SectionLoadingState rows={2} rowHeight="h-20" />
         ) : (
           <>
             {/* Version Metrics Grid */}
@@ -407,19 +403,19 @@ export function SystemUpdateSection() {
             )}
           </>
         )}
-      </section>
+      </SectionCard>
 
       {/* Release Notes / Changelog */}
       {!isLoading && info && (
-        <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-3">
-          <h3 className="text-[14.5px] font-semibold text-[var(--ink-primary)]">
-            {t('admin.update.changelogTitle')}
-          </h3>
+        <SectionCard>
+          <SectionHeader
+            icon={History}
+            iconTone="neutral"
+            title={t('admin.update.changelogTitle')}
+          />
 
           {info.releases.length === 0 ? (
-            <p className="py-6 text-center text-[13px] text-[var(--ink-muted)]">
-              {t('admin.update.noReleases')}
-            </p>
+            <EmptyState icon={History} title={t('admin.update.noReleases')} compact />
           ) : (
             <div className="divide-y divide-[var(--border-hairline)] rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
               {info.releases.map((rel, idx) => {
@@ -484,7 +480,7 @@ export function SystemUpdateSection() {
               })}
             </div>
           )}
-        </section>
+        </SectionCard>
       )}
 
       {/* Apply Update Confirm Dialog */}

@@ -10,7 +10,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -26,6 +25,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  EmptyState,
+  SectionCard,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 
 export function GroupsSection() {
   const { t } = useTranslation()
@@ -54,37 +59,33 @@ export function GroupsSection() {
   }
 
   return (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-            {t('settings.groups.title')}
-          </h2>
-          <p className="mt-0.5 text-[12.5px] text-[var(--ink-secondary)]">
-            {t('settings.groups.desc')}
-          </p>
-        </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-3.5 w-3.5" />
-          {t('settings.groups.addButton')}
-        </Button>
-      </div>
+    <SectionCard>
+      <SectionHeader
+        icon={Folder}
+        title={t('settings.groups.title')}
+        description={t('settings.groups.desc')}
+        action={
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            {t('settings.groups.addButton')}
+          </Button>
+        }
+      />
 
       {isLoading ? (
-        <div className="space-y-2">
-          <Skeleton className="h-14 w-full rounded-[var(--radius-md)]" />
-          <Skeleton className="h-14 w-full rounded-[var(--radius-md)]" />
-        </div>
+        <SectionLoadingState rows={2} rowHeight="h-14" />
       ) : customGroups.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[var(--border-subtle)] py-12 text-center">
-          <Folder className="h-6 w-6 text-[var(--ink-muted)]" />
-          <p className="mt-2 text-[13.5px] font-medium text-[var(--ink-primary)]">
-            {t('settings.groups.empty')}
-          </p>
-          <p className="mt-1 text-[12.5px] text-[var(--ink-muted)]">
-            {t('settings.groups.emptyDesc')}
-          </p>
-        </div>
+        <EmptyState
+          icon={Folder}
+          title={t('settings.groups.empty')}
+          description={t('settings.groups.emptyDesc')}
+          action={
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              {t('settings.groups.addButton')}
+            </Button>
+          }
+        />
       ) : (
         <div className="divide-y divide-[var(--border-hairline)] rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
           {customGroups.map((g) => (
@@ -195,6 +196,6 @@ export function GroupsSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </SectionCard>
   )
 }

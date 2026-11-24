@@ -21,7 +21,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -30,13 +29,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  EmptyState,
+  SectionCard,
+  SectionErrorState,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 import { DnsWizardModal } from './DnsWizardModal'
 
 export function DomainsSection() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
-  const { data: domains = [], isLoading } = useQuery({
+  const { data: domains = [], isLoading, error, refetch } = useQuery({
     queryKey: queryKeys.domains,
     queryFn: () => domainApi.list(),
   })
@@ -114,37 +120,39 @@ export function DomainsSection() {
   })
 
   return (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-            {t('admin.domains.title')}
-          </h2>
-          <p className="mt-0.5 text-[12.5px] text-[var(--ink-secondary)]">
-            {t('admin.domains.desc')}
-          </p>
-        </div>
-        <Button size="sm" onClick={() => setAddOpen(true)}>
-          <Plus className="h-3.5 w-3.5" />
-          {t('admin.domains.addButton')}
-        </Button>
-      </div>
+    <SectionCard>
+      <SectionHeader
+        icon={Globe}
+        title={t('admin.domains.title')}
+        description={t('admin.domains.desc')}
+        action={
+          <Button size="sm" onClick={() => setAddOpen(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            {t('admin.domains.addButton')}
+          </Button>
+        }
+      />
 
-      {isLoading ? (
-        <div className="space-y-3">
-          <Skeleton className="h-24 w-full rounded-[var(--radius-md)]" />
-          <Skeleton className="h-24 w-full rounded-[var(--radius-md)]" />
-        </div>
+      {error ? (
+        <SectionErrorState
+          message={error instanceof Error ? error.message : t('common.unknownError')}
+          retryLabel={t('app.retry')}
+          onRetry={() => void refetch()}
+        />
+      ) : isLoading ? (
+        <SectionLoadingState rows={2} rowHeight="h-24" />
       ) : domains.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[var(--border-subtle)] py-14 text-center">
-          <Globe className="h-7 w-7 text-[var(--ink-muted)]" />
-          <p className="mt-2.5 text-[14px] font-medium text-[var(--ink-primary)]">
-            {t('admin.domains.empty')}
-          </p>
-          <p className="mt-1 text-[12.5px] text-[var(--ink-muted)]">
-            {t('admin.domains.emptyDesc')}
-          </p>
-        </div>
+        <EmptyState
+          icon={Globe}
+          title={t('admin.domains.empty')}
+          description={t('admin.domains.emptyDesc')}
+          action={
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              {t('admin.domains.addButton')}
+            </Button>
+          }
+        />
       ) : (
         <div className="space-y-3">
           {domains.map((dom, idx) => {
@@ -305,6 +313,6 @@ export function DomainsSection() {
           onClose={() => setWizardDomain(null)}
         />
       )}
-    </section>
+    </SectionCard>
   )
 }

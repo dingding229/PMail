@@ -16,7 +16,6 @@ import { cn } from '@/lib/cn'
 import { queryKeys, useUserMeQuery } from '@/hooks/useMailQueries'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -25,6 +24,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  EmptyState,
+  SectionCard,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 
 interface QueueSectionProps {
   /** 'mine' filters to current user inside Settings; 'global' shows all users inside Admin */
@@ -114,26 +119,23 @@ export function QueueSection({ scope }: QueueSectionProps) {
   ]
 
   return (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-            {scope === 'global' ? t('admin.queue.title') : t('settings.queue.title')}
-          </h2>
-          <p className="mt-0.5 text-[12.5px] text-[var(--ink-secondary)]">
-            {scope === 'global' ? t('admin.queue.desc') : t('settings.queue.desc')}
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={isFetching}
-          onClick={() => void refetch()}
-        >
-          <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
-          {t('common.refresh')}
-        </Button>
-      </div>
+    <SectionCard>
+      <SectionHeader
+        icon={SendToBack}
+        title={scope === 'global' ? t('admin.queue.title') : t('settings.queue.title')}
+        description={scope === 'global' ? t('admin.queue.desc') : t('settings.queue.desc')}
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isFetching}
+            onClick={() => void refetch()}
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
+            {t('common.refresh')}
+          </Button>
+        }
+      />
 
       {/* Filters + Search */}
       <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
@@ -168,20 +170,13 @@ export function QueueSection({ scope }: QueueSectionProps) {
       </div>
 
       {isLoading ? (
-        <div className="space-y-2.5">
-          <Skeleton className="h-20 w-full rounded-[var(--radius-md)]" />
-          <Skeleton className="h-20 w-full rounded-[var(--radius-md)]" />
-        </div>
+        <SectionLoadingState rows={2} rowHeight="h-20" />
       ) : items.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[var(--border-subtle)] py-12 text-center">
-          <SendToBack className="h-6 w-6 text-[var(--ink-muted)]" />
-          <p className="mt-2 text-[13.5px] font-medium text-[var(--ink-primary)]">
-            {t('settings.queue.empty')}
-          </p>
-          <p className="mt-1 text-[12.5px] text-[var(--ink-muted)]">
-            {t('settings.queue.emptyDesc')}
-          </p>
-        </div>
+        <EmptyState
+          icon={SendToBack}
+          title={t('settings.queue.empty')}
+          description={t('settings.queue.emptyDesc')}
+        />
       ) : (
         <div className="space-y-2.5">
           {items.map((item) => {
@@ -285,6 +280,6 @@ export function QueueSection({ scope }: QueueSectionProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </SectionCard>
   )
 }

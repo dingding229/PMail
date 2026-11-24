@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { AtSign } from 'lucide-react'
 import { userApi } from '@/api'
 import { queryKeys } from '@/hooks/useMailQueries'
-import { Label } from '@/components/ui/label'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
   SelectContent,
@@ -12,11 +11,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  FormRow,
+  SectionCard,
+  SectionErrorState,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 import { AddressesSection } from '@/features/settings/sections/AddressesSection'
 
 export function AdminAddressesSection() {
   const { t } = useTranslation()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: queryKeys.users(1, 100),
     queryFn: () => userApi.list({ current_page: 1, page_size: 100 }),
   })
@@ -31,22 +37,24 @@ export function AdminAddressesSection() {
   }, [selectedUserId, users])
 
   return (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-5">
-      <div>
-        <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-          {t('admin.addresses.title')}
-        </h2>
-        <p className="mt-0.5 text-[12.5px] text-[var(--ink-secondary)]">
-          {t('admin.addresses.desc')}
-        </p>
-      </div>
+    <SectionCard>
+      <SectionHeader
+        icon={AtSign}
+        title={t('admin.addresses.title')}
+        description={t('admin.addresses.desc')}
+      />
 
-      {isLoading ? (
-        <Skeleton className="h-32 w-full rounded-[var(--radius-md)]" />
+      {error ? (
+        <SectionErrorState
+          message={error instanceof Error ? error.message : t('common.unknownError')}
+          retryLabel={t('app.retry')}
+          onRetry={() => void refetch()}
+        />
+      ) : isLoading ? (
+        <SectionLoadingState rows={2} rowHeight="h-20" />
       ) : (
         <>
-          <div className="max-w-xs space-y-1.5">
-            <Label>{t('admin.addresses.selectUser')}</Label>
+          <FormRow label={t('admin.addresses.selectUser')} className="max-w-sm">
             <Select
               value={selectedUserId ? String(selectedUserId) : ''}
               onValueChange={(v) => setSelectedUserId(Number(v))}
@@ -62,11 +70,11 @@ export function AdminAddressesSection() {
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </FormRow>
 
           {selectedUserId > 0 && <AddressesSection userId={selectedUserId} embedded />}
         </>
       )}
-    </section>
+    </SectionCard>
   )
 }

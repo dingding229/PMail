@@ -27,7 +27,6 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -36,6 +35,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  SectionCard,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 
 function formatCountdown(seconds: number): string {
   const safe = Math.max(0, Math.floor(seconds))
@@ -208,32 +212,20 @@ export function TelegramSection() {
   }
 
   return (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-soft)] text-[var(--accent)]">
-            <Send className="h-4.5 w-4.5" />
-          </div>
-          <div>
-            <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-              {t('settings.telegram.title')}
-            </h2>
-            <p className="mt-0.5 text-[12.5px] text-[var(--ink-secondary)]">
-              {t('settings.telegram.desc')}
-            </p>
-          </div>
-        </div>
-
-        {status?.available && status.bound && (
-          <Badge variant="success">{t('settings.telegram.boundBadge')}</Badge>
-        )}
-      </div>
+    <SectionCard>
+      <SectionHeader
+        icon={Send}
+        title={t('settings.telegram.title')}
+        description={t('settings.telegram.desc')}
+        badge={
+          status?.available && status.bound ? (
+            <Badge variant="success">{t('settings.telegram.boundBadge')}</Badge>
+          ) : undefined
+        }
+      />
 
       {isLoading ? (
-        <div className="space-y-3">
-          <Skeleton className="h-24 w-full rounded-[var(--radius-md)]" />
-          <Skeleton className="h-32 w-full rounded-[var(--radius-md)]" />
-        </div>
+        <SectionLoadingState rows={2} rowHeight="h-24" />
       ) : !status?.available ? (
         /* Admin has not configured Telegram bot */
         <div className="flex items-start gap-3 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-subtle)]/70 p-4">
@@ -582,6 +574,6 @@ export function TelegramSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </SectionCard>
   )
 }

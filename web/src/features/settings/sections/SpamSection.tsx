@@ -24,7 +24,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
   SelectContent,
@@ -32,6 +31,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  EmptyState,
+  FormRow,
+  SectionCard,
+  SectionFooter,
+  SectionHeader,
+  SectionLoadingState,
+} from '@/components/settings'
 
 const MAX_SPAM_RULES = 500
 
@@ -138,36 +145,26 @@ export function SpamSection() {
   return (
     <div className="space-y-5">
       {/* Core Spam Filter Settings */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-5">
-        <div>
-          <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-            {t('settings.spam.title')}
-          </h2>
-          <p className="mt-0.5 text-[12.5px] text-[var(--ink-secondary)]">
-            {t('settings.spam.desc')}
-          </p>
-        </div>
+      <SectionCard>
+        <SectionHeader
+          icon={ShieldBan}
+          title={t('settings.spam.title')}
+          description={t('settings.spam.desc')}
+        />
 
         {settingsLoading ? (
-          <div className="space-y-3">
-            <Skeleton className="h-12 w-full rounded-[var(--radius-md)]" />
-            <Skeleton className="h-20 w-full rounded-[var(--radius-md)]" />
-            <Skeleton className="h-12 w-full rounded-[var(--radius-md)]" />
-          </div>
+          <SectionLoadingState rows={3} rowHeight="h-14" />
         ) : (
           <div className="space-y-4">
             {/* Enable toggle */}
-            <div className="flex items-center justify-between gap-4 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] px-4 py-3">
-              <div className="min-w-0">
-                <p className="text-[13.5px] font-medium text-[var(--ink-primary)]">
-                  {t('settings.spam.enabledLabel')}
-                </p>
-                <p className="mt-0.5 text-[12px] text-[var(--ink-muted)]">
-                  {t('settings.spam.enabledDesc')}
-                </p>
-              </div>
+            <FormRow
+              layout="horizontal"
+              surface
+              label={t('settings.spam.enabledLabel')}
+              description={t('settings.spam.enabledDesc')}
+            >
               <Switch checked={enabled} onCheckedChange={setEnabled} />
-            </div>
+            </FormRow>
 
             {/* Threshold slider (1-20) */}
             <div className="rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] px-4 py-3.5 space-y-2.5">
@@ -201,23 +198,20 @@ export function SpamSection() {
             </div>
 
             {/* Bayesian learning toggle */}
-            <div className="flex items-center justify-between gap-4 rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] px-4 py-3">
-              <div className="min-w-0">
-                <p className="text-[13.5px] font-medium text-[var(--ink-primary)]">
-                  {t('settings.spam.bayesLabel')}
-                </p>
-                <p className="mt-0.5 text-[12px] text-[var(--ink-muted)]">
-                  {t('settings.spam.bayesDesc')}
-                </p>
-              </div>
+            <FormRow
+              layout="horizontal"
+              surface
+              label={t('settings.spam.bayesLabel')}
+              description={t('settings.spam.bayesDesc')}
+            >
               <Switch
                 checked={bayesEnabled}
                 onCheckedChange={setBayesEnabled}
                 disabled={!enabled}
               />
-            </div>
+            </FormRow>
 
-            <div className="flex justify-end">
+            <SectionFooter>
               <Button
                 size="sm"
                 disabled={saveSettingsMutation.isPending}
@@ -234,26 +228,24 @@ export function SpamSection() {
                 )}
                 {t('common.save')}
               </Button>
-            </div>
+            </SectionFooter>
           </div>
         )}
-      </section>
+      </SectionCard>
 
       {/* Allow / Block Rules (max 500) */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-5 shadow-[var(--shadow-xs)] space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <h2 className="text-[15px] font-semibold text-[var(--ink-primary)]">
-              {t('settings.spam.rulesTitle')}
-            </h2>
-            <p className="mt-0.5 text-[12.5px] text-[var(--ink-secondary)]">
-              {t('settings.spam.rulesDesc')}
-            </p>
-          </div>
-          <Badge variant={isAtLimit ? 'danger' : 'default'}>
-            {t('settings.spam.rulesCount', { count: rules.length })}
-          </Badge>
-        </div>
+      <SectionCard>
+        <SectionHeader
+          icon={ShieldCheck}
+          iconTone="neutral"
+          title={t('settings.spam.rulesTitle')}
+          description={t('settings.spam.rulesDesc')}
+          badge={
+            <Badge variant={isAtLimit ? 'danger' : 'default'}>
+              {t('settings.spam.rulesCount', { count: rules.length })}
+            </Badge>
+          }
+        />
 
         {isAtLimit && (
           <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--danger)]/35 bg-[var(--danger-soft)] px-3 py-2 text-[12.5px] text-[var(--danger)]">
@@ -327,16 +319,17 @@ export function SpamSection() {
 
         {/* Rule list */}
         {rulesLoading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-11 w-full rounded-[var(--radius-md)]" />
-            <Skeleton className="h-11 w-full rounded-[var(--radius-md)]" />
-          </div>
+          <SectionLoadingState rows={2} rowHeight="h-11" />
         ) : filteredRules.length === 0 ? (
-          <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--border-subtle)] py-10 text-center text-[13px] text-[var(--ink-muted)]">
-            {rules.length === 0
-              ? t('settings.spam.emptyRules')
-              : t('settings.spam.emptyFiltered')}
-          </div>
+          <EmptyState
+            icon={ShieldCheck}
+            title={
+              rules.length === 0
+                ? t('settings.spam.emptyRules')
+                : t('settings.spam.emptyFiltered')
+            }
+            compact
+          />
         ) : (
           <div className="divide-y divide-[var(--border-hairline)] rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
             {filteredRules.map((rule) => (
@@ -375,7 +368,7 @@ export function SpamSection() {
             ))}
           </div>
         )}
-      </section>
+      </SectionCard>
     </div>
   )
 }
