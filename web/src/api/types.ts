@@ -619,6 +619,25 @@ export interface SignatureInput {
   is_default: boolean
 }
 
+export interface EmailChangeItem {
+  id: number
+  subject?: string
+  title?: string
+  from_name?: string
+  from_address?: string
+  sender?: MailParticipant
+  group_id?: number
+  created?: string
+  datetime_iso?: string
+}
+
+export interface EmailChangesResponse {
+  cursor: string
+  changed: boolean
+  new_count: number
+  new_items: EmailChangeItem[]
+}
+
 export interface EmailListItem {
   deleted_at?: number | null
   purge_at?: number | null

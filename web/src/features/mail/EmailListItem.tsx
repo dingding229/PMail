@@ -24,6 +24,7 @@ interface EmailListItemProps {
   isActive: boolean
   isChecked: boolean
   isStarred: boolean
+  isHighlighted?: boolean
   selectionMode: boolean
   isMobile: boolean
   density?: ListDensity
@@ -45,6 +46,7 @@ export const EmailListItem = memo(function EmailListItem({
   isActive,
   isChecked,
   isStarred,
+  isHighlighted = false,
   selectionMode,
   isMobile,
   density = 'comfortable',
@@ -192,7 +194,9 @@ export const EmailListItem = memo(function EmailListItem({
             ? 'bg-[var(--surface-selected)]'
             : isChecked
               ? 'bg-[var(--accent-soft)]/50'
-              : 'bg-[var(--surface-list)] hover:bg-[var(--surface-hover)]',
+              : isHighlighted
+                ? 'animate-new-mail-highlight hover:bg-[var(--surface-hover)]'
+                : 'bg-[var(--surface-list)] hover:bg-[var(--surface-hover)]',
         )}
       >
         {/* Active left accent bar */}

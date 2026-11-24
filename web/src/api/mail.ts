@@ -7,6 +7,7 @@ import type {
   EmailAIExtractResult,
   EmailAIRequest,
   EmailAISummaryResult,
+  EmailChangesResponse,
   EmailDetail,
   EmailListRequest,
   EmailListResponse,
@@ -27,6 +28,18 @@ export const mailApi = {
     apiPost<EmailListResponse>('/api/email/list', payload, { signal }),
 
   addressCounts: (signal?: AbortSignal) => apiGet<AddressCounts>('/api/email/address_counts', { cache: 'no-store', signal }),
+
+  changes: (params: { cursor?: string; wait?: number; signal?: AbortSignal }) => {
+    const search = new URLSearchParams()
+    search.set('cursor', params.cursor ?? '')
+    if (params.wait !== undefined) {
+      search.set('wait', String(params.wait))
+    }
+    return apiGet<EmailChangesResponse>(`/api/email/changes?${search.toString()}`, {
+      cache: 'no-store',
+      signal: params.signal,
+    })
+  },
 
   detail: (id: number, signal?: AbortSignal) =>
     apiPost<EmailDetail>('/api/email/detail', { id }, { signal }),

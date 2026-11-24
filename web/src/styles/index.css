@@ -334,3 +334,26 @@
   border-color: var(--border-subtle) !important;
   color: var(--ink-secondary) !important;
 }
+
+@keyframes new-mail-highlight {
+  0% {
+    background-color: color-mix(in srgb, var(--accent) 18%, var(--surface-list));
+  }
+  70% {
+    background-color: color-mix(in srgb, var(--accent) 12%, var(--surface-list));
+  }
+  100% {
+    background-color: var(--surface-list);
+  }
+}
+
+.animate-new-mail-highlight {
+  animation: new-mail-highlight 2.2s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-new-mail-highlight {
+    animation: none;
+    background-color: color-mix(in srgb, var(--accent) 12%, var(--surface-list));
+  }
+}

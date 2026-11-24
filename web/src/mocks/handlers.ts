@@ -358,6 +358,55 @@ function countPendingAddressRequests(): number {
   return mockAddressRequests.filter((r) => r.status === 'pending').length
 }
 
+let mockLiveChangeSeq = 1
+let mockLiveSampleIdx = 0
+
+const MOCK_LIVE_TEMPLATES = [
+  {
+    from_name: 'GitHub Actions',
+    from_address: 'notifications@github.com',
+    subject: '[pmail/pmail] Release v0.0.8 workflow succeeded',
+    text: 'All CI checks and cross-platform builds for v0.0.8 completed without errors.',
+  },
+  {
+    from_name: 'Stripe Billing',
+    from_address: 'billing@stripe.com',
+    subject: '您的 11 月云服务账单已生成（INV-2026-1124）',
+    text: '本月账单金额为 ¥328.00，已自动从默认支付方式扣款，详情请登录控制台查看。',
+  },
+  {
+    from_name: '苏明远',
+    from_address: 'mingyuan@pmail.dev',
+    subject: 'Re: V7 实时刷新联调确认',
+    text: '刚刚测完长轮询与跨标签页同步，切回页面后的恢复延迟很低，可以合入主干。',
+  },
+  {
+    from_name: 'Cloudflare Status',
+    from_address: 'noreply@notify.cloudflare.com',
+    subject: 'DNSSEC key rollover completed for pmail.dev',
+    text: 'The scheduled DNSSEC key rotation for pmail.dev has finished cleanly with zero downtime.',
+  },
+]
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<boolean> {
+  if (ms <= 0) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve(false)
+      return
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve(true)
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      resolve(false)
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 let mockUserTelegramFilters: TelegramFilters = {
   group_ids: null,
   only_verification: false,
@@ -1998,6 +2047,102 @@ export const handlers = [
         .map((a) => ({ ...a, unread: unread.filter((rec) => matchesMockAddress(rec, a.id)).length })),
       all_unread: unread.length,
       other: { unread: unread.filter((rec) => matchesMockAddress(rec, 'other')).length, has_mail: records.some((rec) => matchesMockAddress(rec, 'other')) },
+    })
+  }),
+
+  http.get('/api/email/changes', async ({ request }) => {
+    if (!loggedIn) return fail('未登录', 403, 401)
+    const url = new URL(request.url)
+    const cursor = url.searchParams.get('cursor') ?? ''
+    const waitParam = Number(url.searchParams.get('wait') ?? '25')
+    const waitSec = Number.isFinite(waitParam) ? Math.max(0, Math.min(25, waitParam)) : 25
+
+    // First call with empty cursor returns immediately
+    if (!cursor) {
+      return ok({
+        cursor: String(mockLiveChangeSeq),
+        changed: false,
+        new_count: 0,
+        new_items: [],
+      })
+    }
+
+    const liveDisabled =
+      typeof window !== 'undefined' && localStorage.getItem('pmail_mock_live') === '0'
+    const customIntervalMs =
+      typeof window !== 'undefined'
+        ? Number(localStorage.getItem('pmail_mock_live_interval_ms') || '0')
+        : 0
+    const intervalMs = customIntervalMs > 0 ? customIntervalMs : 15_000
+
+    if (liveDisabled) {
+      const waitMs = waitSec > 0 ? Math.min(waitSec * 1000, 15_000) : 50
+      await abortableDelay(waitMs, request.signal)
+      return ok({
+        cursor: String(mockLiveChangeSeq),
+        changed: false,
+        new_count: 0,
+        new_items: [],
+      })
+    }
+
+    const delayMs = waitSec > 0 ? Math.min(waitSec * 1000, intervalMs) : 60
+    const completed = await abortableDelay(delayMs, request.signal)
+    if (!completed) {
+      return ok({
+        cursor: String(mockLiveChangeSeq),
+        changed: false,
+        new_count: 0,
+        new_items: [],
+      })
+    }
+
+    const tpl = MOCK_LIVE_TEMPLATES[mockLiveSampleIdx % MOCK_LIVE_TEMPLATES.length]!
+    mockLiveSampleIdx += 1
+    const newId = nextEmailId++
+    const now = dayjs()
+    const newRecord: MockEmailRecord = {
+      id: newId,
+      type: 0,
+      status: 0,
+      group_id: 0,
+      mailbox_address_ids: [1],
+      is_read: false,
+      is_starred: false,
+      dangerous: false,
+      auth_status: 'pass',
+      error: '',
+      subject: tpl.subject,
+      from_name: tpl.from_name,
+      from_address: tpl.from_address,
+      to: [{ Name: '林深', EmailAddress: 'admin@pmail.dev' }],
+      cc: [],
+      reply_to: [],
+      send_date: now.format('YYYY-MM-DD HH:mm:ss'),
+      text: tpl.text,
+      html: `<p>${tpl.text}</p>`,
+      size: 1840,
+      msg_id: `<live-${newId}@pmail.dev>`,
+      attachments: [],
+    }
+    emailStore.set(newId, newRecord)
+    mockLiveChangeSeq += 1
+
+    return ok({
+      cursor: String(mockLiveChangeSeq),
+      changed: true,
+      new_count: 1,
+      new_items: [
+        {
+          id: newId,
+          subject: newRecord.subject,
+          from_name: newRecord.from_name,
+          from_address: newRecord.from_address,
+          group_id: 0,
+          created: now.toISOString(),
+          datetime_iso: now.toISOString(),
+        },
+      ],
     })
   }),
 

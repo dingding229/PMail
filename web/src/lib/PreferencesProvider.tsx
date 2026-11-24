@@ -19,6 +19,17 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     return 'right'
   })
 
+  const [autoRefresh, setAutoRefreshState] = useState<boolean>(() => {
+    const raw = getRawStorage('auto_refresh')
+    if (raw === '0' || raw === 'false') return false
+    return true
+  })
+
+  const [desktopNotifications, setDesktopNotificationsState] = useState<boolean>(() => {
+    const raw = getRawStorage('desktop_notifications')
+    return raw === '1' || raw === 'true'
+  })
+
   const setListDensity = (next: ListDensity) => {
     setListDensityState(next)
     setRawStorage('list_density', next)
@@ -29,13 +40,27 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     setRawStorage('reading_pane_pos', next)
   }
 
+  const setAutoRefresh = (next: boolean) => {
+    setAutoRefreshState(next)
+    setRawStorage('auto_refresh', next ? '1' : '0')
+  }
+
+  const setDesktopNotifications = (next: boolean) => {
+    setDesktopNotificationsState(next)
+    setRawStorage('desktop_notifications', next ? '1' : '0')
+  }
+
   return (
     <PreferencesContext.Provider
       value={{
         listDensity,
         readingPanePosition,
+        autoRefresh,
+        desktopNotifications,
         setListDensity,
         setReadingPanePosition,
+        setAutoRefresh,
+        setDesktopNotifications,
       }}
     >
       {children}

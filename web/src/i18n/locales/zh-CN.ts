@@ -275,6 +275,14 @@ const zhCN = {
       refreshed: '邮件列表已更新',
     },
 
+    live: {
+      busy: '实时刷新连接繁忙，正在自动重试',
+      newMailPill: '{{count}} 封新邮件',
+      toastWithPreview: '收到 {{count}} 封新邮件 · {{sender}}：{{subject}}',
+      toastGeneric: '收到 {{count}} 封新邮件',
+      toastOpen: '查看',
+    },
+
     verificationCode: {
       label: '验证码',
       possibleLabel: '可能是验证码',
@@ -774,6 +782,14 @@ const zhCN = {
       readingPosBottomDesc: '列表在上方，阅读区在下方展开',
       readingPosOff: '关闭分栏',
       readingPosOffDesc: '列表占满工作区，点击邮件全屏阅读',
+      liveTitle: '实时刷新与提醒',
+      liveDesc: '控制网页端是否自动接收新邮件更新以及浏览器桌面通知',
+      autoRefreshLabel: '自动刷新',
+      autoRefreshDesc: '开启后自动监听新邮件并实时更新列表与未读数；关闭后仅使用顶部手动刷新按钮',
+      desktopNotifLabel: '新邮件桌面通知',
+      desktopNotifDesc: '仅在页面隐藏于后台时弹出系统通知，仅显示发件人与主题，不含正文内容',
+      desktopNotifDenied: '浏览器已拒绝通知权限，请在浏览器地址栏站点设置中重新允许通知后再开启。',
+      desktopNotifUnsupported: '当前浏览器不支持桌面通知',
     },
     addresses: {
       title: '我的邮箱地址与别名',

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useTranslation } from 'react-i18next'
 import {
+  ArrowUp,
   FileEdit,
   FolderInput,
   Inbox,
@@ -87,6 +88,10 @@ interface EmailListPaneProps {
   onCancelPrefetch: () => void
   onResumeDraft: (draft: LocalDraft) => void
   onDiscardDraft: (draftId: string) => void
+  highlightedIds?: ReadonlySet<number>
+  pendingNewCount?: number
+  onShowPendingNew?: () => void
+  onScrollPositionChange?: (scrolledDown: boolean) => void
 }
 
 export function EmailListPane({
@@ -133,11 +138,16 @@ export function EmailListPane({
   onCancelPrefetch,
   onResumeDraft,
   onDiscardDraft,
+  highlightedIds,
+  pendingNewCount = 0,
+  onShowPendingNew,
+  onScrollPositionChange,
 }: EmailListPaneProps) {
   const { t, i18n } = useTranslation()
   const [emptyTrashOpen, setEmptyTrashOpen] = useState(false)
   const [confirmHardDelIds, setConfirmHardDelIds] = useState<number[] | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const lastScrolledDownRef = useRef(false)
   const [pullDistance, setPullDistance] = useState(0)
   const pullStartY = useRef<number | null>(null)
 
@@ -479,15 +489,41 @@ export function EmailListPane({
       )}
 
       {/* Virtualized List Body */}
-      <div
-        ref={scrollRef}
-        role="listbox"
-        aria-label={folderTitle}
-        onTouchStart={handlePullStart}
-        onTouchMove={handlePullMove}
-        onTouchEnd={handlePullEnd}
-        className="mail-scroll flex-1 overflow-y-auto"
-      >
+      <div className="relative flex flex-1 flex-col overflow-hidden">
+        {pendingNewCount > 0 && onShowPendingNew && (
+          <div className="pointer-events-none absolute inset-x-0 top-2.5 z-20 flex justify-center px-3">
+            <button
+              type="button"
+              onClick={() => {
+                scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+                lastScrolledDownRef.current = false
+                onScrollPositionChange?.(false)
+                onShowPendingNew()
+              }}
+              className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-3.5 py-1.5 text-[12.5px] font-medium text-white shadow-[var(--shadow-md)] transition-transform hover:scale-[1.02] hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+              <span>{t('mail.live.newMailPill', { count: pendingNewCount })}</span>
+            </button>
+          </div>
+        )}
+
+        <div
+          ref={scrollRef}
+          role="listbox"
+          aria-label={folderTitle}
+          onScroll={(e) => {
+            const scrolledDown = e.currentTarget.scrollTop > 12
+            if (scrolledDown !== lastScrolledDownRef.current) {
+              lastScrolledDownRef.current = scrolledDown
+              onScrollPositionChange?.(scrolledDown)
+            }
+          }}
+          onTouchStart={handlePullStart}
+          onTouchMove={handlePullMove}
+          onTouchEnd={handlePullEnd}
+          className="mail-scroll flex-1 overflow-y-auto"
+        >
         {/* Local auto-saved drafts inside Drafts folder */}
         {isDraftsFolder && localDrafts.length > 0 && (
           <div className="border-b border-[var(--border-subtle)] bg-[var(--surface-subtle)]/40">
@@ -618,6 +654,7 @@ export function EmailListPane({
                       isActive={activeEmailId === email.id}
                       isChecked={checkedIds.has(email.id)}
                       isStarred={Boolean(email.is_starred)}
+                      isHighlighted={Boolean(highlightedIds?.has(email.id))}
                       selectionMode={selectionMode}
                       isMobile={isMobile}
                       density={density}
@@ -639,6 +676,7 @@ export function EmailListPane({
             })}
           </div>
         )}
+        </div>
       </div>
 
       {/* Empty Trash Confirm Dialog */}

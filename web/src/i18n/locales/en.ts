@@ -275,6 +275,14 @@ const en = {
       refreshed: 'Mailbox refreshed',
     },
 
+    live: {
+      busy: 'Live updates are busy; retrying automatically',
+      newMailPill: '{{count}} new message(s)',
+      toastWithPreview: '{{count}} new message(s) · {{sender}}: {{subject}}',
+      toastGeneric: '{{count}} new message(s)',
+      toastOpen: 'Open',
+    },
+
     verificationCode: {
       label: 'Verification Code',
       possibleLabel: 'Possible verification code',
@@ -774,6 +782,14 @@ const en = {
       readingPosBottomDesc: 'Message list on top, reader below',
       readingPosOff: 'Off (List Only)',
       readingPosOffDesc: 'Full-width list, click to read fullscreen',
+      liveTitle: 'Live Updates & Notifications',
+      liveDesc: 'Control automatic background refresh and browser desktop notifications',
+      autoRefreshLabel: 'Auto refresh',
+      autoRefreshDesc: 'Automatically listen for new mail and refresh unread counts; turn off to use manual refresh only',
+      desktopNotifLabel: 'New mail desktop notifications',
+      desktopNotifDesc: 'Shown only while this tab is hidden. Displays sender and subject only, never body text.',
+      desktopNotifDenied: 'Browser notification permission is denied. Re-enable notifications in site settings to turn this on.',
+      desktopNotifUnsupported: 'Desktop notifications are not supported in this browser',
     },
     addresses: {
       title: 'My Addresses & Aliases',

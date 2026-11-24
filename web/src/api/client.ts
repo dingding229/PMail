@@ -144,6 +144,7 @@ const MACHINE_ERROR_KEY_MAP: Record<string, string> = {
   domain_not_found: 'admin.addressApproval.errors.domainNotFound',
   address_already_reviewed: 'admin.addressApproval.errors.alreadyReviewed',
   address_exists: 'admin.addressApproval.errors.addressExists',
+  live_updates_busy: 'mail.live.busy',
 }
 
 function resolveApiErrorMessage(rawMessage: string | undefined, status: number): string {

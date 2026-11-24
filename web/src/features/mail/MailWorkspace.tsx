@@ -16,6 +16,7 @@ import {
   SYSTEM_GROUP_IDS,
   userApi,
   type AddressFilter,
+  type EmailChangesResponse,
   type EmailDetail,
   type EmailListItem,
 } from '@/api'
@@ -47,6 +48,12 @@ import {
 } from '@/hooks/useMailQueries'
 import { useLocalDrafts } from '@/hooks/useDrafts'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
+import {
+  decideNewMailPresentation,
+  formatChangeSender,
+  formatChangeSubject,
+} from '@/hooks/liveUpdatesCore'
+import { useMailLiveUpdates } from '@/hooks/useMailLiveUpdates'
 import { createLogoutHandler } from '@/features/auth/logout'
 import { Button } from '@/components/ui/button'
 import {
@@ -95,7 +102,7 @@ export function MailWorkspace() {
     ? Number(requestedMail)
     : null
   const { isDesktop, isTablet, isMobile } = useViewportBreakpoint()
-  const { listDensity, readingPanePosition } = usePreferences()
+  const { listDensity, readingPanePosition, autoRefresh, desktopNotifications } = usePreferences()
 
   // Resizable column widths persisted in localStorage
   const [sidebarWidth, setSidebarWidth] = useState<number>(() =>
@@ -118,6 +125,11 @@ export function MailWorkspace() {
 
   const [composeContext, setComposeContext] = useState<ComposeContext | null>(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [highlightedIds, setHighlightedIds] = useState<Set<number>>(new Set())
+  const [pendingNewCount, setPendingNewCount] = useState(0)
+  const pendingNewIdsRef = useRef<number[]>([])
+  const isListScrolledDownRef = useRef(false)
+  const highlightTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
   const [quickMoveIds, setQuickMoveIds] = useState<number[] | null>(null)
   const [confirmForcedDeleteIds, setConfirmForcedDeleteIds] = useState<number[] | null>(null)
 
@@ -501,11 +513,152 @@ export function MailWorkspace() {
   )
 
   const handleRefresh = useCallback(() => {
+    setPendingNewCount(0)
+    pendingNewIdsRef.current = []
     void refetchList().then(() => {
       toast.success(t('mail.toast.refreshed'))
     })
     void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.addressCounts })
   }, [refetchList, queryClient, t])
+
+  const highlightEmailIds = useCallback((ids: number[]) => {
+    if (ids.length === 0) return
+    setHighlightedIds((prev) => {
+      const next = new Set(prev)
+      for (const id of ids) next.add(id)
+      return next
+    })
+    for (const id of ids) {
+      const existing = highlightTimersRef.current.get(id)
+      if (existing) clearTimeout(existing)
+      const timer = setTimeout(() => {
+        highlightTimersRef.current.delete(id)
+        setHighlightedIds((prev) => {
+          if (!prev.has(id)) return prev
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+      }, 2300)
+      highlightTimersRef.current.set(id, timer)
+    }
+  }, [])
+
+  useEffect(() => {
+    const timers = highlightTimersRef.current
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer)
+      timers.clear()
+    }
+  }, [])
+
+  // Sync browser tab title with total unread count from addressCounts
+  useEffect(() => {
+    const unread = addressCounts?.all_unread ?? 0
+    document.title = unread > 0 ? `(${unread}) PMail` : 'PMail'
+    return () => {
+      document.title = 'PMail'
+    }
+  }, [addressCounts?.all_unread])
+
+  // Clear pending pill when switching folders (depend on primitive folderParam, not object identity)
+  useEffect(() => {
+    setPendingNewCount(0)
+    pendingNewIdsRef.current = []
+    isListScrolledDownRef.current = false
+  }, [folderParam])
+
+  const handleOpenMailFromNotification = useCallback(
+    (id: number) => {
+      if (!(activeFolder.kind === 'system' && activeFolder.key === 'inbox')) {
+        navigate(folderURL('inbox', addressView))
+      }
+      setActiveEmailId(id)
+      setPendingNewCount(0)
+      pendingNewIdsRef.current = []
+      void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
+      markReadMutation.mutate({ ids: [id], isRead: true, silent: true })
+    },
+    [activeFolder, addressView, markReadMutation, navigate, queryClient],
+  )
+
+  const handleShowPendingNew = useCallback(() => {
+    const ids = pendingNewIdsRef.current
+    pendingNewIdsRef.current = []
+    setPendingNewCount(0)
+    void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
+    if (ids.length > 0) {
+      highlightEmailIds(ids)
+    }
+  }, [highlightEmailIds, queryClient])
+
+  const handleLiveChanges = useCallback(
+    (res: EmailChangesResponse) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.addressCounts })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sidebarGroups })
+
+      const isInbox = activeFolder.kind === 'system' && activeFolder.key === 'inbox'
+      const decision = decideNewMailPresentation({
+        isScrolledDown: isListScrolledDownRef.current,
+        hasMultiSelection: checkedIds.size > 0,
+        isInbox,
+        newCount: res.new_count ?? 0,
+      })
+
+      const newIds = (res.new_items ?? []).map((item) => item.id).filter((id) => id > 0)
+
+      if (decision.shouldAutoRefreshList) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.emailListsRoot })
+        if (newIds.length > 0) {
+          highlightEmailIds(newIds)
+        }
+      } else if (decision.shouldShowPill) {
+        setPendingNewCount((prev) => prev + res.new_count)
+        if (newIds.length > 0) {
+          pendingNewIdsRef.current = [...newIds, ...pendingNewIdsRef.current].slice(0, 50)
+        }
+      }
+
+      if (decision.shouldShowToast && res.new_count > 0) {
+        const first = res.new_items?.[0]
+        const sender = first ? formatChangeSender(first) || t('mail.unknownSender') : ''
+        const subject = first ? formatChangeSubject(first) || t('mail.noSubject') : ''
+        const title = first
+          ? t('mail.live.toastWithPreview', {
+              count: res.new_count,
+              sender,
+              subject,
+            })
+          : t('mail.live.toastGeneric', { count: res.new_count })
+
+        toast(title, {
+          action: first
+            ? {
+                label: t('mail.live.toastOpen'),
+                onClick: () => handleOpenMailFromNotification(first.id),
+              }
+            : undefined,
+        })
+      }
+    },
+    [
+      activeFolder,
+      checkedIds.size,
+      handleOpenMailFromNotification,
+      highlightEmailIds,
+      queryClient,
+      t,
+    ],
+  )
+
+  useMailLiveUpdates({
+    enabled: autoRefresh && !loggingOut,
+    desktopNotifications,
+    noSubjectLabel: t('mail.noSubject'),
+    onChanges: handleLiveChanges,
+    onOpenEmail: handleOpenMailFromNotification,
+  })
 
   const handleOpenCompose = useCallback((ctx: ComposeContext) => {
     setComposeContext(ctx)
@@ -788,6 +941,12 @@ export function MailWorkspace() {
       onCancelPrefetch={cancelPrefetch}
       onResumeDraft={handleResumeDraft}
       onDiscardDraft={handleDiscardDraft}
+      highlightedIds={highlightedIds}
+      pendingNewCount={pendingNewCount}
+      onShowPendingNew={handleShowPendingNew}
+      onScrollPositionChange={(scrolledDown) => {
+        isListScrolledDownRef.current = scrolledDown
+      }}
     />
   )
 

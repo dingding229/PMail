@@ -1,7 +1,11 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import {
+  Bell,
   Check,
   Columns2,
+  Info,
   List,
   Monitor,
   Moon,
@@ -17,6 +21,7 @@ import {
   type ReadingPanePosition,
 } from '@/lib/preferences'
 import { cn } from '@/lib/cn'
+import { Switch } from '@/components/ui/switch'
 import { SectionCard, SectionHeader } from '@/components/settings'
 
 export function AppearanceSection() {
@@ -25,9 +30,51 @@ export function AppearanceSection() {
   const {
     listDensity,
     readingPanePosition,
+    autoRefresh,
+    desktopNotifications,
     setListDensity,
     setReadingPanePosition,
+    setAutoRefresh,
+    setDesktopNotifications,
   } = usePreferences()
+
+  const notificationSupported = typeof window !== 'undefined' && 'Notification' in window
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>(() =>
+    notificationSupported ? Notification.permission : 'denied',
+  )
+
+  const handleToggleDesktopNotifications = async (checked: boolean) => {
+    if (!checked) {
+      setDesktopNotifications(false)
+      return
+    }
+    if (!notificationSupported) {
+      setDesktopNotifications(false)
+      toast.error(t('settings.appearance.desktopNotifUnsupported'))
+      return
+    }
+    if (Notification.permission === 'granted') {
+      setNotifPermission('granted')
+      setDesktopNotifications(true)
+      return
+    }
+    if (Notification.permission === 'denied') {
+      setNotifPermission('denied')
+      setDesktopNotifications(false)
+      return
+    }
+    try {
+      const result = await Notification.requestPermission()
+      setNotifPermission(result)
+      if (result === 'granted') {
+        setDesktopNotifications(true)
+      } else {
+        setDesktopNotifications(false)
+      }
+    } catch {
+      setDesktopNotifications(false)
+    }
+  }
 
   const themeOptions: { value: ThemeMode; label: string; desc: string; icon: typeof Sun }[] = [
     {
@@ -204,6 +251,54 @@ export function AppearanceSection() {
                 </button>
               )
             })}
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* Live Updates & Desktop Notifications */}
+      <SectionCard>
+        <SectionHeader
+          icon={Bell}
+          title={t('settings.appearance.liveTitle')}
+          description={t('settings.appearance.liveDesc')}
+        />
+
+        <div className="divide-y divide-[var(--border-hairline)] rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+          <div className="flex items-center justify-between gap-4 px-4 py-3.5">
+            <div className="space-y-0.5">
+              <p className="text-[13.5px] font-medium text-[var(--ink-primary)]">
+                {t('settings.appearance.autoRefreshLabel')}
+              </p>
+              <p className="text-[12px] text-[var(--ink-muted)]">
+                {t('settings.appearance.autoRefreshDesc')}
+              </p>
+            </div>
+            <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} />
+          </div>
+
+          <div className="space-y-2.5 px-4 py-3.5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <p className="text-[13.5px] font-medium text-[var(--ink-primary)]">
+                  {t('settings.appearance.desktopNotifLabel')}
+                </p>
+                <p className="text-[12px] text-[var(--ink-muted)]">
+                  {t('settings.appearance.desktopNotifDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={desktopNotifications && notifPermission === 'granted'}
+                disabled={!notificationSupported}
+                onCheckedChange={(checked) => void handleToggleDesktopNotifications(checked)}
+              />
+            </div>
+
+            {notificationSupported && notifPermission === 'denied' && (
+              <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--warning)]/30 bg-[var(--warning-soft)]/70 px-3 py-2 text-[12px] text-[var(--ink-secondary)]">
+                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--warning)]" />
+                <span>{t('settings.appearance.desktopNotifDenied')}</span>
+              </div>
+            )}
           </div>
         </div>
       </SectionCard>

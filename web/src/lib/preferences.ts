@@ -6,8 +6,12 @@ export type ReadingPanePosition = 'right' | 'bottom' | 'off'
 export interface PreferencesContextValue {
   listDensity: ListDensity
   readingPanePosition: ReadingPanePosition
+  autoRefresh: boolean
+  desktopNotifications: boolean
   setListDensity: (density: ListDensity) => void
   setReadingPanePosition: (pos: ReadingPanePosition) => void
+  setAutoRefresh: (enabled: boolean) => void
+  setDesktopNotifications: (enabled: boolean) => void
 }
 
 export const PreferencesContext = createContext<PreferencesContextValue | null>(null)
