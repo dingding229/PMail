@@ -2753,6 +2753,33 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '405': {$ref: '#/components/responses/MethodNotAllowed'}
         '500': {$ref: '#/components/responses/InternalError'}
+  /api/email/image/{id}:
+    get:
+      operationId: remoteImageProxy
+      tags: [Mail]
+      summary: Load an external image of a mail through the server (reader IP privacy)
+      x-permission: owner
+      description: Fetches an external http(s) image referenced by the mail body, so the sender sees the server's address
+        instead of the reader's IP, browser and cookies. Only URLs present in the mail are fetched, only public internet
+        addresses are reached, and only image content up to 8 MiB is returned. Errors carry an empty body.
+      parameters:
+      - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+      - {name: u, in: query, required: true, description: The image URL as written in the mail., schema: {type: string, maxLength: 4096}}
+      - {name: t, in: query, required: true, description: image_proxy_token from the mail detail response., schema: {type: string}}
+      responses:
+        '200':
+          description: Image bytes (png, jpeg, gif, webp, avif, bmp, icon or svg).
+          headers:
+            Cache-Control:
+              schema: {const: 'private, max-age=604800, immutable'}
+          content:
+            image/*:
+              schema: {type: string, format: binary}
+        '400': {description: Invalid mail id or URL.}
+        '403': {description: Missing or wrong token, or the URL does not occur in the mail.}
+        '404': {description: Mail not found or not readable by the caller.}
+        '415': {description: Upstream content is not an image or is too large.}
+        '502': {description: Upstream unreachable, not public, or returned an error.}
   /api/attachments/{id}:
     get:
       operationId: inlineAttachment
@@ -8423,6 +8450,7 @@ components:
         needs_translation: {type: boolean, description: Heuristic based on the target language writing system.}
         translation_engines: {type: array, items: {$ref: '#/components/schemas/C27Engine'}}
         ai_available: {type: boolean, description: The caller owns this mail, AI configuration is permitted, and the caller has saved an AI connection.}
+        image_proxy_token: {type: string, description: 'Token for /api/email/image/{id}; empty when the server has no secret key.'}
         mailbox_addresses:
           type: array
           items: {$ref: '#/components/schemas/MailboxAddressMatch'}

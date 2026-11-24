@@ -52,6 +52,7 @@ import {
   sanitizePastedHtml,
 } from './editor/paste-sanitizer'
 import { htmlToMailPlainText } from './editor/html-to-text'
+import { proxiedImageUrl } from './remoteImages'
 import { SIGNATURE_BLOCK_ATTR, type InlineImageDraft } from './editor/types'
 import type { ComposeContext, LocalDraft } from './types'
 
@@ -69,6 +70,15 @@ function prepareOutgoingHtml(html: string): { html: string; inlineImages: Inline
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const seen = new Set<string>()
   const inlineImages: InlineImageRef[] = []
+
+  // Quoted external images are displayed through the image proxy; the
+  // recipient gets the original URL.
+  for (const img of Array.from(doc.querySelectorAll('img[data-remote-src]'))) {
+    const original = img.getAttribute('data-remote-src') || ''
+    img.removeAttribute('data-remote-src')
+    if (/^https?:\/\//i.test(original)) img.setAttribute('src', original)
+    else img.remove()
+  }
 
   for (const img of Array.from(doc.querySelectorAll('img[data-cid]'))) {
     const cid = img.getAttribute('data-cid')?.trim()
@@ -162,6 +172,22 @@ interface BuildQuotedHtmlOptions {
   fallbackImageLabel: string
 }
 
+// Show quoted external images through the image proxy so composing a reply
+// does not load them from the sender's server.
+function proxyQuotedImages(html: string, emailId: number, token: string): string {
+  if (typeof DOMParser === 'undefined' || !html) return html
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  for (const img of Array.from(doc.querySelectorAll('img'))) {
+    const src = (img.getAttribute('src') || '').trim()
+    if (!/^(?:https?:)?\/\//i.test(src)) continue
+    const original = src.startsWith('//') ? `https:${src}` : src
+    img.setAttribute('data-remote-src', original)
+    img.setAttribute('src', proxiedImageUrl(emailId, token, original))
+    img.removeAttribute('srcset')
+  }
+  return doc.body.innerHTML
+}
+
 function buildQuotedHtml(
   srcHtml: string | undefined,
   srcText: string | undefined,
@@ -169,13 +195,17 @@ function buildQuotedHtml(
 ): string {
   // Preserve rich HTML (code blocks, tables, lists) while strictly blocking external tracking images unless explicitly allowed
   if (srcHtml && srcHtml.trim().length > 0) {
-    return sanitizePastedHtml(srcHtml, {
-      blockExternalImages: !opts.allowExternalImages,
+    const token = opts.sourceEmail?.image_proxy_token
+    const canProxy = opts.allowExternalImages && Boolean(opts.sourceEmail && token)
+    const quoted = sanitizePastedHtml(srcHtml, {
+      // Without the proxy, external images are never shown in the editor.
+      blockExternalImages: !canProxy,
       maxDataImageBytes: MAX_INLINE_IMAGE_BYTES,
       resolveCidUrl: buildCidResolver(opts.sourceEmail),
       imagePlaceholder: opts.imagePlaceholder,
       fallbackImageLabel: opts.fallbackImageLabel,
     })
+    return canProxy ? proxyQuotedImages(quoted, opts.sourceEmail!.id, token!) : quoted
   }
   const text = srcText || ''
   if (!text) return ''

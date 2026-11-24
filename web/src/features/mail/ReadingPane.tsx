@@ -77,6 +77,7 @@ import {
 } from '@/components/ui/tooltip'
 import { SenderAvatar } from '@/components/common/SenderAvatar'
 import { isSenderAuthVerified } from '@/lib/brandAvatars'
+import { usePreferences } from '@/lib/preferences'
 import { SandboxedHtmlFrame } from './SandboxedHtmlFrame'
 import { PlainTextMailView } from './PlainTextMailView'
 import { AttachmentSection } from './AttachmentSection'
@@ -382,6 +383,17 @@ export function ReadingPane({
 
   const isInTrash = folder.kind === 'system' && folder.key === 'trash'
   const isInJunk = folder.kind === 'system' && folder.key === 'junk'
+  // Auto-loading (always through the image proxy) is skipped for junk and
+  // risky mail; the reader can still load images there by hand.
+  const { autoLoadImages } = usePreferences()
+  const autoImagesAllowed =
+    autoLoadImages &&
+    !isInJunk &&
+    email?.spam?.verdict !== 'spam' &&
+    email?.risk?.level !== 'high' &&
+    email?.risk?.level !== 'medium'
+  const imagesShown = externalImagesAllowed || autoImagesAllowed
+
   const isDraftOrSentFolder =
     folder.kind === 'system' && (folder.key === 'drafts' || folder.key === 'sent')
   const isDangerous = (() => {
@@ -1328,7 +1340,7 @@ export function ReadingPane({
           )}
 
           {/* External Images Privacy Blocker Banner */}
-          {hasHtml && hasExternalImages && !externalImagesAllowed && (
+          {hasHtml && hasExternalImages && !imagesShown && (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--surface-subtle)] px-3.5 py-2 text-[12.5px]">
               <div className="flex items-center gap-2 text-[var(--ink-secondary)]">
                 <ImageIcon className="h-4 w-4 shrink-0 text-[var(--ink-muted)]" />
@@ -1338,6 +1350,7 @@ export function ReadingPane({
                 type="button"
                 variant="secondary"
                 size="xs"
+                title={t('mail.security.loadExternalImagesHint')}
                 onClick={() => setExternalImagesAllowed(true)}
               >
                 {t('mail.security.loadExternalImages')}
@@ -1382,7 +1395,9 @@ export function ReadingPane({
             {hasHtml ? (
               <SandboxedHtmlFrame
                 html={email.html}
-                allowExternalImages={externalImagesAllowed}
+                emailId={email.id}
+                imageProxyToken={email.image_proxy_token}
+                allowExternalImages={imagesShown}
                 onDetectExternalImages={handleDetectExternal}
               />
             ) : (

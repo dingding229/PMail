@@ -9,11 +9,13 @@ export interface PreferencesContextValue {
   autoRefresh: boolean
   desktopNotifications: boolean
   showBrandAvatars: boolean
+  autoLoadImages: boolean
   setListDensity: (density: ListDensity) => void
   setReadingPanePosition: (pos: ReadingPanePosition) => void
   setAutoRefresh: (enabled: boolean) => void
   setDesktopNotifications: (enabled: boolean) => void
   setShowBrandAvatars: (enabled: boolean) => void
+  setAutoLoadImages: (enabled: boolean) => void
 }
 
 export const PreferencesContext = createContext<PreferencesContextValue | null>(null)

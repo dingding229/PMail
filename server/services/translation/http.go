@@ -11,17 +11,11 @@ import (
 	"net/netip"
 	"net/url"
 	"time"
+
+	"github.com/Jinnrry/pmail/utils/safenet"
 )
 
 const responseLimit = 2 << 20
-
-var carrierNAT = netip.MustParsePrefix("100.64.0.0/10")
-var ipv4ThisNetwork = netip.MustParsePrefix("0.0.0.0/8")
-var ipv4Reserved = netip.MustParsePrefix("240.0.0.0/4")
-var nat64WKP = netip.MustParsePrefix("64:ff9b::/96")
-var nat64Local = netip.MustParsePrefix("64:ff9b:1::/48")
-var sixToFour = netip.MustParsePrefix("2002::/16")
-var teredo = netip.MustParsePrefix("2001::/32")
 
 type resolver interface {
 	LookupNetIP(context.Context, string, string) ([]netip.Addr, error)
@@ -33,10 +27,7 @@ func addressAllowed(ip netip.Addr, private bool) bool {
 	if !ip.IsValid() || ip.Zone() != "" || ip.IsUnspecified() || ip.IsMulticast() {
 		return false
 	}
-	if private {
-		return true
-	}
-	return ip.IsGlobalUnicast() && !ip.IsPrivate() && !carrierNAT.Contains(ip) && !ipv4ThisNetwork.Contains(ip) && !ipv4Reserved.Contains(ip) && !nat64WKP.Contains(ip) && !nat64Local.Contains(ip) && !sixToFour.Contains(ip) && !teredo.Contains(ip)
+	return private || safenet.PublicAddress(ip)
 }
 
 // Validate the complete DNS answer before any connection. Dial only a checked

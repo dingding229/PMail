@@ -10,6 +10,7 @@ import {
   Monitor,
   Moon,
   Palette,
+  ShieldCheck,
   PanelBottom,
   PanelRight,
   Sun,
@@ -33,11 +34,13 @@ export function AppearanceSection() {
     autoRefresh,
     desktopNotifications,
     showBrandAvatars,
+    autoLoadImages,
     setListDensity,
     setReadingPanePosition,
     setAutoRefresh,
     setDesktopNotifications,
     setShowBrandAvatars,
+    setAutoLoadImages,
   } = usePreferences()
 
   const notificationSupported = typeof window !== 'undefined' && 'Notification' in window
@@ -322,6 +325,37 @@ export function AppearanceSection() {
                 <span>{t('settings.appearance.desktopNotifDenied')}</span>
               </div>
             )}
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* Privacy & tracking protection */}
+      <SectionCard>
+        <SectionHeader
+          icon={ShieldCheck}
+          title={t('settings.appearance.privacyTitle')}
+          description={t('settings.appearance.privacyDesc')}
+        />
+
+        <div className="divide-y divide-[var(--border-hairline)] rounded-[var(--radius-md)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+          <div className="flex items-center justify-between gap-4 px-4 py-3.5">
+            <div className="space-y-0.5">
+              <p className="text-[13.5px] font-medium text-[var(--ink-primary)]">
+                {t('settings.appearance.autoLoadImagesLabel')}
+              </p>
+              <p className="text-[12px] text-[var(--ink-muted)]">
+                {t('settings.appearance.autoLoadImagesDesc')}
+              </p>
+            </div>
+            <Switch
+              aria-label={t('settings.appearance.autoLoadImagesLabel')}
+              checked={autoLoadImages}
+              onCheckedChange={setAutoLoadImages}
+            />
+          </div>
+          <div className="flex items-start gap-2 px-4 py-3 text-[12px] text-[var(--ink-secondary)]">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--ink-muted)]" />
+            <span>{t('settings.appearance.privacyAlwaysOn')}</span>
           </div>
         </div>
       </SectionCard>

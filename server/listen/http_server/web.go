@@ -20,8 +20,9 @@ import (
 
 const (
 	acmePrefix = "/.well-known/acme-challenge/"
-	// A baseline that also works with the unchanged legacy front end.
-	webCSP = "base-uri 'self'; object-src 'none'; frame-ancestors 'self'"
+	// img-src keeps the app itself from loading third-party images: mail images
+	// only ever arrive through the same-origin image proxy, never from the sender.
+	webCSP = "base-uri 'self'; object-src 'none'; frame-ancestors 'self'; img-src 'self' data: blob:"
 )
 
 // Vite uses an eight-character URL-safe fingerprint at the end of bundle names.

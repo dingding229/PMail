@@ -12,6 +12,7 @@ import (
 	"github.com/Jinnrry/pmail/i18n"
 	"github.com/Jinnrry/pmail/models"
 	"github.com/Jinnrry/pmail/services/detail"
+	"github.com/Jinnrry/pmail/services/imageproxy"
 	"github.com/Jinnrry/pmail/services/inbound"
 	"github.com/Jinnrry/pmail/services/mailaddress"
 	"github.com/Jinnrry/pmail/services/token"
@@ -73,6 +74,7 @@ func EmailDetail(ctx *context.Context, w http.ResponseWriter, req *http.Request)
 		"needs_translation":     availability.NeedsTranslation,
 		"translation_engines":   availability.TranslationEngines,
 		"ai_available":          availability.AIAvailable,
+		"image_proxy_token":     imageproxy.Token(ctx.UserID, retData.ID),
 	} {
 		view[key], _ = json.Marshal(value)
 	}

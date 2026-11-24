@@ -20,6 +20,14 @@ const EmailImage = Image.extend({
         parseHTML: (el) => el.getAttribute('data-cid'),
         renderHTML: (attrs) => (attrs['data-cid'] ? { 'data-cid': attrs['data-cid'] } : {}),
       },
+      // Original URL of an external image shown through the image proxy;
+      // restored before sending.
+      'data-remote-src': {
+        default: null,
+        parseHTML: (el) => el.getAttribute('data-remote-src'),
+        renderHTML: (attrs) =>
+          attrs['data-remote-src'] ? { 'data-remote-src': attrs['data-remote-src'] } : {},
+      },
       'data-filename': {
         default: null,
         parseHTML: (el) => el.getAttribute('data-filename'),

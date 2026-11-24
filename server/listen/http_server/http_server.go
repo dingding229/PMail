@@ -107,6 +107,7 @@ func registerAppRoutes(mux *http.ServeMux, version string) {
 	mux.HandleFunc("POST /api/email/draft/delete", contextIterceptor(email.DeleteDraft))
 	mux.HandleFunc("/api/email/read", contextIterceptor(email.MarkRead))
 	mux.HandleFunc("/api/email/detail", contextIterceptor(email.EmailDetail))
+	mux.HandleFunc("GET /api/email/image/{id}", contextIterceptor(email.RemoteImage))
 	mux.HandleFunc("/api/email/move", contextIterceptor(email.Move))
 	mux.HandleFunc("/api/email/send", contextIterceptor(email.Send))
 	mux.HandleFunc("/api/email/forward", contextIterceptor(email.EmailForward))

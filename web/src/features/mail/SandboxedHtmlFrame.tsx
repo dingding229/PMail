@@ -1,22 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import DOMPurify from 'dompurify'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useTheme } from '@/lib/theme'
+import { processEmailHtml } from './emailHtml'
 
 interface SandboxedHtmlFrameProps {
   html: string
+  /** Mail id and token for loading external images through the server's image proxy. */
+  emailId: number
+  imageProxyToken?: string
   allowExternalImages: boolean
   onDetectExternalImages?: (hasExternal: boolean) => void
-}
-
-const EXTERNAL_IMG_SRC_RE = /^https?:\/\//i
-const EXTERNAL_CSS_URL_RE = /url\(\s*['"]?(https?:\/\/[^'")]+)['"]?\s*\)/gi
-
-interface ExtractedCodeBlock {
-  tokenId: string
-  rawCode: string
-  declaredLang: string | null
 }
 
 function escapeHtmlAttr(str: string): string {
@@ -27,126 +21,10 @@ function escapeHtmlAttr(str: string): string {
     .replace(/>/g, '&gt;')
 }
 
-function extractLangClass(el: Element): string | null {
-  const cls = el.getAttribute('class') || ''
-  const match = cls.match(/\b(?:language|lang)-([a-zA-Z0-9_+#.-]{1,32})\b/)
-  return match?.[1] ?? null
-}
-
-// Pixel size of an <img> from its width/height attributes or inline style.
-function declaredSize(img: Element, dim: 'width' | 'height'): number | null {
-  const attr = (img.getAttribute(dim) || '').trim()
-  const style = (img.getAttribute('style') || '').match(new RegExp(`(?:^|;)\\s*${dim}\\s*:\\s*([0-9.]+)px`, 'i'))
-  const raw = /^[0-9.]+$/.test(attr) ? attr : style?.[1]
-  const n = raw ? Number.parseFloat(raw) : NaN
-  return Number.isFinite(n) && n > 0 ? n : null
-}
-
-const BLOCKED_ICON =
-  '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/><path d="m2 2 20 20"/></svg>'
-
-function processEmailHtml(
-  rawHtml: string,
-  allowExternal: boolean,
-  blockedShortLabel: string,
-  blockedNotice: string,
-) {
-  let hasExternalImages = false
-  const codeBlocks: ExtractedCodeBlock[] = []
-
-  const sanitized = DOMPurify.sanitize(rawHtml, {
-    USE_PROFILES: { html: true },
-    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'meta', 'base'],
-    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'formaction'],
-    ADD_ATTR: ['target', 'rel', 'class', 'style'],
-  })
-
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(sanitized, 'text/html')
-
-  // Rewrite links to always open safely in a new tab
-  doc.querySelectorAll('a[href]').forEach((a) => {
-    a.setAttribute('target', '_blank')
-    a.setAttribute('rel', 'noopener noreferrer nofollow')
-  })
-
-  // Detect and optionally block external <img> tags
-  doc.querySelectorAll('img').forEach((img) => {
-    const src = (img.getAttribute('src') || '').trim()
-    const srcset = (img.getAttribute('srcset') || '').trim()
-    const isExtSrc = EXTERNAL_IMG_SRC_RE.test(src)
-    const isExtSrcset = /https?:\/\//i.test(srcset)
-
-    if (isExtSrc || isExtSrcset) {
-      hasExternalImages = true
-      if (!allowExternal) {
-        // Keep the image's box so small images (signature avatars, icons)
-        // do not turn into a tall column of wrapped text.
-        const placeholder = doc.createElement('span')
-        placeholder.setAttribute('data-pmail-blocked', '1')
-        const alt = (img.getAttribute('alt') || '').trim()
-        const label = alt || blockedShortLabel
-        placeholder.setAttribute('title', `${label} · ${blockedNotice}`)
-        placeholder.setAttribute('role', 'img')
-        placeholder.setAttribute('aria-label', label)
-        const w = declaredSize(img, 'width')
-        const h = declaredSize(img, 'height')
-        const sizes: string[] = []
-        if (w) sizes.push(`width:${Math.max(20, Math.round(w))}px`)
-        if (h) sizes.push(`height:${Math.max(20, Math.round(h))}px`)
-        if (sizes.length) placeholder.setAttribute('style', sizes.join(';'))
-        placeholder.innerHTML = BLOCKED_ICON
-        if (!w || w > 120) {
-          const text = doc.createElement('span')
-          text.setAttribute('data-pmail-blocked-text', '1')
-          text.textContent = label
-          placeholder.append(text)
-        } else {
-          placeholder.setAttribute('data-pmail-blocked-compact', '1')
-        }
-        img.replaceWith(placeholder)
-      }
-    }
-  })
-
-  // Detect and optionally block external background-image URLs in style attributes
-  doc.querySelectorAll('[style]').forEach((el) => {
-    const style = el.getAttribute('style') || ''
-    if (EXTERNAL_CSS_URL_RE.test(style)) {
-      hasExternalImages = true
-      EXTERNAL_CSS_URL_RE.lastIndex = 0
-      if (!allowExternal) {
-        el.setAttribute('style', style.replace(EXTERNAL_CSS_URL_RE, 'none'))
-      }
-    }
-  })
-
-  // Strip external <link> tags
-  doc.querySelectorAll('link').forEach((link) => link.remove())
-
-  // Mark standalone <pre><code> blocks for lazy Shiki highlighting while preserving GitHub/GitLab diff tables intact
-  let blockIdx = 0
-  doc.querySelectorAll('pre').forEach((pre) => {
-    if (pre.closest('table')) return // Never break GitHub/GitLab diff table layouts
-    const codeEl = pre.querySelector('code')
-    const rawCode = (codeEl?.textContent ?? pre.textContent ?? '').replace(/\r\n/g, '\n')
-    if (!rawCode.trim()) return
-    const declaredLang =
-      (codeEl ? extractLangClass(codeEl) : null) ?? extractLangClass(pre)
-    const tokenId = `pmail-code-${blockIdx++}`
-    pre.setAttribute('data-pmail-code-id', tokenId)
-    codeBlocks.push({ tokenId, rawCode, declaredLang })
-  })
-
-  return {
-    bodyHtml: doc.body.innerHTML,
-    hasExternalImages,
-    codeBlocks,
-  }
-}
-
 export function SandboxedHtmlFrame({
   html,
+  emailId,
+  imageProxyToken = '',
   allowExternalImages,
   onDetectExternalImages,
 }: SandboxedHtmlFrameProps) {
@@ -161,8 +39,16 @@ export function SandboxedHtmlFrame({
   const blockedLabel = t('mail.security.blockedImageShort')
   const blockedNotice = t('mail.security.externalImagesBlocked')
   const { bodyHtml, hasExternalImages, codeBlocks } = useMemo(
-    () => processEmailHtml(html, allowExternalImages, blockedLabel, blockedNotice),
-    [html, allowExternalImages, blockedLabel, blockedNotice],
+    () =>
+      processEmailHtml(
+        html,
+        emailId,
+        imageProxyToken,
+        allowExternalImages,
+        blockedLabel,
+        blockedNotice,
+      ),
+    [html, emailId, imageProxyToken, allowExternalImages, blockedLabel, blockedNotice],
   )
 
   useEffect(() => {
@@ -264,9 +150,11 @@ export function SandboxedHtmlFrame({
 
   const srcDoc = useMemo(() => {
     const isDark = resolved === 'dark'
-    const csp = allowExternalImages
-      ? "default-src 'none'; style-src 'unsafe-inline'; img-src data: cid: blob: 'self' https: http:; font-src data:;"
-      : "default-src 'none'; style-src 'unsafe-inline'; img-src data: cid: blob: 'self'; font-src data:;"
+    // Images may come only from the mail itself or PMail ('self': inline
+    // attachments and the image proxy). Nothing in a mail can reach another
+    // server directly, so no request can reveal the reader's IP.
+    const csp =
+      "default-src 'none'; style-src 'unsafe-inline'; img-src data: cid: blob: 'self'; font-src data:;"
 
     const baseCss = `
       :root { color-scheme: ${isDark ? 'dark' : 'light'}; }
@@ -400,8 +288,8 @@ export function SandboxedHtmlFrame({
       hr { border: none; border-top: 1px solid ${isDark ? 'rgba(248,250,252,0.1)' : 'rgba(15,23,42,0.09)'}; margin: 16px 0; }
     `
 
-    return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>${baseCss}</style></head><body>${renderedBodyHtml}</body></html>`
-  }, [renderedBodyHtml, allowExternalImages, resolved])
+    return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="referrer" content="no-referrer"><style>${baseCss}</style></head><body>${renderedBodyHtml}</body></html>`
+  }, [renderedBodyHtml, resolved])
 
   const measureHeight = () => {
     const iframe = iframeRef.current

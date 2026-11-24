@@ -36,6 +36,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     return true
   })
 
+  const [autoLoadImages, setAutoLoadImagesState] = useState<boolean>(
+    () => getRawStorage('auto_load_images') === '1',
+  )
+
   const setListDensity = (next: ListDensity) => {
     setListDensityState(next)
     setRawStorage('list_density', next)
@@ -61,6 +65,11 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     setRawStorage('show_brand_avatars', next ? '1' : '0')
   }
 
+  const setAutoLoadImages = (next: boolean) => {
+    setAutoLoadImagesState(next)
+    setRawStorage('auto_load_images', next ? '1' : '0')
+  }
+
   return (
     <PreferencesContext.Provider
       value={{
@@ -69,11 +78,13 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         autoRefresh,
         desktopNotifications,
         showBrandAvatars,
+        autoLoadImages,
         setListDensity,
         setReadingPanePosition,
         setAutoRefresh,
         setDesktopNotifications,
         setShowBrandAvatars,
+        setAutoLoadImages,
       }}
     >
       {children}

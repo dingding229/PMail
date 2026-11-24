@@ -778,6 +778,8 @@ export interface EmailDetail {
   needs_translation?: boolean
   translation_engines?: TranslationEngine[]
   ai_available?: boolean
+  /** Token for loading external images through /api/email/image/{id}. */
+  image_proxy_token?: string
   deleted_at?: number | null
   purge_at?: number | null
   mailbox_addresses?: MailboxAddressMatch[]
