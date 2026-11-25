@@ -117,3 +117,9 @@ test('kept <style> sheets survive and never point at relative URLs', () => {
   assert.match(allowed.bodyHtml, /url\("\/api\/email\/image\/7\?t=tok&amp;u=https%3A%2F%2Fcdn\.example%2Fh\.png"\)|url\("\/api\/email\/image\/7\?t=tok&u=https%3A%2F%2Fcdn\.example%2Fh\.png"\)/)
   assert.doesNotMatch(allowed.bodyHtml, /url\(\/api\/x\)|url\(\/api\/email\/del\)/)
 })
+
+test('style sheets cannot position content over the mail', () => {
+  const out = processEmailHtml('<p class="m">x</p><style>.m{position:fixed;z-index:9;top:0;color:red;padding-left:2px}</style>', 7, '', false, 'img', 'b')
+  assert.doesNotMatch(out.bodyHtml, /position|z-index|top:/)
+  assert.match(out.bodyHtml, /color:red;padding-left:2px/)
+})

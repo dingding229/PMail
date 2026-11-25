@@ -70,3 +70,19 @@ func TestHTMLTextIgnoresStyles(t *testing.T) {
 		t.Fatalf("text = %q", text)
 	}
 }
+
+func TestStyleSheetDropsOverlayPositioning(t *testing.T) {
+	out := SanitizeHTML(`<style>.m{position:fixed;z-index:9999;top:0;left:0;color:red} .n{ POSITION : absolute }</style><p class="m">x</p>`)
+	low := strings.ToLower(out)
+	for _, bad := range []string{"position", "z-index", "top:", "left:"} {
+		if strings.Contains(low, bad) {
+			t.Fatalf("%q kept: %s", bad, out)
+		}
+	}
+	if !strings.Contains(out, "color:red") {
+		t.Fatalf("other declarations must stay: %s", out)
+	}
+	if got := cleanCSS(`.a{padding-left:4px;margin-top:2px;border-bottom:1px solid}`); got != `.a{padding-left:4px;margin-top:2px;border-bottom:1px solid}` {
+		t.Fatalf("longhands must stay: %s", got)
+	}
+}

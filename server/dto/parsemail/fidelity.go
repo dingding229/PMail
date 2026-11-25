@@ -22,8 +22,11 @@ const maxMailCSS = 128 << 10
 var (
 	cssComment  = regexp.MustCompile(`(?s)/\*.*?\*/`)
 	cssEscape   = regexp.MustCompile(`\\[0-9A-Fa-f]{1,6}\s?`)
-	cssAtRule   = regexp.MustCompile(`(?i)@(?:import|charset|namespace)[^;{}]*;?`)
+	cssAtRule   = regexp.MustCompile(`(?i)@(?:import|charset|namespace)[^;{}]*`)
 	cssImageSet = regexp.MustCompile(`(?i)(?:-webkit-)?image-set\((?:[^()]|\([^()]*\))*\)`)
+	// Same rule as inline styles: no positioning that can lay content over
+	// the rest of the mail (fake buttons, hidden warnings).
+	cssOverlay  = regexp.MustCompile(`(?i)(^|[;{\s])(?:position|z-index|inset|top|right|bottom|left)\s*:[^;{}]*`)
 	cssDanger   = regexp.MustCompile(`(?i)expression\s*\(|behavior\s*:|-moz-binding|javascript:|vbscript:`)
 	safeCSSURL  = regexp.MustCompile(`^(?i:https?://)[^\s"'()<>\\]+$`)
 	dataImage   = regexp.MustCompile(`^(?i:data:image/(?:png|gif|jpe?g|webp|bmp);base64,)[A-Za-z0-9+/=]+$`)
@@ -50,6 +53,7 @@ func cleanCSS(css string) string {
 	css = cssAtRule.ReplaceAllString(css, "")
 	css = cssImageSet.ReplaceAllString(css, "none")
 	css = cssDanger.ReplaceAllString(css, "")
+	css = cssOverlay.ReplaceAllString(css, "$1")
 	css = cleanURLs(css)
 	if len(css) > maxMailCSS {
 		css = css[:strings.LastIndex(css[:maxMailCSS], "}")+1]

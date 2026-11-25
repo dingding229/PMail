@@ -31,6 +31,8 @@ function rewriteSrcset(srcset: string, rewrite: (url: string) => string): string
 // relative URL (the server already removes them; this is a second guard).
 const RELATIVE_CSS_URL_RE = /url\(\s*(['"]?)(?!(?:https?:)?\/\/|data:image\/)[^'")]*\1\s*\)/gi
 
+const OVERLAY_CSS_RE = /(^|[;{\s])(?:position|z-index|inset|top|right|bottom|left)\s*:[^;{}]*/gi
+
 function rewriteCssUrls(css: string, rewrite: ((url: string) => string) | null): string {
   return css
     .replace(RELATIVE_CSS_URL_RE, 'none')
@@ -162,6 +164,8 @@ export function processEmailHtml(
     el.setAttribute('style', rewriteCssUrls(style, proxy))
   })
   doc.querySelectorAll('style').forEach((el) => {
+    // No positioning that could lay content over the rest of the mail.
+    el.textContent = (el.textContent || '').replace(OVERLAY_CSS_RE, '$1')
     const css = el.textContent || ''
     RELATIVE_CSS_URL_RE.lastIndex = 0
     if (RELATIVE_CSS_URL_RE.test(css)) el.textContent = css.replace(RELATIVE_CSS_URL_RE, 'none')
