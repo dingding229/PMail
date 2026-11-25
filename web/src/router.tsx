@@ -14,6 +14,7 @@ const RegisterPage = lazy(() =>
 )
 const SettingsPage = lazy(() => import('@/features/settings/SettingsPage'))
 const AdminPage = lazy(() => import('@/features/admin/AdminPage'))
+const TelegramMailPage = lazy(() => import('@/features/telegram/TelegramMailPage'))
 
 function wrapLazyRoute(key: string, node: ReactNode) {
   return (
@@ -24,6 +25,11 @@ function wrapLazyRoute(key: string, node: ReactNode) {
 }
 
 export const router = createBrowserRouter([
+  // Telegram Mini App: authenticated by Telegram, outside the login gate.
+  {
+    path: '/tg/mail',
+    element: wrapLazyRoute('telegram-mail', <TelegramMailPage />),
+  },
   {
     element: <BootstrapGate />,
     children: [

@@ -354,7 +354,7 @@ func TestCallbackAcknowledgesBeforeWorkDeduplicatesAndRepliesSafely(t *testing.T
 		t.Fatal("translation not escaped or bounded")
 	}
 	_, body, ok := strings.Cut(html.UnescapeString(sent[0].Text), "\n\n")
-	if !ok || utf8.RuneCountInString(body) != 1000 {
+	if n := utf8.RuneCountInString(body); !ok || n > 1001 || n < 750 || !strings.HasSuffix(body, "…") {
 		t.Fatal("wrong translation body length")
 	}
 	if utf8.RuneCountInString(html.UnescapeString(sent[1].Text)) > 1500 || !strings.Contains(sent[1].Text, "• &lt;first&gt; &amp; more") || strings.Contains(sent[1].Text, "<ai summary>") {
@@ -533,5 +533,18 @@ func TestNoTranslateButtonForMailInReaderLanguage(t *testing.T) {
 	}
 	if markup := mailKeyboard(ctx, 7, nil, translation.Availability{TranslationAvailable: true}); markup != nil && len(markup.Keyboard) != 0 {
 		t.Fatalf("no buttons expected: %+v", markup)
+	}
+}
+
+func TestPreviewTextTidiesLayoutPadding(t *testing.T) {
+	raw := "此邮件由阿里云发送，由系统自动发出，请勿直接回复，谢谢！" + strings.Repeat(" ", 160) + "产品" + strings.Repeat(" ", 17) + "解决方案\r\n\r\n\r\n[ Image ]\r\n\u00a0\u200b\r\n  本周共发现 3 个安全风险，请及时处理。  \r\n"
+	got := previewText(raw, 900)
+	want := "此邮件由阿里云发送，由系统自动发出，请勿直接回复，谢谢！ 产品 解决方案\n本周共发现 3 个安全风险，请及时处理。"
+	if got != want {
+		t.Fatalf("preview = %q", got)
+	}
+	long := previewText(strings.Repeat("word ", 400), 100)
+	if utf8.RuneCountInString(long) > 101 || !strings.HasSuffix(long, "word…") {
+		t.Fatalf("cut = %q", long)
 	}
 }

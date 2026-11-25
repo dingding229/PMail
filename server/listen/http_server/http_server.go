@@ -122,6 +122,10 @@ func registerAppRoutes(mux *http.ServeMux, version string) {
 	mux.HandleFunc("/api/rule/update", contextIterceptor(controllers.UpsertRule))
 	mux.HandleFunc("/api/rule/del", contextIterceptor(controllers.DelRule))
 	mux.HandleFunc("GET /api/attachments/{id}", contextIterceptor(controllers.GetAttachments))
+	// Telegram Mini App: authenticated by Telegram launch data or a mail ticket, not the session.
+	mux.HandleFunc("POST /api/telegram/webapp/mail", controllers.TelegramWebAppMail)
+	mux.HandleFunc("GET /api/telegram/webapp/file/{id}", controllers.TelegramWebAppFile)
+	mux.HandleFunc("GET /api/telegram/webapp/image/{id}", controllers.TelegramWebAppImage)
 	mux.HandleFunc("GET /api/attachments/preview/{id}", contextIterceptor(controllers.PreviewAttachment))
 	mux.HandleFunc("GET /api/attachments/download/{id}", contextIterceptor(controllers.Download))
 	legacyInline := contextIterceptor(controllers.GetAttachments)

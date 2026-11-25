@@ -1748,6 +1748,13 @@ const zhCN = {
       invalid: '代理配置无效，请检查主机、端口与协议',
     },
   },
+  telegramApp: {
+    openFromTelegram: '请在 Telegram 中点击机器人推送里的“查看邮件”打开。',
+    loadFailed: '邮件加载失败，请稍后重新打开。',
+    from: '发件人',
+    to: '收件人',
+    attachments: '附件',
+  },
   translation: {
     button: '翻译',
     cardTitle: '邮件译文',
@@ -1758,7 +1765,6 @@ const zhCN = {
     retranslate: '重新翻译',
     cachedBadge: '来自缓存',
     truncatedBadge: '已截断',
-    inlineNotice: '译文已按原邮件排版显示在下方，图片和代码保持不变。',
     aiModelFallback: 'AI 模型',
     providerLabelWeb: '由 {{provider}} 翻译',
     providerLabelAI: '由 AI ({{model}}) 翻译',

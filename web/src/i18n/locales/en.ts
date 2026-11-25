@@ -1748,6 +1748,13 @@ const en = {
       invalid: 'Invalid proxy configuration. Check host, port, and protocol.',
     },
   },
+  telegramApp: {
+    openFromTelegram: 'Open this page from the “View mail” button in a Telegram bot message.',
+    loadFailed: 'Could not load the mail. Try opening it again later.',
+    from: 'From',
+    to: 'To',
+    attachments: 'Attachments',
+  },
   translation: {
     button: 'Translate',
     cardTitle: 'Translation',
@@ -1758,7 +1765,6 @@ const en = {
     retranslate: 'Re-translate',
     cachedBadge: 'Cached',
     truncatedBadge: 'Truncated',
-    inlineNotice: 'The translation is shown below in the original layout; images and code are kept as is.',
     aiModelFallback: 'AI',
     providerLabelWeb: 'Translated by {{provider}}',
     providerLabelAI: 'Translated by AI ({{model}})',

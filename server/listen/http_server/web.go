@@ -22,7 +22,8 @@ const (
 	acmePrefix = "/.well-known/acme-challenge/"
 	// img-src keeps the app itself from loading third-party images: mail images
 	// only ever arrive through the same-origin image proxy, never from the sender.
-	webCSP = "base-uri 'self'; object-src 'none'; frame-ancestors 'self'; img-src 'self' data: blob:"
+	webCSP            = "base-uri 'self'; object-src 'none'; frame-ancestors 'self'; img-src 'self' data: blob:"
+	telegramWebAppCSP = "base-uri 'self'; object-src 'none'; frame-ancestors 'self' https://web.telegram.org; img-src 'self' data: blob:"
 )
 
 // Vite uses an eight-character URL-safe fingerprint at the end of bundle names.
@@ -93,6 +94,12 @@ func staticWeb() http.HandlerFunc {
 		}
 		contentType := mime.TypeByExtension(path.Ext(name))
 		mediaType, _, _ := mime.ParseMediaType(contentType)
+		if mediaType == "text/html" && name == "index.html" && strings.HasPrefix(r.URL.Path, "/tg/") {
+			// Telegram Web shows Mini Apps in an iframe; the page holds no
+			// session state of its own (see controllers/telegram_webapp.go).
+			w.Header().Del("X-Frame-Options")
+			w.Header().Set("Content-Security-Policy", telegramWebAppCSP)
+		}
 		if mediaType == "text/html" && w.Header().Get("Content-Security-Policy") == "" {
 			w.Header().Set("Content-Security-Policy", webCSP)
 		}

@@ -129,22 +129,18 @@ export function MailTranslationCard({
       )}
 
       {/* Translation output: plain text only here (never dangerouslySetInnerHTML). HTML layouts render in the sandboxed body frame. */}
-      {!loading && result && showTranslation && (
+      {/* HTML layouts render in the sandboxed body frame below, so the card is
+          only a header there. Plain text is shown here (never as HTML). */}
+      {!loading && result && showTranslation && !result.html && (
         <div className="space-y-2.5 rounded-[var(--radius-sm)] border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-3.5">
           {result.subject && (
             <p className="border-b border-[var(--border-hairline)] pb-2 text-[14px] font-semibold leading-snug text-[var(--ink-primary)] whitespace-pre-wrap break-words">
               {result.subject}
             </p>
           )}
-          {result.html ? (
-            <p className="text-[12.5px] leading-relaxed text-[var(--ink-secondary)]">
-              {t('translation.inlineNotice')}
-            </p>
-          ) : (
-            <div className="text-[13.5px] leading-relaxed text-[var(--ink-primary)] whitespace-pre-wrap break-words">
-              {result.text}
-            </div>
-          )}
+          <div className="text-[13.5px] leading-relaxed text-[var(--ink-primary)] whitespace-pre-wrap break-words">
+            {result.text}
+          </div>
         </div>
       )}
     </section>

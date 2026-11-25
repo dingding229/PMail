@@ -854,7 +854,9 @@ export function ReadingPane({
         <div className="mx-auto max-w-3xl">
           {/* Subject */}
           <h1 className="text-[20px] font-semibold leading-snug tracking-tight text-[var(--ink-primary)] sm:text-[22px]">
-            {email.subject || t('mail.noSubject')}
+            {(showTranslation && translationResult?.html && translationResult.subject) ||
+              email.subject ||
+              t('mail.noSubject')}
           </h1>
 
           {/* Verification Code Bar */}

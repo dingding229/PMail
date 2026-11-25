@@ -93,6 +93,11 @@ func publicLink(id int) string {
 	u.RawQuery = q.Encode()
 	return u.String()
 }
+
+// previewChars is the visible length of a body preview after tidying; the
+// whole message stays well under Telegram's 4096-character limit.
+const previewChars = 900
+
 func formatMail(ctx *pctx.Context, row models.Email, l models.UserEmail, a *inbound.Analysis, preview bool, tr *translation.Translation) string {
 	esc := func(s string, n int) string { return html.EscapeString(truncate(s, n)) }
 	label := func(k string) string { return esc(i18n.T(ctx, k), 100) }
@@ -111,7 +116,7 @@ func formatMail(ctx *pctx.Context, row models.Email, l models.UserEmail, a *inbo
 		text += "\n" + label("telegram_mail_code") + " <code>" + esc(a.VerificationCode.Code, 8) + "</code>"
 	}
 	if canPreview(preview, row, a) {
-		text += "\n\n" + esc(strings.TrimSpace(row.Text.String), 300)
+		text += "\n\n" + html.EscapeString(previewText(row.Text.String, previewChars))
 	}
 	text += autoPreview(ctx, tr, canPreview(preview, row, a))
 	if href := publicLink(row.Id); href != "" {
@@ -408,7 +413,7 @@ func (w *worker) queueOnce(ctx context.Context) bool {
 	}
 	if f.IncludePreview && a != nil && a.Risk != nil && a.Risk.Level == "none" {
 		var body models.Email
-		_, err = db.Instance.Context(ctx).ID(row.EmailID).Select("SUBSTR(text,1,600) AS text").Get(&body)
+		_, err = db.Instance.Context(ctx).ID(row.EmailID).Select("SUBSTR(text,1,6000) AS text").Get(&body)
 		if err != nil {
 			return retryPushPreparation(ctx, row)
 		}
@@ -458,7 +463,7 @@ func (w *worker) queueOnce(ctx context.Context) bool {
 		if !authorized || current.Identity != row.Binding || current.UserID != row.UserID {
 			return nil, nil
 		}
-		return &pushPayload{text: formatMail(locale, e, l, a, f.IncludePreview, translated), markup: mailKeyboard(locale, e.Id, a, available)}, nil
+		return &pushPayload{text: formatMail(locale, e, l, a, f.IncludePreview, translated), markup: withWebApp(locale, mailKeyboard(locale, e.Id, a, available), current.ChatID, e.Id)}, nil
 	})
 }
 

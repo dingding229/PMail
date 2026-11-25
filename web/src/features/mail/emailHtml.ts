@@ -64,14 +64,19 @@ export function processEmailHtml(
   allowExternal: boolean,
   blockedShortLabel: string,
   blockedNotice: string,
+  /** Overrides the proxy URL, e.g. for the Telegram Mini App's ticket-based proxy. */
+  imageUrl?: (url: string) => string,
 ) {
   let hasExternalImages = false
   // External images are only ever loaded through the proxy; without a token
   // they stay blocked.
-  const proxy =
-    allowExternal && proxyToken
-      ? (url: string) => proxiedImageUrl(emailId, proxyToken, url)
-      : null
+  const proxy = !allowExternal
+    ? null
+    : imageUrl
+      ? imageUrl
+      : proxyToken
+        ? (url: string) => proxiedImageUrl(emailId, proxyToken, url)
+        : null
   const codeBlocks: ExtractedCodeBlock[] = []
 
   const sanitized = DOMPurify.sanitize(rawHtml, {

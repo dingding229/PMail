@@ -4199,6 +4199,50 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/C9Error'}
+  /api/telegram/webapp/mail:
+    post:
+      tags: [Telegram]
+      summary: Telegram Mini App mail view
+      description: "No session. Authenticated by Telegram Mini App init data (HMAC with the bot token, at most 1 hour old); the Telegram user must be the private chat bound to the account that owns the mail. Marks the mail read. Returns the sanitized HTML with inline images rewritten to ticket URLs and a 30-minute ticket for this mail only."
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [init_data, id]
+              properties:
+                init_data: {type: string, maxLength: 8192}
+                id: {type: integer, minimum: 1}
+      responses:
+        '200': {description: "Mail: id, subject, from_name, from_address, to, date, html, text, attachments[{index, filename, content_type, size, url}], ticket"}
+        '401': {description: Telegram identity not confirmed}
+  /api/telegram/webapp/file/{id}:
+    get:
+      tags: [Telegram]
+      summary: Attachment or inline image for the Mini App
+      description: "id is <mail>.<part>; query k is the ticket from /api/telegram/webapp/mail."
+      security: []
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+        - {name: k, in: query, required: true, schema: {type: string}}
+      responses:
+        '200': {description: File content}
+        '403': {description: Ticket invalid or expired}
+  /api/telegram/webapp/image/{id}:
+    get:
+      tags: [Telegram]
+      summary: External image through the privacy proxy for the Mini App
+      description: "Same checks as /api/email/image/{id}, with the ticket in k instead of the session."
+      security: []
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer}}
+        - {name: k, in: query, required: true, schema: {type: string}}
+        - {name: u, in: query, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Image}
+        '403': {description: Ticket invalid or URL not in the mail}
   /api/email/translate:
     post:
       operationId: translateEmail

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"html"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -96,6 +97,39 @@ func telegramText(s string, n int) string {
 	return out.String()
 }
 
+// previewText tidies a plain-text body for a chat preview. Text parts made
+// from HTML layouts are full of padding spaces and empty lines, which used up
+// the whole preview before any content showed. Runs of white space collapse
+// to one space, blank lines and image placeholders are dropped, and the
+// result is cut at a word or line boundary with an ellipsis.
+func previewText(s string, n int) string {
+	var lines []string
+	for _, line := range strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n") {
+		line = strings.Join(strings.FieldsFunc(line, func(r rune) bool {
+			return unicode.IsSpace(r) || unicode.IsControl(r) || unicode.In(r, unicode.Cf)
+		}), " ")
+		if line == "" || imagePlaceholder.MatchString(line) {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	text := strings.Join(lines, "\n")
+	if n <= 0 || utf8.RuneCountInString(text) <= n {
+		return text
+	}
+	r := []rune(text)[:n]
+	cut := len(r)
+	for i := len(r) - 1; i > n*3/4; i-- {
+		if r[i] == ' ' || r[i] == '\n' {
+			cut = i
+			break
+		}
+	}
+	return strings.TrimRightFunc(string(r[:cut]), unicode.IsSpace) + "…"
+}
+
+var imagePlaceholder = regexp.MustCompile(`(?i)^\[\s*(image|img|图片)[^\]]{0,200}\]$`)
+
 func riskWarning(ctx *pctx.Context, a *inbound.Analysis) string {
 	if a == nil || a.Risk == nil || a.Risk.Level == "none" {
 		return ""
@@ -106,7 +140,7 @@ func riskWarning(ctx *pctx.Context, a *inbound.Analysis) string {
 func translatedMail(ctx *pctx.Context, tr translation.Translation, bodyLimit int) string {
 	text := i18n.T(ctx, "telegram_translated_subject") + " " + truncate(tr.Subject, 240)
 	if bodyLimit > 0 && strings.TrimSpace(tr.Text) != "" {
-		text += "\n\n" + telegramText(strings.TrimSpace(tr.Text), bodyLimit)
+		text += "\n\n" + previewText(tr.Text, bodyLimit)
 	}
 	return text
 }
@@ -121,7 +155,7 @@ func autoPreview(ctx *pctx.Context, tr *translation.Translation, preview bool) s
 	}
 	limit := 0
 	if preview {
-		limit = 300
+		limit = previewChars
 	}
 	return "\n\n" + html.EscapeString(translatedMail(ctx, *tr, limit))
 }

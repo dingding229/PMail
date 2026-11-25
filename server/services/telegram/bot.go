@@ -74,6 +74,10 @@ type inlineButton struct {
 	Text         string          `json:"text"`
 	CopyText     *copyTextButton `json:"copy_text,omitempty"`
 	CallbackData string          `json:"callback_data,omitempty"`
+	WebApp       *webAppButton   `json:"web_app,omitempty"`
+}
+type webAppButton struct {
+	URL string `json:"url"`
 }
 type replyMarkup struct {
 	Keyboard [][]inlineButton `json:"inline_keyboard"`

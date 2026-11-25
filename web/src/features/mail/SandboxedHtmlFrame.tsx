@@ -11,6 +11,8 @@ interface SandboxedHtmlFrameProps {
   imageProxyToken?: string
   allowExternalImages: boolean
   onDetectExternalImages?: (hasExternal: boolean) => void
+  /** Builds the proxied URL for an external image instead of the default image proxy. */
+  imageUrl?: (url: string) => string
 }
 
 function escapeHtmlAttr(str: string): string {
@@ -27,6 +29,7 @@ export function SandboxedHtmlFrame({
   imageProxyToken = '',
   allowExternalImages,
   onDetectExternalImages,
+  imageUrl,
 }: SandboxedHtmlFrameProps) {
   const { t } = useTranslation()
   const { resolved } = useTheme()
@@ -47,8 +50,9 @@ export function SandboxedHtmlFrame({
         allowExternalImages,
         blockedLabel,
         blockedNotice,
+        imageUrl,
       ),
-    [html, emailId, imageProxyToken, allowExternalImages, blockedLabel, blockedNotice],
+    [html, emailId, imageProxyToken, allowExternalImages, blockedLabel, blockedNotice, imageUrl],
   )
 
   useEffect(() => {
