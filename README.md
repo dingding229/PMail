@@ -1,6 +1,6 @@
 # PMail Pro
 
-![版本 1.1.5](https://img.shields.io/badge/PMail%20Pro-1.1.5-2563eb)
+![版本 1.1.6](https://img.shields.io/badge/PMail%20Pro-1.1.6-2563eb)
 
 PMail Pro 是一套可以自己部署的邮件服务，基于 [Jinnrry/PMail](https://github.com/Jinnrry/PMail)。一个 Docker Compose 文件就能启动，邮件域名可在首次打开网页时设置。
 
