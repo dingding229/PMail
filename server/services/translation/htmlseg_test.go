@@ -138,7 +138,7 @@ func TestHTMLSegmentsKeepSentenceStyles(t *testing.T) {
 
 func TestSanitizerKeepsNoTranslateMarkers(t *testing.T) {
 	clean := parsemail.SanitizeHTML(`<p translate="no">Keep A</p><p class="notranslate">Keep B</p><p translate="evil">x</p><p class="evil">y</p>`)
-	if !strings.Contains(clean, `translate="no"`) || !strings.Contains(clean, `class="notranslate"`) || strings.Contains(clean, "evil") {
+	if !strings.Contains(clean, `translate="no"`) || !strings.Contains(clean, `class="notranslate"`) || strings.Contains(clean, `translate="evil"`) {
 		t.Fatalf("sanitized: %s", clean)
 	}
 	d := parseHTMLSegments(clean)

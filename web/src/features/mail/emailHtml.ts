@@ -27,10 +27,16 @@ function rewriteSrcset(srcset: string, rewrite: (url: string) => string): string
     .join(', ')
 }
 
+// Same-origin requests carry the session, so CSS may never point at a
+// relative URL (the server already removes them; this is a second guard).
+const RELATIVE_CSS_URL_RE = /url\(\s*(['"]?)(?!(?:https?:)?\/\/|data:image\/)[^'")]*\1\s*\)/gi
+
 function rewriteCssUrls(css: string, rewrite: ((url: string) => string) | null): string {
-  return css.replace(EXTERNAL_CSS_URL_RE, (_m, _q, url: string) =>
-    rewrite ? `url("${rewrite(url)}")` : 'none',
-  )
+  return css
+    .replace(RELATIVE_CSS_URL_RE, 'none')
+    .replace(EXTERNAL_CSS_URL_RE, (_m, _q, url: string) =>
+      rewrite ? `url("${rewrite(url)}")` : 'none',
+    )
 }
 
 export interface ExtractedCodeBlock {
@@ -149,12 +155,16 @@ export function processEmailHtml(
   }
   doc.querySelectorAll('[style]').forEach((el) => {
     const style = el.getAttribute('style') || ''
+    RELATIVE_CSS_URL_RE.lastIndex = 0
+    if (RELATIVE_CSS_URL_RE.test(style)) el.setAttribute('style', style.replace(RELATIVE_CSS_URL_RE, 'none'))
     if (!cssHasExternal(style)) return
     hasExternalImages = true
     el.setAttribute('style', rewriteCssUrls(style, proxy))
   })
   doc.querySelectorAll('style').forEach((el) => {
     const css = el.textContent || ''
+    RELATIVE_CSS_URL_RE.lastIndex = 0
+    if (RELATIVE_CSS_URL_RE.test(css)) el.textContent = css.replace(RELATIVE_CSS_URL_RE, 'none')
     if (!cssHasExternal(css)) return
     hasExternalImages = true
     el.textContent = rewriteCssUrls(css, proxy)

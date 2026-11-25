@@ -72,16 +72,21 @@ func HTMLText(body string) string {
 		}
 	}
 	tokens := html.NewTokenizer(strings.NewReader(body))
+	skip := false
 	for {
 		tokenType := tokens.Next()
 		switch tokenType {
 		case html.ErrorToken:
 			return strings.Trim(out.String(), "\r\n")
 		case html.TextToken:
-			write(string(tokens.Text()))
+			if !skip {
+				write(string(tokens.Text()))
+			}
 		case html.StartTagToken, html.EndTagToken, html.SelfClosingTagToken:
 			name, _ := tokens.TagName()
 			switch string(name) {
+			case "style", "script", "title":
+				skip = tokenType == html.StartTagToken
 			case "br":
 				write("\n")
 			case "p", "div", "pre", "li", "tr", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6":

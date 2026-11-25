@@ -104,3 +104,16 @@ test('quoted HTML loses tracking pixels but keeps real images', async () => {
   assert.doesNotMatch(out, /t\.example/)
   assert.match(out, /cdn\.example\/a\.png/)
 })
+
+test('kept <style> sheets survive and never point at relative URLs', () => {
+  const html =
+    '<p class="hero">Hi</p><div style="background:url(/api/email/del)">x</div>' +
+    '<style>.hero{color:#f60;background:url("https://cdn.example/h.png")} .bad{background:url(/api/x)}</style>'
+  const blocked = processEmailHtml(html, 7, 'tok', false, 'img', 'blocked')
+  assert.match(blocked.bodyHtml, /<style>[^<]*\.hero\{color:#f60;background:none\}/)
+  assert.doesNotMatch(blocked.bodyHtml, /\/api\//)
+  assert.equal(blocked.hasExternalImages, true)
+  const allowed = processEmailHtml(html, 7, 'tok', true, 'img', 'blocked')
+  assert.match(allowed.bodyHtml, /url\("\/api\/email\/image\/7\?t=tok&amp;u=https%3A%2F%2Fcdn\.example%2Fh\.png"\)|url\("\/api\/email\/image\/7\?t=tok&u=https%3A%2F%2Fcdn\.example%2Fh\.png"\)/)
+  assert.doesNotMatch(allowed.bodyHtml, /url\(\/api\/x\)|url\(\/api\/email\/del\)/)
+})

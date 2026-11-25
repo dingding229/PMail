@@ -49,7 +49,7 @@ func TestSanitizeHTML(t *testing.T) {
 		{
 			name:     "Style tag with javascript",
 			input:    `<style>body{background:url(javascript:alert('xss'))}</style>`,
-			expected: ``,
+			expected: `<style>body{background:none}</style>`,
 		},
 		{
 			name:     "Object tag",

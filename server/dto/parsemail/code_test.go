@@ -45,7 +45,7 @@ func TestMailCodeFixtures(t *testing.T) {
 			t.Errorf("sanitized HTML lacks %q: %q", want, html)
 		}
 	}
-	if strings.Contains(html, "<script") || strings.Contains(html, "onclick") || strings.Contains(SanitizeHTML(`<pre class="danger" style="white-space:pre;background:url(javascript:x)">x</pre>`), "danger") {
+	if strings.Contains(html, "<script") || strings.Contains(html, "onclick") || strings.Contains(SanitizeHTML(`<pre class="danger" style="white-space:pre;background:url(javascript:x)">x</pre>`), "javascript") {
 		t.Fatalf("unsafe markup survived: %q", html)
 	}
 	atts := codeFixture(t, "code-attachments").Attachments

@@ -205,11 +205,39 @@ func init() {
 	relaxedPolicy.AllowStyles("font-family").Matching(regexp.MustCompile(`^[A-Za-z0-9 ,_'"-]{1,128}$`)).OnElements("pre")
 	relaxedPolicy.AllowStyles("tab-size").Matching(regexp.MustCompile(`^([1-9]|[1-3][0-9])$`)).OnElements("pre")
 	relaxedPolicy.AllowStyles("color", "background-color", "text-align", "font-size", "font-weight", "font-style", "text-decoration", "border-collapse", "padding", "margin", "width", "height").OnElements("p", "div", "span", "table", "td", "th", "tr", "a", "img")
+	// Layout and typography used by newsletters. Values are validated by
+	// bluemonday; position, z-index and similar overlay tools are not allowed.
+	relaxedPolicy.AllowStyles(
+		"color", "background-color", "text-align", "font-size", "font-weight", "font-style", "font-family", "font-variant",
+		"line-height", "letter-spacing", "word-spacing", "text-decoration", "text-decoration-color", "text-decoration-line",
+		"text-transform", "text-indent", "white-space", "word-break", "word-wrap", "overflow-wrap", "vertical-align",
+		"border", "border-top", "border-right", "border-bottom", "border-left", "border-color", "border-style", "border-width",
+		"border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
+		"border-top-style", "border-right-style", "border-bottom-style", "border-left-style",
+		"border-top-width", "border-right-width", "border-bottom-width", "border-left-width",
+		"border-radius", "border-top-left-radius", "border-top-right-radius", "border-bottom-left-radius", "border-bottom-right-radius",
+		"border-collapse", "border-spacing", "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+		"margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+		"width", "height", "max-width", "min-width", "max-height", "min-height", "display", "float", "clear",
+		"table-layout", "list-style", "list-style-type", "list-style-position", "overflow", "box-sizing", "opacity",
+		"background-repeat", "background-position", "background-size",
+	).Globally()
+	// Background images: cleanCSS has already made every url() absolute.
+	cssValue := regexp.MustCompile(`^[#A-Za-z0-9 .,%()'"/:?&=~_+-]+$`)
+	relaxedPolicy.AllowStyles("background", "background-image").Matching(cssValue).Globally()
 	relaxedPolicy.AllowAttrs("width", "height", "border", "cellpadding", "cellspacing").OnElements("table")
 	relaxedPolicy.AllowAttrs("align", "valign", "colspan", "rowspan").OnElements("td", "th")
 	relaxedPolicy.AllowAttrs("align").OnElements("tr")
 
 	relaxedPolicy.AllowAttrs("class").Matching(regexp.MustCompile(`^[A-Za-z0-9_ -]{1,240}$`)).OnElements("div", "span", "table", "thead", "tbody", "tr", "td", "th")
+	// Kept <style> sheets select by class, so classes are allowed everywhere.
+	relaxedPolicy.AllowAttrs("class").Matching(regexp.MustCompile(`^[A-Za-z0-9_ -]{1,240}$`)).Globally()
+	relaxedPolicy.AllowElements("hr", "small", "big", "sub", "sup", "s", "strike", "del", "ins", "mark", "abbr", "dl", "dt", "dd",
+		"section", "article", "header", "footer", "nav", "main", "aside", "figure", "figcaption", "address", "wbr", "nobr")
+	relaxedPolicy.AllowAttrs("width", "height", "bgcolor", "align", "valign").OnElements("td", "th", "tr", "table", "col", "colgroup", "tbody", "thead", "tfoot")
+	relaxedPolicy.AllowAttrs("dir", "title", "lang").Globally()
+	// Legacy background="" on tables: absolute images only (see fidelity.go).
+	relaxedPolicy.AllowAttrs("background").Matching(regexp.MustCompile(`^(?i:https?://)[^\s"'<>]+$`)).OnElements("table", "td", "th", "tr", "body", "div")
 
 	relaxedPolicy.AllowAttrs("bgcolor", "color").Globally()
 	// Senders mark text that must stay untranslated (names, product terms).
@@ -218,7 +246,9 @@ func init() {
 	relaxedPolicy.AllowAttrs("align").OnElements("p", "div", "h1", "h2", "h3", "h4", "h5", "h6")
 
 	relaxedPolicy.AllowElements("img")
-	relaxedPolicy.AllowAttrs("src", "alt", "width", "height", "align").OnElements("img")
+	relaxedPolicy.AllowAttrs("src", "alt", "width", "height", "align", "border", "hspace", "vspace").OnElements("img")
+	relaxedPolicy.AllowAttrs("srcset").Matching(regexp.MustCompile(`^(?i:https?://)[^\s,"'<>]+(?: [0-9.]{1,9}[wx])?(?:, (?i:https?://)[^\s,"'<>]+(?: [0-9.]{1,9}[wx])?){0,15}$`)).OnElements("img")
+	relaxedPolicy.AllowAttrs("sizes").Matching(regexp.MustCompile(`^[A-Za-z0-9 ()%.,:-]{1,256}$`)).OnElements("img")
 
 	relaxedPolicy.AllowElements("a")
 	relaxedPolicy.AllowAttrs("href").OnElements("a")
@@ -243,7 +273,8 @@ func sanitizeHTML(htmlContent string) string {
 		return ""
 	}
 
-	sanitized := relaxedPolicy.Sanitize(stripTrackingImages(htmlContent))
+	body, sheets := extractStyles(stripTrackingImages(htmlContent))
+	sanitized := appendStyles(relaxedPolicy.Sanitize(body), sheets)
 	if strings.Contains(htmlContent, "\r\n") && !strings.Contains(strings.ReplaceAll(htmlContent, "\r\n", ""), "\n") {
 		sanitized = strings.ReplaceAll(strings.ReplaceAll(sanitized, "\r\n", "\n"), "\n", "\r\n")
 	}
